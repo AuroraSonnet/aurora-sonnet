@@ -174,7 +174,9 @@ app.post('/api/inquiry', (req, res) => {
       return res.status(400).json({ error: 'Name and email required' })
     }
     const state = getState()
-    const clientId = nextId('c', state.clients)
+    const emailLower = email.toLowerCase()
+    const existingClient = state.clients.find((c) => (c.email || '').toLowerCase() === emailLower)
+    const clientId = existingClient ? existingClient.id : nextId('c', state.clients)
     const projectId = nextId('p', state.projects)
     const today = new Date().toISOString().slice(0, 10)
     const weddingDate = (body.weddingDate || '').trim() || today
@@ -184,14 +186,16 @@ app.post('/api/inquiry', (req, res) => {
     const isGeneral = !venue && !packageId
     const title = isGeneral ? 'General inquiry' : (venue ? `${venue} Wedding` : 'Wedding inquiry')
 
-    createClient({
-      id: clientId,
-      name,
-      email,
-      phone: (body.phone || '').trim() || undefined,
-      partnerName: undefined,
-      createdAt: today,
-    })
+    if (!existingClient) {
+      createClient({
+        id: clientId,
+        name,
+        email,
+        phone: (body.phone || '').trim() || undefined,
+        partnerName: undefined,
+        createdAt: today,
+      })
+    }
     const inquiryMessage = (body.message || '').trim() || undefined
     const requestedArtist = (body.requestedArtist || '').trim() || undefined
     createProject({
