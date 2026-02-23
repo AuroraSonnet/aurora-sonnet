@@ -1,0 +1,90 @@
+/* General inquiry — minimal contact form, soft rounded style */
+.page {
+  min-height: 100%;
+  background: #1f1f1f;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 2rem 1rem;
+  font-family: 'Inter', system-ui, sans-serif;
+}
+
+.form {
+  background: #fff;
+  border-radius: 20px;
+  padding: 2.25rem 2rem;
+  width: 100%;
+  max-width: 620px;
+  box-shadow: 0 4px 24px rgba(0, 0, 0, 0.2);
+  font-family: 'Inter', system-ui, sans-serif;
+}
+
+.form label {
+  display: block;
+  margin-bottom: 1.25rem;
+  font-size: 0.875rem;
+  color: #333;
+}
+
+.form label:first-child {
+  margin-top: 0.25rem;
+}
+
+.form label:last-of-type {
+  margin-bottom: 1.75rem;
+}
+
+.input,
+.textarea {
+  display: block;
+  width: 100%;
+  margin-top: 0.5rem;
+  padding: 0.5rem 0.75rem;
+  font-size: 1rem;
+  border: 1px solid #222;
+  border-radius: 12px;
+  background: #fff;
+  box-sizing: border-box;
+}
+
+.input::placeholder,
+.textarea::placeholder {
+  color: #b0b0b0;
+  font-weight: 400;
+}
+
+.textarea {
+  min-height: 100px;
+  resize: vertical;
+}
+
+.submitBtn {
+  display: block;
+  width: auto;
+  min-width: 160px;
+  margin: 1.75rem auto 0;
+  padding: 0.65rem 2rem;
+  font-size: 1rem;
+  font-weight: 400;
+  color: #fff;
+  background: #3d3630;
+  border: none;
+  border-radius: 999px;
+  cursor: pointer;
+  font-family: 'Inter', system-ui, sans-serif;
+}
+
+.submitBtn:hover:not(:disabled) {
+  background: #2d2620;
+}
+
+.submitBtn:disabled {
+  opacity: 0.7;
+  cursor: not-allowed;
+}
+
+.error {
+  font-size: 0.9rem;
+  color: #c00;
+  margin: 0.5rem 0 0 0;
+}

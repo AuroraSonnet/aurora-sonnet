@@ -1,0 +1,280 @@
+.page {
+  max-width: 680px;
+  margin: 0 auto;
+  padding-bottom: 2rem;
+}
+
+.header {
+  margin-bottom: 2rem;
+}
+
+.header h1 {
+  font-size: 1.75rem;
+  font-weight: 600;
+  margin: 0 0 0.35rem 0;
+  color: var(--text-primary);
+}
+
+.subtitle {
+  font-size: 0.95rem;
+  line-height: 1.55;
+  color: var(--text-secondary);
+  margin: 0 0 1.25rem 0;
+}
+
+.stats {
+  display: inline-flex;
+  align-items: baseline;
+  gap: 0.4rem;
+}
+
+.statsValue {
+  font-family: var(--font-display);
+  font-size: 1.5rem;
+  font-weight: 600;
+  color: var(--accent);
+}
+
+.statsLabel {
+  font-size: 0.9rem;
+  color: var(--text-muted);
+}
+
+/* Section */
+.section {
+  margin-bottom: 2.25rem;
+}
+
+.sectionTitle {
+  font-size: 1.05rem;
+  font-weight: 600;
+  margin: 0 0 0.25rem 0;
+  color: var(--text-primary);
+}
+
+.sectionDesc {
+  font-size: 0.9rem;
+  color: var(--text-secondary);
+  line-height: 1.5;
+  margin: 0 0 1rem 0;
+}
+
+/* Built-in card */
+.builtInCard {
+  background: var(--bg-card);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: 1.25rem 1.5rem;
+  box-shadow: var(--shadow);
+}
+
+.builtInFlow {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.5rem 0.75rem;
+  margin-bottom: 0.75rem;
+}
+
+.pill {
+  display: inline-block;
+  padding: 0.35rem 0.75rem;
+  border-radius: 999px;
+  font-size: 0.85rem;
+  font-weight: 500;
+  background: var(--accent-subtle);
+  color: var(--accent);
+}
+
+.arrow {
+  color: var(--text-muted);
+  font-weight: 600;
+  font-size: 0.9rem;
+}
+
+.builtInNote {
+  font-size: 0.9rem;
+  color: var(--text-secondary);
+  line-height: 1.5;
+  margin: 0;
+}
+
+/* Smart reminders card */
+.smartCard {
+  background: var(--bg-card);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: 1.25rem 1.5rem;
+  box-shadow: var(--shadow);
+}
+
+.smartList {
+  list-style: none;
+  padding: 0;
+  margin: 0 0 1rem 0;
+  font-size: 0.9rem;
+  line-height: 1.6;
+  color: var(--text-secondary);
+}
+
+.smartList li {
+  padding: 0.2rem 0;
+}
+
+.smartList li::before {
+  content: '→ ';
+  color: var(--accent);
+  font-weight: 600;
+  margin-right: 0.25rem;
+}
+
+.smartLink {
+  font-size: 0.9rem;
+  font-weight: 500;
+  color: var(--accent);
+}
+
+.smartLink:hover {
+  color: var(--accent-hover);
+}
+
+/* Workflow list */
+.workflowList {
+  list-style: none;
+  padding: 0;
+  margin: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 0.75rem;
+}
+
+.workflowCard {
+  display: flex;
+  gap: 1rem;
+  align-items: flex-start;
+  background: var(--bg-card);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: 1.25rem 1.5rem;
+  box-shadow: var(--shadow);
+  transition: border-color 0.2s, opacity 0.2s;
+}
+
+.workflowCard[data-enabled='false'] {
+  opacity: 0.82;
+}
+
+.workflowCard[data-enabled='false'] .flowPill {
+  background: var(--border);
+  color: var(--text-muted);
+}
+
+/* Toggle switch */
+.workflowSwitchWrap {
+  flex-shrink: 0;
+  padding-top: 0.15rem;
+}
+
+.switch {
+  --switch-w: 44px;
+  --switch-h: 24px;
+  --knob: 20px;
+  display: block;
+  width: var(--switch-w);
+  height: var(--switch-h);
+  border: none;
+  border-radius: 999px;
+  background: var(--border);
+  cursor: pointer;
+  position: relative;
+  transition: background 0.2s ease;
+}
+
+.switch:hover {
+  background: var(--text-muted);
+}
+
+.switch[aria-checked='true'] {
+  background: var(--success);
+}
+
+.switch[aria-checked='true']:hover {
+  filter: brightness(1.08);
+}
+
+.switchKnob {
+  position: absolute;
+  top: 2px;
+  left: 2px;
+  width: var(--knob);
+  height: var(--knob);
+  border-radius: 50%;
+  background: white;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.2);
+  transition: transform 0.2s ease;
+}
+
+.switch[aria-checked='true'] .switchKnob {
+  transform: translateX(calc(var(--switch-w) - var(--knob) - 4px));
+}
+
+.workflowMain {
+  flex: 1;
+  min-width: 0;
+}
+
+.workflowName {
+  font-size: 1rem;
+  font-weight: 600;
+  margin: 0 0 0.25rem 0;
+  color: var(--text-primary);
+}
+
+.workflowDesc {
+  font-size: 0.88rem;
+  color: var(--text-secondary);
+  line-height: 1.45;
+  margin: 0 0 0.6rem 0;
+}
+
+.flow {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.35rem 0.5rem;
+  font-size: 0.8rem;
+}
+
+.flowPill {
+  display: inline-block;
+  padding: 0.25rem 0.6rem;
+  border-radius: 6px;
+  font-weight: 500;
+  background: var(--accent-subtle);
+  color: var(--accent);
+}
+
+.flowWait {
+  font-size: 0.8rem;
+  color: var(--text-muted);
+  font-style: italic;
+}
+
+.flowArrow {
+  color: var(--text-muted);
+  font-weight: 600;
+}
+
+.footerNote {
+  font-size: 0.85rem;
+  color: var(--text-muted);
+  line-height: 1.5;
+  margin: 2rem 0 0 0;
+  padding: 1rem 1.25rem;
+  background: var(--accent-subtle);
+  border-radius: var(--radius-sm);
+}
+
+.footerNote strong {
+  color: var(--text-secondary);
+}

@@ -1,0 +1,246 @@
+.page {
+  max-width: 640px;
+  margin: 0 auto;
+}
+
+.thankYou {
+  background: #fff;
+  border-radius: var(--radius);
+  padding: 3rem 2rem;
+  box-shadow: var(--shadow);
+  border: 1px solid var(--border);
+  text-align: center;
+}
+
+.thankYouTitle {
+  font-family: 'Playfair Display', serif;
+  font-size: 1.75rem;
+  font-weight: 400;
+  color: #1a1a1a;
+  margin: 0 0 1rem 0;
+  line-height: 1.3;
+  text-align: center;
+}
+
+.thankYouText {
+  font-family: 'Inter', system-ui, sans-serif;
+  font-size: 1rem;
+  font-weight: 400;
+  color: #1a1a1a;
+  margin: 0;
+  line-height: 1.5;
+  text-align: center;
+}
+
+.header {
+  margin-bottom: 1.5rem;
+}
+
+.header h1 {
+  font-size: 1.75rem;
+  margin-bottom: 0.25rem;
+}
+
+.subtitle {
+  color: var(--text-secondary);
+  font-size: 0.95rem;
+  margin: 0;
+}
+
+.error {
+  font-size: 0.9rem;
+  color: #c00;
+  margin: 0 0 0.75rem 0;
+}
+
+/* Inquiry form — white background, cream #f5ebe0 interiors */
+.form {
+  background: #fff;
+  border-radius: var(--radius);
+  padding: 1.5rem;
+  box-shadow: var(--shadow);
+  border: 1px solid var(--border);
+  margin-bottom: 1.5rem;
+}
+
+.grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(200px, 1fr));
+  gap: 1rem;
+  margin-bottom: 1rem;
+}
+
+.grid label {
+  display: flex;
+  flex-direction: column;
+  gap: 0.35rem;
+  font-size: 0.9rem;
+  color: var(--text-secondary);
+}
+
+.fullWidth {
+  display: flex;
+  flex-direction: column;
+  gap: 0.35rem;
+  margin-bottom: 1rem;
+  font-size: 0.9rem;
+  color: var(--text-secondary);
+}
+
+.input,
+.textarea {
+  padding: 0.6rem 0.75rem;
+  border-radius: var(--radius-sm);
+  border: 1px solid var(--border);
+  background-color: #f5ebe0 !important;
+  font-size: 0.95rem;
+}
+
+.input:-webkit-autofill,
+.input:-webkit-autofill:hover,
+.input:-webkit-autofill:focus,
+.textarea:-webkit-autofill,
+.textarea:-webkit-autofill:hover,
+.textarea:-webkit-autofill:focus {
+  -webkit-box-shadow: 0 0 0 30px #f5ebe0 inset !important;
+  box-shadow: 0 0 0 30px #f5ebe0 inset !important;
+}
+
+.textarea {
+  resize: vertical;
+  min-height: 80px;
+}
+
+.submitBtn {
+  background: var(--bg-sidebar);
+  color: var(--text-inverse);
+  border: none;
+  padding: 0.65rem 1.25rem;
+  border-radius: var(--radius-sm);
+  font-weight: 600;
+  font-size: 0.95rem;
+}
+
+.submitBtn:hover {
+  background: #4a3d32;
+}
+
+.thankYou {
+  text-align: center;
+  padding: 3rem 2rem;
+  background: var(--bg-card);
+  border-radius: var(--radius);
+  box-shadow: var(--shadow);
+  border: 1px solid var(--border);
+}
+
+.thankYou h1 {
+  font-size: 1.75rem;
+  margin-bottom: 0.5rem;
+}
+
+.thankYou p {
+  color: var(--text-secondary);
+  margin: 0 0 1.5rem;
+  line-height: 1.5;
+}
+
+.backLink {
+  color: var(--accent);
+  font-weight: 500;
+}
+
+.backLink:hover {
+  color: var(--accent-hover);
+}
+
+.tip {
+  font-size: 0.9rem;
+  color: var(--text-secondary);
+  background: var(--accent-subtle);
+  padding: 1rem 1.25rem;
+  border-radius: var(--radius-sm);
+  margin: 0;
+  line-height: 1.5;
+}
+
+.tip strong {
+  color: var(--text-primary);
+}
+
+/* Performance package selection — luxury, minimal */
+.packageFieldset {
+  border: none;
+  padding: 1.5rem 0;
+  margin: 0 0 1rem;
+  background: transparent;
+}
+
+.packageLegend {
+  font-family: var(--font-display);
+  font-size: 0.8rem;
+  font-weight: 500;
+  color: var(--text-muted);
+  text-transform: uppercase;
+  letter-spacing: 0.12em;
+  padding: 0;
+  margin-bottom: 1rem;
+}
+
+.packageHint {
+  color: var(--text-muted);
+  font-size: 0.95rem;
+  margin: 0;
+}
+
+.packageGrid {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 1rem;
+}
+
+.packageCard {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 0.5rem;
+  padding: 1.5rem 1rem;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  cursor: pointer;
+  transition: border-color 0.2s, background 0.2s, box-shadow 0.2s;
+  background: transparent;
+}
+
+.packageCard:hover {
+  border-color: var(--text-muted);
+  background: rgba(248, 246, 243, 0.6);
+}
+
+.packageCardSelected {
+  border-color: var(--text-primary);
+  background: rgba(255, 255, 255, 0.8);
+  box-shadow: 0 1px 3px rgba(56, 46, 39, 0.06);
+}
+
+.packageRadio {
+  position: absolute;
+  opacity: 0;
+  pointer-events: none;
+}
+
+.packageName {
+  font-family: var(--font-display);
+  font-weight: 500;
+  font-size: 1rem;
+  color: var(--text-primary);
+  letter-spacing: 0.02em;
+}
+
+.packagePrice {
+  font-size: 0.85rem;
+  color: var(--text-muted);
+  font-weight: 400;
+  letter-spacing: 0.05em;
+}

@@ -1,0 +1,167 @@
+<!--
+  Solo inquiry form — submissions go to YOUR APP only.
+  REQUIRED: Replace YOUR_APP_URL below with your deployed app URL (e.g. https://aurora-sonnet-xxxx.onrender.com).
+  Deploy your app first (see DEPLOY_NEXT_STEPS.md) to get that URL. No trailing slash.
+-->
+<link rel="preconnect" href="https://fonts.googleapis.com" />
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400&family=Playfair+Display:wght@400&display=swap" rel="stylesheet" />
+<style>
+  .aurora-solo-wrap { max-width: 640px; margin: 0 auto; font-family: 'Inter', system-ui, sans-serif; }
+  .aurora-solo-form { background: #fff; border-radius: 12px; padding: 1.5rem; box-shadow: 0 4px 24px rgba(0,0,0,0.08); border: 1px solid #e8e6e1; }
+  .aurora-solo-form label { display: block; margin-bottom: 1rem; font-size: 0.9rem; color: #333; }
+  .aurora-solo-form input, .aurora-solo-form select, .aurora-solo-form textarea { display: block; width: 100%; margin-top: 0.35rem; padding: 0.6rem 0.75rem; font-size: 0.95rem; border: 1px solid #ccc; border-radius: 8px; background: #f5ebe0; box-sizing: border-box; font-family: inherit; }
+  .aurora-solo-form textarea { min-height: 100px; resize: vertical; }
+  .aurora-solo-form .form-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(200px, 1fr)); gap: 1rem; margin-bottom: 1rem; }
+  .aurora-solo-form .full-width { margin-bottom: 1rem; }
+  .aurora-solo-form .pkg-fieldset { border: none; padding: 1rem 0; margin: 0 0 1rem 0; }
+  .aurora-solo-form .pkg-legend { font-size: 0.9rem; color: #333; margin-bottom: 0.75rem; }
+  .aurora-solo-form .pkg-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 0.75rem; }
+  .aurora-solo-form .pkg-card { display: flex; flex-direction: column; align-items: center; justify-content: center; padding: 1rem; border: 1px solid #ccc; border-radius: 8px; cursor: pointer; background: #fff; transition: border-color 0.2s, box-shadow 0.2s; }
+  .aurora-solo-form .pkg-card:hover { border-color: #3d3630; }
+  .aurora-solo-form .pkg-card.selected { border-color: #3d3630; box-shadow: 0 0 0 2px #3d3630; }
+  .aurora-solo-form .pkg-card input { margin: 0 0 0.5rem 0; width: auto; }
+  .aurora-solo-form .pkg-name { font-size: 0.9rem; text-align: center; }
+  .aurora-solo-form .submit-btn { display: block; width: auto; min-width: 160px; margin: 1.5rem auto 0; padding: 0.65rem 2rem; font-size: 1rem; color: #fff; background: #3d3630; border: none; border-radius: 999px; cursor: pointer; font-family: inherit; }
+  .aurora-solo-form .submit-btn:hover { background: #2d2620; }
+  .aurora-solo-form .submit-btn:disabled { opacity: 0.7; cursor: not-allowed; }
+  .aurora-solo-form .form-error { font-size: 0.9rem; color: #c00; margin-top: 0.75rem; display: none; }
+  .aurora-thankyou { background: #fff; border-radius: 12px; padding: 3rem 2rem; box-shadow: 0 4px 24px rgba(0,0,0,0.08); border: 1px solid #e8e6e1; text-align: center; display: none; }
+  .aurora-thankyou.visible { display: block; }
+  .aurora-thankyou h2 { font-family: 'Playfair Display', serif; font-size: 1.75rem; font-weight: 400; color: #1a1a1a; margin: 0 0 1rem 0; line-height: 1.3; }
+  .aurora-thankyou p { font-family: 'Inter', system-ui, sans-serif; font-size: 1rem; font-weight: 400; color: #1a1a1a; margin: 0; line-height: 1.5; }
+</style>
+<div class="aurora-solo-wrap">
+  <div class="aurora-solo-form" id="aurora-solo-form-container">
+    <form id="aurora-solo-inquiry-form">
+      <div class="form-grid">
+        <label>Full Name *
+          <input type="text" name="name" placeholder="e.g. Emma Walsh" required />
+        </label>
+        <label>Email *
+          <input type="email" name="email" required />
+        </label>
+        <label>Phone
+          <input type="tel" name="phone" />
+        </label>
+        <label>Wedding Date *
+          <input type="date" name="weddingDate" required />
+        </label>
+        <label>Venue / Location *
+          <input type="text" name="venue" placeholder="e.g. Garden Estate Vineyard" required />
+        </label>
+      </div>
+      <div class="full-width">
+        <label>Requested Artist
+          <select name="requestedArtist">
+            <option value="">Select Artist</option>
+            <option value="eli-liv">Eli & Liv</option>
+            <option value="riley-richard">Riley & Richard</option>
+            <option value="garrett-tamara">Garrett & Tamara</option>
+          </select>
+        </label>
+      </div>
+      <fieldset class="pkg-fieldset">
+        <legend class="pkg-legend">Experience</legend>
+        <div class="pkg-grid">
+          <label class="pkg-card" data-pkg="signature-aria">
+            <input type="radio" name="packageId" value="signature-aria" />
+            <span class="pkg-name">Signature Aria</span>
+          </label>
+          <label class="pkg-card" data-pkg="aria-plus">
+            <input type="radio" name="packageId" value="aria-plus" />
+            <span class="pkg-name">Aria +</span>
+          </label>
+          <label class="pkg-card" data-pkg="grand-atelier">
+            <input type="radio" name="packageId" value="grand-atelier" />
+            <span class="pkg-name">Grand Atelier</span>
+          </label>
+        </div>
+      </fieldset>
+      <div class="full-width">
+        <label>Message
+          <textarea name="message" placeholder="Tell us about your wedding or any questions you may have." rows="3"></textarea>
+        </label>
+      </div>
+      <p id="aurora-solo-error" class="form-error" role="alert"></p>
+      <button type="submit" class="submit-btn" id="aurora-solo-submit">Send Inquiry</button>
+    </form>
+  </div>
+  <div class="aurora-thankyou" id="aurora-solo-thankyou">
+    <h2>Thank you — we've received your request</h2>
+    <p>Our team is reviewing your request now and will reach out in a few moments with next steps.</p>
+  </div>
+</div>
+<script>
+(function() {
+  // REQUIRED: Replace with your deployed app URL (no trailing slash). Example: https://aurora-sonnet-abc123.onrender.com
+  var YOUR_APP_URL = 'https://YOUR-APP-URL';
+
+  var form = document.getElementById('aurora-solo-inquiry-form');
+  var container = document.getElementById('aurora-solo-form-container');
+  var thankYou = document.getElementById('aurora-solo-thankyou');
+  var errorEl = document.getElementById('aurora-solo-error');
+  var submitBtn = document.getElementById('aurora-solo-submit');
+
+  form.querySelectorAll('.pkg-card').forEach(function(card) {
+    card.addEventListener('click', function() {
+      form.querySelectorAll('.pkg-card').forEach(function(c) { c.classList.remove('selected'); });
+      card.classList.add('selected');
+      card.querySelector('input').checked = true;
+    });
+  });
+  form.querySelectorAll('input[name="packageId"]').forEach(function(radio) {
+    radio.addEventListener('change', function() {
+      form.querySelectorAll('.pkg-card').forEach(function(c) {
+        c.classList.toggle('selected', c.querySelector('input').checked);
+      });
+    });
+  });
+
+  form.addEventListener('submit', function(e) {
+    e.preventDefault();
+    errorEl.style.display = 'none';
+    errorEl.textContent = '';
+    if (YOUR_APP_URL.indexOf('YOUR-APP-URL') !== -1) {
+      errorEl.textContent = 'Please set YOUR_APP_URL in the embed code to your deployed app address.';
+      errorEl.style.display = 'block';
+      return;
+    }
+    submitBtn.disabled = true;
+    submitBtn.textContent = 'Sending…';
+
+    var payload = {
+      name: form.name.value.trim(),
+      email: form.email.value.trim(),
+      phone: form.phone.value.trim() || undefined,
+      weddingDate: form.weddingDate.value.trim() || undefined,
+      venue: form.venue.value.trim() || undefined,
+      requestedArtist: form.requestedArtist.value || undefined,
+      packageId: form.packageId.value || undefined,
+      message: form.message.value.trim() || undefined
+    };
+
+    fetch(YOUR_APP_URL + '/api/inquiry', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', 'Accept': 'application/json' },
+      body: JSON.stringify(payload)
+    })
+    .then(function(res) {
+      if (res.ok) {
+        container.style.display = 'none';
+        thankYou.classList.add('visible');
+        return;
+      }
+      return res.json().then(function(data) {
+        throw new Error(data.error || 'Send failed');
+      });
+    })
+    .catch(function(err) {
+      errorEl.textContent = err && err.message ? err.message : 'Something went wrong. Please try again.';
+      errorEl.style.display = 'block';
+      submitBtn.disabled = false;
+      submitBtn.textContent = 'Send Inquiry';
+    });
+  });
+})();
+</script>

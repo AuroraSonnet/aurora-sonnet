@@ -1,0 +1,14 @@
+# Render Blueprint — connect repo at https://dashboard.render.com and deploy
+services:
+  - type: web
+    name: aurora-sonnet
+    runtime: node
+    buildCommand: npm install && npm run build
+    startCommand: npm start
+    envVars:
+      - key: STRIPE_SECRET_KEY
+        sync: false
+      - key: STRIPE_WEBHOOK_SECRET
+        sync: false
+      - key: FRONTEND_ORIGIN
+        value: https://aurorasonnet.com

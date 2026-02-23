@@ -1,0 +1,267 @@
+.page {
+  max-width: 900px;
+  margin: 0 auto;
+}
+
+.back {
+  display: inline-block;
+  margin-bottom: 1rem;
+  font-size: 0.9rem;
+  color: var(--text-secondary);
+}
+
+.back:hover {
+  color: var(--accent);
+}
+
+.header {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 1.25rem;
+  margin-bottom: 2rem;
+  padding-bottom: 1.5rem;
+  border-bottom: 1px solid var(--border);
+}
+
+.avatar {
+  width: 56px;
+  height: 56px;
+  border-radius: 50%;
+  background: var(--accent-subtle);
+  color: var(--accent);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-weight: 600;
+  font-size: 1.35rem;
+  flex-shrink: 0;
+}
+
+.header h1 {
+  font-size: 1.5rem;
+  margin-bottom: 0.2rem;
+}
+
+.meta {
+  margin: 0;
+  font-size: 0.9rem;
+  color: var(--text-muted);
+}
+
+.actions {
+  margin-left: auto;
+  display: flex;
+  gap: 0.5rem;
+}
+
+.primBtn {
+  background: var(--accent);
+  color: #fff;
+  border: none;
+  padding: 0.6rem 1.1rem;
+  border-radius: var(--radius-sm);
+  font-weight: 600;
+  font-size: 0.9rem;
+}
+
+.primBtn:hover {
+  background: var(--accent-hover);
+}
+
+.secBtn {
+  background: var(--bg-card);
+  color: var(--text-primary);
+  border: 1px solid var(--border);
+  padding: 0.6rem 1.1rem;
+  border-radius: var(--radius-sm);
+  font-size: 0.9rem;
+}
+
+.secBtn:hover {
+  background: var(--border);
+}
+
+.dangerBtn {
+  background: transparent;
+  color: #b33;
+  border: 1px solid #b33;
+  padding: 0.6rem 1.1rem;
+  border-radius: var(--radius-sm);
+  font-size: 0.9rem;
+}
+
+.dangerBtn:hover:not(:disabled) {
+  background: rgba(180, 60, 60, 0.1);
+}
+
+.dangerBtn:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
+}
+
+.confirmOverlay {
+  position: fixed;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.4);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 1000;
+}
+
+.confirmModal {
+  background: var(--bg-card);
+  border-radius: var(--radius);
+  padding: 1.5rem;
+  max-width: 400px;
+  box-shadow: var(--shadow);
+  border: 1px solid var(--border);
+}
+
+.confirmTitle {
+  font-size: 1.15rem;
+  margin: 0 0 0.75rem 0;
+}
+
+.confirmMessage {
+  font-size: 0.95rem;
+  color: var(--text-secondary);
+  margin: 0 0 1.25rem 0;
+  line-height: 1.4;
+}
+
+.confirmActions {
+  display: flex;
+  gap: 0.75rem;
+  justify-content: flex-end;
+}
+
+.confirmActions .cancelBtn {
+  background: var(--bg-card);
+  color: var(--text);
+  border: 1px solid var(--border);
+  padding: 0.5rem 1rem;
+  border-radius: var(--radius-sm);
+  font-size: 0.9rem;
+}
+
+.confirmActions .cancelBtn:hover:not(:disabled) {
+  background: var(--border);
+}
+
+.confirmActions .dangerBtn {
+  padding: 0.5rem 1rem;
+}
+
+.grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
+  gap: 1.5rem;
+}
+
+.card {
+  background: var(--bg-card);
+  border-radius: var(--radius);
+  padding: 1.5rem;
+  box-shadow: var(--shadow);
+  border: 1px solid var(--border);
+}
+
+.card h2 {
+  font-size: 1.1rem;
+  margin-bottom: 1rem;
+}
+
+.list {
+  list-style: none;
+  padding: 0;
+  margin: 0;
+}
+
+.list li {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 0.6rem 0;
+  border-bottom: 1px solid var(--border);
+  flex-wrap: wrap;
+  gap: 0.25rem;
+}
+
+.list li:last-child {
+  border-bottom: none;
+}
+
+.listLink {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+}
+
+.listLink strong,
+.list span strong {
+  font-size: 0.9rem;
+}
+
+.package {
+  font-size: 0.8rem;
+  color: var(--text-muted);
+  margin-left: 0.25rem;
+}
+
+.stage,
+.status {
+  font-size: 0.75rem;
+  text-transform: capitalize;
+  padding: 0.2rem 0.5rem;
+  border-radius: 4px;
+  margin-left: 0.35rem;
+}
+
+.stage[data-stage='inquiry'] {
+  background: #e8e6e1;
+  color: var(--text-secondary);
+}
+
+.stage[data-stage='proposal'] {
+  background: rgba(184, 134, 11, 0.2);
+  color: var(--warning);
+}
+
+.stage[data-stage='booked'],
+.stage[data-stage='completed'] {
+  background: rgba(26, 127, 55, 0.15);
+  color: var(--success);
+}
+
+.stage[data-stage='lost'] {
+  background: rgba(0, 0, 0, 0.06);
+  color: var(--text-muted);
+}
+
+.status[data-status='paid'] {
+  background: rgba(26, 127, 55, 0.15);
+  color: var(--success);
+}
+
+.status[data-status='sent'] {
+  background: rgba(184, 134, 11, 0.2);
+  color: var(--warning);
+}
+
+.status[data-status='overdue'] {
+  background: rgba(180, 60, 60, 0.12);
+  color: #b33;
+}
+
+.amount {
+  font-size: 0.9rem;
+  color: var(--text-secondary);
+}
+
+.empty {
+  color: var(--text-muted);
+  font-size: 0.9rem;
+  margin: 0;
+}

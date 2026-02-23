@@ -1,0 +1,95 @@
+<!--
+  General inquiry — submissions go to YOUR APP only.
+  REQUIRED: Replace YOUR_APP_URL below with your deployed app URL (e.g. https://aurora-sonnet-xxxx.onrender.com).
+  Deploy your app first (see DEPLOY_NEXT_STEPS.md) to get that URL. No trailing slash.
+-->
+<link rel="preconnect" href="https://fonts.googleapis.com" />
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500&display=swap" rel="stylesheet" />
+<style>
+  .aurora-general-form { font-family: 'Inter', system-ui, sans-serif; max-width: 680px; margin: 0 auto; background: #fff; border-radius: 20px; padding: 2.25rem 2rem; box-shadow: 0 4px 24px rgba(0,0,0,0.1); }
+  .aurora-general-form label { display: block; margin-bottom: 1.25rem; font-size: 0.875rem; color: #333; font-weight: 400; }
+  .aurora-general-form input, .aurora-general-form textarea { font-family: 'Inter', system-ui, sans-serif; display: block; width: 100%; margin-top: 0.5rem; padding: 0.6rem 0.75rem; font-size: 1rem; font-weight: 400; border: 1px solid #ccc; border-radius: 12px; background: #fff; box-sizing: border-box; }
+  .aurora-general-form input::placeholder, .aurora-general-form textarea::placeholder { color: #b0b0b0; font-weight: 400; }
+  .aurora-general-form textarea { min-height: 100px; resize: vertical; }
+  .aurora-general-form .submit-btn { font-family: 'Inter', system-ui, sans-serif; display: block; width: auto; min-width: 160px; margin: 1.75rem auto 0; padding: 0.65rem 2rem; font-size: 1rem; font-weight: 400; color: #fff; background: #3d3630; border: none; border-radius: 999px; cursor: pointer; }
+  .aurora-general-form .submit-btn:hover { background: #2d2620; }
+  .aurora-general-form .submit-btn:disabled { opacity: 0.7; cursor: not-allowed; }
+  .aurora-general-form .form-error { font-size: 0.9rem; color: #c00; margin-top: 0.75rem; display: none; }
+  .aurora-general-thankyou { font-family: 'Inter', system-ui, sans-serif; max-width: 680px; margin: 0 auto; background: #fff; border-radius: 20px; padding: 2.25rem 2rem; box-shadow: 0 4px 24px rgba(0,0,0,0.1); text-align: center; display: none; }
+  .aurora-general-thankyou.visible { display: block; }
+  .aurora-general-thankyou h2 { font-family: Georgia, serif; font-size: 1.5rem; font-weight: 400; margin: 0 0 0.75rem; color: #333; }
+  .aurora-general-thankyou p { font-size: 1rem; margin: 0; color: #555; }
+</style>
+<div class="aurora-general-form">
+  <form id="aurora-general-inquiry-form">
+    <label>Your Name
+      <input type="text" name="name" placeholder="Enter full name" required />
+    </label>
+    <label>Email Address *
+      <input type="email" name="email" placeholder="Enter email" required />
+    </label>
+    <label>Message *
+      <textarea name="message" placeholder="Write your message" required></textarea>
+    </label>
+    <p id="aurora-form-error" class="form-error" role="alert"></p>
+    <button type="submit" class="submit-btn" id="aurora-submit-btn">Send Inquiry</button>
+  </form>
+</div>
+<div class="aurora-general-thankyou" id="aurora-general-thankyou">
+  <h2>Thank you — we've received your inquiry</h2>
+  <p>Our team is reviewing your request now and will reach out in a few moments.</p>
+</div>
+<script>
+(function() {
+  // REQUIRED: Replace with your deployed app URL (no trailing slash). Example: https://aurora-sonnet-abc123.onrender.com
+  var YOUR_APP_URL = 'https://YOUR-APP-URL';
+
+  var form = document.getElementById('aurora-general-inquiry-form');
+  var formContainer = form.closest('.aurora-general-form');
+  var thankYou = document.getElementById('aurora-general-thankyou');
+  var errorEl = document.getElementById('aurora-form-error');
+  var submitBtn = document.getElementById('aurora-submit-btn');
+
+  form.addEventListener('submit', function(e) {
+    e.preventDefault();
+    errorEl.style.display = 'none';
+    errorEl.textContent = '';
+    if (YOUR_APP_URL.indexOf('YOUR-APP-URL') !== -1) {
+      errorEl.textContent = 'Please set YOUR_APP_URL in the embed code to your deployed app address.';
+      errorEl.style.display = 'block';
+      return;
+    }
+    submitBtn.disabled = true;
+    submitBtn.textContent = 'Sending…';
+
+    var payload = {
+      name: form.name.value.trim(),
+      email: form.email.value.trim(),
+      message: form.message.value.trim() || undefined
+    };
+
+    fetch(YOUR_APP_URL + '/api/inquiry', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', 'Accept': 'application/json' },
+      body: JSON.stringify(payload)
+    })
+    .then(function(res) {
+      if (res.ok) {
+        formContainer.style.display = 'none';
+        thankYou.classList.add('visible');
+        return;
+      }
+      return res.json().then(function(data) {
+        throw new Error(data.error || 'Send failed');
+      });
+    })
+    .catch(function(err) {
+      errorEl.textContent = err && err.message ? err.message : 'Something went wrong. Please try again.';
+      errorEl.style.display = 'block';
+      submitBtn.disabled = false;
+      submitBtn.textContent = 'Send Inquiry';
+    });
+  });
+})();
+</script>

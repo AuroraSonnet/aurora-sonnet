@@ -1,0 +1,11 @@
+node_modules
+dist
+*.local
+.env
+server/.env
+server/payments.json
+server/aurora.db
+server/aurora.db-wal
+server/aurora.db-shm
+release
+resources/node

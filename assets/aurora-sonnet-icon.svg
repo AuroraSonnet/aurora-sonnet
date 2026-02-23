@@ -1,0 +1,14 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" width="64" height="64">
+  <!-- No background: fully transparent. AS monogram in brand dark #382e27. -->
+  <text
+    x="32"
+    y="42"
+    dominant-baseline="middle"
+    text-anchor="middle"
+    font-family="'Playfair Display', Georgia, serif"
+    font-size="38"
+    font-weight="600"
+    letter-spacing="-0.03em"
+    fill="#382e27"
+  >AS</text>
+</svg>

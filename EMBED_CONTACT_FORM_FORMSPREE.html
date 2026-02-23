@@ -1,0 +1,42 @@
+<!--
+  GENERAL INQUIRY FORM — Paste into Hostinger HTML block.
+  Uses Formspree (free): no Node server needed. Submissions go to your email; then redirect to thank-you page.
+
+  ONE-TIME SETUP:
+  1. Go to https://formspree.io and sign up (free).
+  2. Create a new form. Copy the form ID (e.g. "xyzabc" from https://formspree.io/f/xyzabc).
+  3. Below, replace YOUR_FORMSPREE_ID with that ID (e.g. xyzabc).
+  4. Paste this whole block into your Hostinger page.
+-->
+
+<link rel="preconnect" href="https://fonts.googleapis.com" />
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500&display=swap" rel="stylesheet" />
+
+<style>
+  .aurora-general-form { font-family: 'Inter', system-ui, sans-serif; max-width: 620px; margin: 0 auto; background: #fff; border-radius: 20px; padding: 2.25rem 2rem; box-shadow: 0 4px 24px rgba(0,0,0,0.1); }
+  .aurora-general-form label { display: block; margin-bottom: 1.25rem; font-size: 0.875rem; color: #333; }
+  .aurora-general-form label:first-child { margin-top: 0.25rem; }
+  .aurora-general-form label:last-of-type { margin-bottom: 1.75rem; }
+  .aurora-general-form input,
+  .aurora-general-form textarea { font-family: 'Inter', system-ui, sans-serif; display: block; width: 100%; margin-top: 0.5rem; padding: 0.5rem 0.75rem; font-size: 1rem; font-weight: 400; border: 1px solid #222; border-radius: 12px; background: #fff; box-sizing: border-box; }
+  .aurora-general-form input::placeholder,
+  .aurora-general-form textarea::placeholder { color: #b0b0b0; font-weight: 400; }
+  .aurora-general-form textarea { min-height: 100px; resize: vertical; }
+  .aurora-general-form .submit-btn { font-family: 'Inter', system-ui, sans-serif; display: block; width: auto; min-width: 160px; margin: 1.75rem auto 0; padding: 0.65rem 2rem; font-size: 1rem; font-weight: 400; color: #fff; background: #3d3630; border: none; border-radius: 999px; cursor: pointer; }
+  .aurora-general-form .submit-btn:hover { background: #2d2620; }
+</style>
+
+<form class="aurora-general-form" action="https://formspree.io/f/YOUR_FORMSPREE_ID" method="post">
+  <input type="hidden" name="_next" value="https://aurorasonnet.com/general-inquiry-thank-you" />
+  <label>Your Name
+    <input type="text" name="name" placeholder="Enter full name" required />
+  </label>
+  <label>Email Address*
+    <input type="email" name="email" placeholder="Enter email" required />
+  </label>
+  <label>Message*
+    <textarea name="message" placeholder="Write your message" required></textarea>
+  </label>
+  <button type="submit" class="submit-btn">Send Inquiry</button>
+</form>

@@ -1,0 +1,92 @@
+{
+  "name": "aurora-crm",
+  "private": true,
+  "version": "1.0.0",
+  "type": "module",
+  "main": "electron/main.cjs",
+  "scripts": {
+    "dev": "vite",
+    "dev:app": "concurrently \"npm run server\" \"npm run dev\" \"wait-on http://localhost:5173 && open http://localhost:5173/inquire\"",
+    "dev:electron": "concurrently -k \"npm run server\" \"npm run dev\" \"wait-on http://localhost:5173 http://localhost:3001/api/state && ELECTRON_DEV=1 npx electron .\"",
+    "build": "tsc -b && vite build",
+    "preview": "vite preview",
+    "start": "node server/index.js",
+    "server": "node server/index.js",
+    "electron": "npx electron .",
+    "build:mac": "npm run build && node scripts/download-node.cjs && node scripts/rebuild-for-bundled-node.cjs && electron-builder --mac",
+    "build:win": "npm run build && electron-builder --win"
+  },
+  "dependencies": {
+    "better-sqlite3": "^11.10.0",
+    "docx": "^9.5.3",
+    "dotenv": "^16.4.5",
+    "express": "^4.21.0",
+    "html2canvas": "^1.4.1",
+    "jspdf": "^4.2.0",
+    "pdf-lib": "^1.17.1",
+    "pdfjs-dist": "^5.4.624",
+    "react": "^18.3.1",
+    "react-dom": "^18.3.1",
+    "react-router-dom": "^6.28.0",
+    "stripe": "^17.0.0",
+    "tesseract.js": "^7.0.0"
+  },
+  "build": {
+    "appId": "com.aurorasonnet.app",
+    "productName": "Aurora Sonnet",
+    "directories": {
+      "output": "release"
+    },
+    "files": [
+      "electron",
+      "package.json"
+    ],
+    "extraResources": [
+      {
+        "from": "server",
+        "to": "server"
+      },
+      {
+        "from": "dist",
+        "to": "dist"
+      },
+      {
+        "from": "resources/node",
+        "to": "node"
+      },
+      {
+        "from": "node_modules",
+        "to": "node_modules"
+      },
+      {
+        "from": "resources/package.json",
+        "to": "package.json"
+      }
+    ],
+    "npmRebuild": false,
+    "mac": {
+      "icon": "assets/aurora-sonnet-crm-icon.png",
+      "category": "public.app-category.business",
+      "target": [
+        "dmg",
+        "zip"
+      ]
+    },
+    "win": {
+      "target": [
+        "nsis"
+      ]
+    }
+  },
+  "devDependencies": {
+    "@types/react": "^18.3.12",
+    "@types/react-dom": "^18.3.1",
+    "@vitejs/plugin-react": "^4.3.3",
+    "concurrently": "^9.1.0",
+    "electron": "^33.0.0",
+    "electron-builder": "^25.0.0",
+    "typescript": "~5.6.2",
+    "vite": "^5.4.10",
+    "wait-on": "^8.0.5"
+  }
+}

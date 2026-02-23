@@ -1,0 +1,80 @@
+<!--
+  Aurora Sonnet — Lead form embed for aurorasonnet.com
+  Replace the form action with your Formspree URL: https://formspree.io/f/YOUR_FORM_ID
+  Or with your API endpoint when you have one: https://your-api.com/api/inquiry
+-->
+<form
+  action="https://formspree.io/f/YOUR_FORM_ID"
+  method="POST"
+  style="max-width: 640px; margin: 0 auto; font-family: system-ui, sans-serif;"
+>
+  <input type="hidden" name="_subject" value="New wedding inquiry" />
+  <input type="hidden" name="_next" value="https://aurorasonnet.com/request-a-quote-thank-you" />
+
+  <div style="display: grid; grid-template-columns: repeat(auto-fill, minmax(200px, 1fr)); gap: 1rem; margin-bottom: 1rem;">
+    <label style="display: flex; flex-direction: column; gap: 0.35rem; font-size: 0.9rem; color: #5c5349;">
+      Full Name *
+      <input type="text" name="name" required placeholder="e.g. Emma Walsh" style="padding: 0.6rem 0.75rem; border-radius: 6px; border: 1px solid #e8e4df; background: #f5ebe0; font-size: 0.95rem;" />
+    </label>
+    <label style="display: flex; flex-direction: column; gap: 0.35rem; font-size: 0.9rem; color: #5c5349;">
+      Email *
+      <input type="email" name="email" required style="padding: 0.6rem 0.75rem; border-radius: 6px; border: 1px solid #e8e4df; background: #f5ebe0; font-size: 0.95rem;" />
+    </label>
+    <label style="display: flex; flex-direction: column; gap: 0.35rem; font-size: 0.9rem; color: #5c5349;">
+      Phone
+      <input type="tel" name="phone" style="padding: 0.6rem 0.75rem; border-radius: 6px; border: 1px solid #e8e4df; background: #f5ebe0; font-size: 0.95rem;" />
+    </label>
+    <label style="display: flex; flex-direction: column; gap: 0.35rem; font-size: 0.9rem; color: #5c5349;">
+      Wedding Date *
+      <input type="date" name="weddingDate" required style="padding: 0.6rem 0.75rem; border-radius: 6px; border: 1px solid #e8e4df; background: #f5ebe0; font-size: 0.95rem;" id="wedding-date" />
+    </label>
+    <label style="display: flex; flex-direction: column; gap: 0.35rem; font-size: 0.9rem; color: #5c5349;">
+      Venue / Location *
+      <input type="text" name="venue" required placeholder="e.g. Garden Estate Vineyard" style="padding: 0.6rem 0.75rem; border-radius: 6px; border: 1px solid #e8e4df; background: #f5ebe0; font-size: 0.95rem;" />
+    </label>
+  </div>
+
+  <label style="display: flex; flex-direction: column; gap: 0.35rem; margin-bottom: 1rem; font-size: 0.9rem; color: #5c5349;">
+    Requested Artist
+    <select name="requestedArtist" style="padding: 0.6rem 0.75rem; border-radius: 6px; border: 1px solid #e8e4df; background: #f5ebe0; font-size: 0.95rem;">
+      <option value="">Select Artist</option>
+      <option value="dr-stephanie-susberich">Dr. Stephanie Susberich</option>
+      <option value="blake-friedman">Blake Friedman</option>
+    </select>
+  </label>
+
+  <fieldset style="border: none; padding: 1.5rem 0; margin: 0 0 1rem;">
+    <legend style="font-size: 0.8rem; font-weight: 500; color: #8c847a; text-transform: uppercase; letter-spacing: 0.12em; margin-bottom: 1rem;">Experience</legend>
+    <div style="display: grid; grid-template-columns: repeat(3, 1fr); gap: 1rem;">
+      <label style="display: flex; flex-direction: column; align-items: center; gap: 0.5rem; padding: 1.5rem 1rem; border: 1px solid #e8e4df; border-radius: 8px; cursor: pointer; background: transparent;">
+        <input type="radio" name="packageId" value="signature-aria" style="margin: 0;" />
+        <span style="font-weight: 500; font-size: 1rem; color: #382e27;">Signature Aria</span>
+      </label>
+      <label style="display: flex; flex-direction: column; align-items: center; gap: 0.5rem; padding: 1.5rem 1rem; border: 1px solid #e8e4df; border-radius: 8px; cursor: pointer; background: transparent;">
+        <input type="radio" name="packageId" value="aria-plus" style="margin: 0;" />
+        <span style="font-weight: 500; font-size: 1rem; color: #382e27;">Aria +</span>
+      </label>
+      <label style="display: flex; flex-direction: column; align-items: center; gap: 0.5rem; padding: 1.5rem 1rem; border: 1px solid #e8e4df; border-radius: 8px; cursor: pointer; background: transparent;">
+        <input type="radio" name="packageId" value="grand-atelier" style="margin: 0;" />
+        <span style="font-weight: 500; font-size: 1rem; color: #382e27;">Grand Atelier</span>
+      </label>
+    </div>
+  </fieldset>
+
+  <label style="display: flex; flex-direction: column; gap: 0.35rem; margin-bottom: 1rem; font-size: 0.9rem; color: #5c5349;">
+    Message
+    <textarea name="message" rows="3" placeholder="Tell us about your wedding or any questions you may have." style="padding: 0.6rem 0.75rem; border-radius: 6px; border: 1px solid #e8e4df; background: #f5ebe0; font-size: 0.95rem; resize: vertical; min-height: 80px;"></textarea>
+  </label>
+
+  <button type="submit" style="background: #382e27; color: #faf8f5; border: none; padding: 0.65rem 1.25rem; border-radius: 6px; font-weight: 600; font-size: 0.95rem; cursor: pointer;">
+    Send Inquiry
+  </button>
+</form>
+
+<script>
+  // Prevent past dates for Wedding Date (same as in the app)
+  (function () {
+    var input = document.getElementById('wedding-date');
+    if (input) input.setAttribute('min', new Date().toISOString().slice(0, 10));
+  })();
+</script>
