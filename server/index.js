@@ -102,7 +102,7 @@ app.use((req, res, next) => {
     (isStateGet && origin)
   if (allow) res.setHeader('Access-Control-Allow-Origin', origin)
   res.setHeader('Access-Control-Allow-Methods', 'GET, POST, PATCH, DELETE, OPTIONS')
-  res.setHeader('Access-Control-Allow-Headers', 'Content-Type')
+  res.setHeader('Access-Control-Allow-Headers', 'Content-Type, Accept')
   if (req.method === 'OPTIONS') return res.sendStatus(200)
   next()
 })
