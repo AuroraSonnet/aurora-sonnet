@@ -407,7 +407,7 @@ export default function Projects() {
                   <strong>{p.title}</strong>
                   {p.venue && <span className={styles.venue}>{p.venue}</span>}
                   <span className={styles.client}>{p.clientName}</span>
-                  <span className={styles.weddingDate}>Wedding: {p.weddingDate}</span>
+                  <span className={styles.weddingDate}>{p.title === 'General inquiry' ? 'Inquiry date: ' : 'Wedding: '}{p.weddingDate}</span>
                   <span className={styles.value}>${p.value.toLocaleString()}</span>
                 </li>
               ))}
@@ -476,7 +476,7 @@ export default function Projects() {
                   />
                 </label>
                 <label>
-                  Wedding date
+                  {editForm.title === 'General inquiry' ? 'Inquiry date' : 'Wedding date'}
                   <input
                     type="date"
                     value={editForm.weddingDate}
