@@ -1,9 +1,12 @@
 import Database from 'better-sqlite3'
+import { existsSync, mkdirSync } from 'fs'
 import { fileURLToPath } from 'url'
 import { dirname, join } from 'path'
 
 const __dirname = dirname(fileURLToPath(import.meta.url))
-const dataDir = process.env.DATA_DIR || __dirname
+// On Render the filesystem is read-only; use writable path so inquiry form works
+const dataDir = process.env.DATA_DIR || (process.env.RENDER ? '/tmp/aurora-sonnet-data' : __dirname)
+if (!existsSync(dataDir)) mkdirSync(dataDir, { recursive: true })
 const db = new Database(join(dataDir, 'aurora.db'))
 db.pragma('journal_mode = WAL')
 
