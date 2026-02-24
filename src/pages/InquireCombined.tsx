@@ -1,7 +1,7 @@
 import { useState } from 'react'
 import { useApp } from '../context/AppContext'
 import { apiSubmitInquiry } from '../api/db'
-import { PERFORMANCE_PACKAGES, DUO_PACKAGES } from '../data/packages'
+import { PERFORMANCE_PACKAGES, DUO_PACKAGES, getPackageOrDuoPrice } from '../data/packages'
 import styles from './Inquire.module.css'
 
 type ArtistOrDuoId =
@@ -75,7 +75,7 @@ export default function InquireCombined() {
         return
       }
       await actions.refreshState()
-      window.location.href = 'https://aurorasonnet.com/inquiry-thank-you'
+      window.location.href = 'https://aurorasonnet.com/request-a-quote-thank-you'
     } catch {
       setSubmitError('Failed to submit. Please try again.')
     } finally {
@@ -88,7 +88,7 @@ export default function InquireCombined() {
       <header className={styles.header}>
         <h1>Inquire — Solo & Duo</h1>
         <p className={styles.subtitle}>
-          New lead form for Solo Vocalist or Duo Vocal experiences. Choose an artist or duo and an experience package.
+          New lead form for Solo Vocalist or Duo Vocal experiences. Choose an artist or Duo and an experience package.
         </p>
       </header>
 
@@ -149,13 +149,13 @@ export default function InquireCombined() {
         </div>
 
         <label className={styles.fullWidth}>
-          Artist or duo
+          Artist or Duo
           <select
             value={form.requestedArtist}
             onChange={(e) => handleArtistChange(e.target.value as '' | ArtistOrDuoId)}
             className={styles.input}
           >
-            <option value="">Select artist or duo</option>
+            <option value="">Select artist or Duo</option>
             <optgroup label="Solo artist">
               {SOLO_ARTISTS.map((a) => (
                 <option key={a.id} value={a.id}>
@@ -178,7 +178,7 @@ export default function InquireCombined() {
             {isSoloArtist ? 'Solo experience' : isDuo ? 'Duo experience' : 'Experience (Solo or Duo)'}
           </legend>
           {availablePackages.length === 0 ? (
-            <p className={styles.packageHint}>Select an artist or duo above to choose an experience.</p>
+            <p className={styles.packageHint}>Select an artist or Duo above to choose an experience.</p>
           ) : (
             <div className={styles.packageGrid}>
               {availablePackages.map((pkg) => (
@@ -195,6 +195,11 @@ export default function InquireCombined() {
                     className={styles.packageRadio}
                   />
                   <span className={styles.packageName}>{pkg.shortName}</span>
+                  {form.packageId === pkg.id && getPackageOrDuoPrice(pkg.id) != null && (
+                    <span className={styles.experienceFromPriceInline} aria-live="polite">
+                      From {new Intl.NumberFormat('en-US', { style: 'currency', currency: 'USD', maximumFractionDigits: 0 }).format(getPackageOrDuoPrice(pkg.id)!)}
+                    </span>
+                  )}
                 </label>
               ))}
             </div>
@@ -218,7 +223,7 @@ export default function InquireCombined() {
       </form>
 
       <p className={styles.tip}>
-        <strong>Tip:</strong> Use this form when you want one page for both solo and duo inquiries (e.g. /inquire-combined on your website).
+        <strong>Tip:</strong> Use this form when you want one page for both Solo and Duo inquiries (e.g. /inquire-combined on your website).
       </p>
     </div>
   )

@@ -86,6 +86,15 @@ function writePayment(invoiceId, paidAt) {
   writeFileSync(PAYMENTS_FILE, JSON.stringify(payments, null, 2))
 }
 
+// Security headers (help prevent XSS, clickjacking, MIME sniffing)
+app.use((req, res, next) => {
+  res.setHeader('X-Content-Type-Options', 'nosniff')
+  res.setHeader('X-Frame-Options', 'DENY')
+  res.setHeader('X-XSS-Protection', '1; mode=block')
+  res.setHeader('Referrer-Policy', 'strict-origin-when-cross-origin')
+  next()
+})
+
 // CORS: allow Vite dev, optional frontend origin, aurorasonnet.com (embed form), and app sync (GET /api/state from any origin when deployed)
 const frontendOrigin = process.env.FRONTEND_ORIGIN
 const allowedOrigins = [
@@ -104,6 +113,44 @@ app.use((req, res, next) => {
   res.setHeader('Access-Control-Allow-Methods', 'GET, POST, PATCH, DELETE, OPTIONS')
   res.setHeader('Access-Control-Allow-Headers', 'Content-Type, Accept')
   if (req.method === 'OPTIONS') return res.sendStatus(200)
+  next()
+})
+
+// Rate limiting: prevent abuse of public endpoints (inquiry form spam, /api/state scraping)
+const rateLimitWindowMs = 60 * 1000
+const rateLimitMaxInquiry = 15
+const rateLimitMaxState = 60
+const rateLimitInquiry = new Map()
+const rateLimitState = new Map()
+function getClientKey(req) {
+  return req.headers['x-forwarded-for']?.split(',')[0]?.trim() || req.socket?.remoteAddress || 'unknown'
+}
+function cleanupRateLimit(map, windowMs) {
+  const now = Date.now()
+  for (const [key, data] of map.entries()) {
+    if (now - data.start > windowMs) map.delete(key)
+  }
+}
+app.use('/api/inquiry', (req, res, next) => {
+  cleanupRateLimit(rateLimitInquiry, rateLimitWindowMs)
+  const key = getClientKey(req)
+  const data = rateLimitInquiry.get(key) || { count: 0, start: Date.now() }
+  data.count++
+  rateLimitInquiry.set(key, data)
+  if (data.count > rateLimitMaxInquiry) {
+    return res.status(429).json({ error: 'Too many requests. Please try again later.' })
+  }
+  next()
+})
+app.use('/api/state', (req, res, next) => {
+  cleanupRateLimit(rateLimitState, rateLimitWindowMs)
+  const key = getClientKey(req)
+  const data = rateLimitState.get(key) || { count: 0, start: Date.now() }
+  data.count++
+  rateLimitState.set(key, data)
+  if (data.count > rateLimitMaxState) {
+    return res.status(429).json({ error: 'Too many requests.' })
+  }
   next()
 })
 
@@ -161,12 +208,25 @@ function nextId(prefix, existing) {
   return `${prefix}${max + 1}`
 }
 
+// Allow redirect only to your site (prevents open-redirect attacks)
+const ALLOWED_REDIRECT_ORIGINS = ['https://aurorasonnet.com', 'https://www.aurorasonnet.com']
+function isAllowedRedirectUrl(url) {
+  if (!url || typeof url !== 'string') return false
+  try {
+    const parsed = new URL(url.trim())
+    return ALLOWED_REDIRECT_ORIGINS.some((origin) => parsed.origin === origin)
+  } catch {
+    return false
+  }
+}
+
 app.post('/api/inquiry', (req, res) => {
   try {
     const body = req.body || {}
     const name = String(body.name ?? '').trim()
     const email = String(body.email ?? '').trim()
-    const nextUrl = (body._next != null && body._next !== '') ? String(body._next).trim() : null
+    const rawNext = (body._next != null && body._next !== '') ? String(body._next).trim() : null
+    const nextUrl = isAllowedRedirectUrl(rawNext) ? rawNext : null
     if (!name || !email) {
       if (nextUrl) {
         return res.redirect(303, nextUrl + (nextUrl.includes('?') ? '&' : '?') + 'error=missing')
@@ -221,7 +281,8 @@ app.post('/api/inquiry', (req, res) => {
   } catch (err) {
     console.error(err)
     const body = req.body || {}
-    const nextUrl = (body._next != null && body._next !== '') ? String(body._next).trim() : null
+    const rawNext = (body._next != null && body._next !== '') ? String(body._next).trim() : null
+    const nextUrl = isAllowedRedirectUrl(rawNext) ? rawNext : null
     if (nextUrl) {
       return res.redirect(303, nextUrl + (nextUrl.includes('?') ? '&' : '?') + 'error=server')
     }

@@ -1,7 +1,7 @@
 import { useState } from 'react'
 import { useApp } from '../context/AppContext'
 import { apiSubmitInquiry } from '../api/db'
-import { PERFORMANCE_PACKAGES, type PackageId } from '../data/packages'
+import { PERFORMANCE_PACKAGES, getPackagePrice, type PackageId } from '../data/packages'
 import styles from './Inquire.module.css'
 
 export default function Inquire() {
@@ -25,7 +25,7 @@ export default function Inquire() {
 
   const [submitting, setSubmitting] = useState(false)
   const [submitError, setSubmitError] = useState('')
-  const [submitted, setSubmitted] = useState(false)
+  const [submitted] = useState(false)
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault()
@@ -47,7 +47,7 @@ export default function Inquire() {
         return
       }
       await actions.refreshState()
-      setSubmitted(true)
+      window.location.href = 'https://aurorasonnet.com/request-a-quote-thank-you'
     } catch {
       setSubmitError('Failed to submit. Please try again.')
     } finally {
@@ -166,6 +166,11 @@ export default function Inquire() {
                   className={styles.packageRadio}
                 />
                 <span className={styles.packageName}>{pkg.shortName}</span>
+                {form.packageId === pkg.id && getPackagePrice(pkg.id) != null && (
+                  <span className={styles.experienceFromPriceInline} aria-live="polite">
+                    From {new Intl.NumberFormat('en-US', { style: 'currency', currency: 'USD', maximumFractionDigits: 0 }).format(getPackagePrice(pkg.id)!)}
+                  </span>
+                )}
               </label>
             ))}
           </div>

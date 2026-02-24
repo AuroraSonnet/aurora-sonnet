@@ -1,0 +1,175 @@
+<!-- Combined Solo + Duo inquiry — submissions to app, redirect to request-a-quote-thank-you. Paste full file into Hostinger Embed code. -->
+<!-- To point to your deployed app, set APP_URL below (no trailing slash). -->
+<link rel="preconnect" href="https://fonts.googleapis.com" />
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400&family=Playfair+Display:wght@400&display=swap" rel="stylesheet" />
+<style>
+  .as-comb-wrap { max-width: 640px; margin: 0 auto; font-family: 'Inter', system-ui, sans-serif; }
+  .as-comb-form { background: #fff; border-radius: 12px; padding: 1.5rem; box-shadow: 0 4px 24px rgba(0,0,0,0.08); border: 1px solid #e8e6e1; }
+  .as-comb-form label { display: block; margin-bottom: 1rem; font-size: 0.9rem; color: #333; }
+  .as-comb-form input, .as-comb-form select, .as-comb-form textarea { display: block; width: 100%; margin-top: 0.35rem; padding: 0.6rem 0.75rem; font-size: 0.95rem; border: 1px solid #ccc; border-radius: 8px; background: #f5ebe0; box-sizing: border-box; font-family: inherit; }
+  .as-comb-form textarea { min-height: 100px; resize: vertical; }
+  .as-comb-form .form-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(200px, 1fr)); gap: 1rem; margin-bottom: 1rem; }
+  @media (max-width: 600px) {
+    .as-comb-form .form-grid { grid-template-columns: 1fr; }
+    .as-comb-form .form-grid > label { min-width: 0; }
+  }
+  .as-comb-form input[type="date"] { min-width: 0; width: 100%; max-width: 100%; }
+  .as-comb-form .full { margin-bottom: 1rem; }
+  .as-comb-form .pkg-fs { border: none; padding: 1rem 0; margin: 0 0 1rem 0; }
+  .as-comb-form .pkg-legend { font-size: 0.9rem; color: #333; margin-bottom: 0.75rem; }
+  .as-comb-form .pkg-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 0.75rem; }
+  .as-comb-form .pkg-card { display: flex; flex-direction: column; align-items: center; justify-content: center; padding: 1rem; border: 1px solid #ccc; border-radius: 8px; cursor: pointer; background: #fff; transition: border-color 0.2s, box-shadow 0.2s; }
+  .as-comb-form .pkg-card:hover { border-color: #3d3630; }
+  .as-comb-form .pkg-card.selected { border-color: #3d3630; box-shadow: 0 0 0 2px #3d3630; }
+  .as-comb-form .pkg-card input { margin: 0 0 0.5rem 0; width: auto; accent-color: #f5eadf; }
+  .as-comb-form .pkg-name { font-size: 0.9rem; text-align: center; }
+  .as-comb-form .pkg-hint { font-size: 0.85rem; color: #666; margin: 0.5rem 0; }
+  .as-comb-form .pkg-price-inline { display: none; font-family: 'Inter', system-ui, sans-serif; font-size: 0.8rem; font-weight: 300; color: #aaa; margin-top: 0.35rem; text-align: center; }
+  .as-comb-form .pkg-card.selected .pkg-price-inline { display: block; }
+  .as-comb-form .as-btn { display: block; width: auto; min-width: 160px; margin: 1.5rem auto 0; padding: 0.65rem 2rem; font-size: 1rem; color: #fff; background: #3d3630; border: none; border-radius: 999px; cursor: pointer; font-family: inherit; }
+  .as-comb-form .as-btn:hover { background: #2d2620; }
+  .as-comb-form .as-btn:disabled { opacity: 0.7; cursor: not-allowed; }
+  .as-comb-form .as-err { font-size: 0.9rem; color: #c00; margin-top: 0.75rem; display: none; }
+  .as-comb-form .as-sending-hint { font-size: 0.8rem; color: #666; margin-top: 0.5rem; display: none; }
+</style>
+<div class="as-comb-wrap">
+  <div class="as-comb-form" id="as-comb-box">
+    <form id="as-comb-f">
+      <div class="form-grid">
+        <label>Full Name * <input type="text" name="name" placeholder="e.g. Emma Walsh" required /></label>
+        <label>Email * <input type="email" name="email" required /></label>
+        <label>Phone <input type="tel" name="phone" /></label>
+        <label>Wedding Date * <input type="date" name="weddingDate" id="as-comb-weddingDate" required /></label>
+        <label>Venue / Location * <input type="text" name="venue" placeholder="e.g. Garden Estate Vineyard" required /></label>
+      </div>
+      <div class="full">
+        <label>Artist or Duo
+          <select name="requestedArtist" id="as-comb-artist">
+            <option value="">Select artist or Duo</option>
+            <optgroup label="Solo artist">
+              <option value="dr-stephanie-susberich">Dr. Stephanie Susberich</option>
+              <option value="blake-friedman">Blake Friedman</option>
+            </optgroup>
+            <optgroup label="Duo">
+              <option value="eli-liv">Eli & Liv</option>
+              <option value="riley-richard">Riley & Richard</option>
+              <option value="garrett-tamara">Garrett & Tamara</option>
+            </optgroup>
+          </select>
+        </label>
+      </div>
+      <fieldset class="pkg-fs">
+        <legend class="pkg-legend" id="as-comb-pkg-legend">Experience (Solo or Duo)</legend>
+        <p class="pkg-hint" id="as-comb-hint">Select an artist or Duo above to choose an experience.</p>
+        <div class="pkg-grid" id="as-comb-pkg-grid"></div>
+      </fieldset>
+      <div class="full">
+        <label>Message <textarea name="message" placeholder="Tell us about your wedding or any questions." rows="3"></textarea></label>
+      </div>
+      <p id="as-comb-err" class="as-err" role="alert"></p>
+      <button type="submit" class="as-btn" id="as-comb-btn">Send Inquiry</button>
+      <p id="as-comb-sending-hint" class="as-sending-hint" aria-live="polite">This may take up to a minute when our server is waking up.</p>
+    </form>
+  </div>
+</div>
+<script>
+(function(){
+  var APP_URL = 'https://aurora-sonnet.onrender.com';
+  var THANK_YOU = 'https://aurorasonnet.com/request-a-quote-thank-you';
+  var SOLO_IDS = ['dr-stephanie-susberich', 'blake-friedman'];
+  var DUO_IDS = ['eli-liv', 'riley-richard', 'garrett-tamara'];
+  var SOLO_PKGS = [
+    { id: 'signature-aria', name: 'Signature Aria', price: 'From $2,750' },
+    { id: 'aria-plus', name: 'Aria +', price: 'From $3,950' },
+    { id: 'grand-atelier', name: 'Grand Atelier', price: 'From $5,800' }
+  ];
+  var DUO_PKGS = [
+    { id: 'signature-aria-duo', name: 'Signature Aria Duo', price: 'From $4,950' },
+    { id: 'aria-plus-duo', name: 'Aria + Duo', price: 'From $6,950' },
+    { id: 'grand-atelier-duo', name: 'Grand Atelier Duo', price: 'From $9,950' }
+  ];
+  var form = document.getElementById('as-comb-f');
+  var artistSelect = document.getElementById('as-comb-artist');
+  var pkgGrid = document.getElementById('as-comb-pkg-grid');
+  var pkgLegend = document.getElementById('as-comb-pkg-legend');
+  var hint = document.getElementById('as-comb-hint');
+  var errEl = document.getElementById('as-comb-err');
+  var btn = document.getElementById('as-comb-btn');
+  var weddingDateInput = document.getElementById('as-comb-weddingDate');
+  function setMinWeddingDate() {
+    if (weddingDateInput) {
+      var d = new Date();
+      weddingDateInput.setAttribute('min', d.getFullYear() + '-' + String(d.getMonth() + 1).padStart(2, '0') + '-' + String(d.getDate()).padStart(2, '0'));
+    }
+  }
+  setMinWeddingDate();
+  if (weddingDateInput) weddingDateInput.addEventListener('focus', setMinWeddingDate);
+  if (!form || !btn) return;
+  function renderPackages() {
+    var val = artistSelect ? artistSelect.value : '';
+    var isSolo = SOLO_IDS.indexOf(val) !== -1;
+    var isDuo = DUO_IDS.indexOf(val) !== -1;
+    var pkgs = isSolo ? SOLO_PKGS : isDuo ? DUO_PKGS : [];
+    if (hint) hint.style.display = pkgs.length ? 'none' : 'block';
+    if (pkgLegend) pkgLegend.textContent = isSolo ? 'Solo experience' : isDuo ? 'Duo experience' : 'Experience (Solo or Duo)';
+    pkgGrid.innerHTML = '';
+    pkgs.forEach(function(p) {
+      var card = document.createElement('label');
+      card.className = 'pkg-card';
+      card.setAttribute('data-pkg', p.id);
+      card.innerHTML = '<input type="radio" name="packageId" value="' + p.id + '"> <span class="pkg-name">' + p.name + '</span><span class="pkg-price-inline">' + (p.price || '') + '</span>';
+      card.addEventListener('click', function() {
+        form.querySelectorAll('.pkg-card').forEach(function(c) { c.classList.remove('selected'); });
+        card.classList.add('selected');
+        card.querySelector('input').checked = true;
+      });
+      card.querySelector('input').addEventListener('change', function() {
+        form.querySelectorAll('.pkg-card').forEach(function(c) { c.classList.toggle('selected', c.querySelector('input').checked); });
+      });
+      pkgGrid.appendChild(card);
+    });
+  }
+  function getLocalDateStr() {
+    var d = new Date();
+    return d.getFullYear() + '-' + String(d.getMonth() + 1).padStart(2, '0') + '-' + String(d.getDate()).padStart(2, '0');
+  }
+  if (artistSelect) artistSelect.addEventListener('change', function() { form.querySelectorAll('input[name="packageId"]').forEach(function(r) { r.checked = false; }); renderPackages(); });
+  renderPackages();
+  form.addEventListener('submit', function(e) {
+    e.preventDefault();
+    if (errEl) { errEl.style.display = 'none'; errEl.textContent = ''; }
+    var wd = form.weddingDate && form.weddingDate.value ? form.weddingDate.value.trim() : '';
+    if (wd && wd < getLocalDateStr()) {
+      if (errEl) { errEl.textContent = 'Please choose a wedding date that is today or in the future.'; errEl.style.display = 'block'; }
+      return;
+    }
+    btn.disabled = true;
+    btn.textContent = 'Sending…';
+    var sendingHint = document.getElementById('as-comb-sending-hint');
+    if (sendingHint) sendingHint.style.display = 'block';
+    var r = form.querySelector('input[name="packageId"]:checked');
+    var payload = {
+      name: (form.name && form.name.value) ? form.name.value.trim() : '',
+      email: (form.email && form.email.value) ? form.email.value.trim() : '',
+      phone: (form.phone && form.phone.value) ? form.phone.value.trim() : undefined,
+      weddingDate: (form.weddingDate && form.weddingDate.value) ? form.weddingDate.value.trim() : undefined,
+      venue: (form.venue && form.venue.value) ? form.venue.value.trim() : undefined,
+      requestedArtist: (artistSelect && artistSelect.value) ? artistSelect.value : undefined,
+      packageId: r ? r.value : undefined,
+      message: (form.message && form.message.value) ? form.message.value.trim() : undefined
+    };
+    fetch(APP_URL + '/api/inquiry', { method: 'POST', headers: { 'Content-Type': 'application/json', 'Accept': 'application/json' }, body: JSON.stringify(payload) })
+      .then(function(res) {
+        if (res.ok) { try { if (window.top && window.top.location) window.top.location.href = THANK_YOU; } catch(_) {} return; }
+        return res.json().then(function(d) { throw new Error(d.error || 'Send failed'); });
+      })
+      .catch(function(err) {
+        if (sendingHint) sendingHint.style.display = 'none';
+        if (errEl) { errEl.textContent = (err && err.message) ? err.message : 'Something went wrong. Please try again.'; errEl.style.display = 'block'; }
+        btn.disabled = false;
+        btn.textContent = 'Send Inquiry';
+      });
+  });
+})();
+</script>

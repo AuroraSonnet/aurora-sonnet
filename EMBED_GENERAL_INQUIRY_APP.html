@@ -16,6 +16,7 @@
   .aurora-general-form .submit-btn:hover { background: #2d2620; }
   .aurora-general-form .submit-btn:disabled { opacity: 0.7; cursor: not-allowed; }
   .aurora-general-form .form-error { font-size: 0.9rem; color: #c00; margin-top: 0.75rem; display: none; }
+  .aurora-general-form .sending-hint { font-size: 0.8rem; color: #666; margin-top: 0.5rem; display: none; }
   .aurora-general-thankyou { font-family: 'Inter', system-ui, sans-serif; max-width: 680px; margin: 0 auto; background: #fff; border-radius: 20px; padding: 2.25rem 2rem; box-shadow: 0 4px 24px rgba(0,0,0,0.1); text-align: center; display: none; }
   .aurora-general-thankyou.visible { display: block; }
   .aurora-general-thankyou h2 { font-family: Georgia, serif; font-size: 1.5rem; font-weight: 400; margin: 0 0 0.75rem; color: #333; }
@@ -34,6 +35,7 @@
     </label>
     <p id="aurora-form-error" class="form-error" role="alert"></p>
     <button type="submit" class="submit-btn" id="aurora-submit-btn">Send Inquiry</button>
+    <p id="aurora-general-sending-hint" class="sending-hint" aria-live="polite">This may take up to a minute when our server is waking up.</p>
   </form>
 </div>
 <div class="aurora-general-thankyou" id="aurora-general-thankyou">
@@ -43,7 +45,7 @@
 <script>
 (function() {
   // REQUIRED: Replace with your deployed app URL (no trailing slash). Example: https://aurora-sonnet-abc123.onrender.com
-  var YOUR_APP_URL = 'https://YOUR-APP-URL';
+  var YOUR_APP_URL = 'https://aurora-sonnet.onrender.com';
 
   var form = document.getElementById('aurora-general-inquiry-form');
   var formContainer = form.closest('.aurora-general-form');
@@ -55,13 +57,15 @@
     e.preventDefault();
     errorEl.style.display = 'none';
     errorEl.textContent = '';
-    if (YOUR_APP_URL.indexOf('YOUR-APP-URL') !== -1) {
+    if (!YOUR_APP_URL || YOUR_APP_URL.indexOf('YOUR-APP-URL') !== -1) {
       errorEl.textContent = 'Please set YOUR_APP_URL in the embed code to your deployed app address.';
       errorEl.style.display = 'block';
       return;
     }
     submitBtn.disabled = true;
     submitBtn.textContent = 'Sending…';
+    var sendingHint = document.getElementById('aurora-general-sending-hint');
+    if (sendingHint) sendingHint.style.display = 'block';
 
     var payload = {
       name: form.name.value.trim(),
@@ -85,6 +89,7 @@
       });
     })
     .catch(function(err) {
+      if (sendingHint) sendingHint.style.display = 'none';
       errorEl.textContent = err && err.message ? err.message : 'Something went wrong. Please try again.';
       errorEl.style.display = 'block';
       submitBtn.disabled = false;

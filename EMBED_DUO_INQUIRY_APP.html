@@ -1,0 +1,153 @@
+<!-- Duo inquiry — submissions to app, redirect to request-a-quote-thank-you. Paste full file into Hostinger Embed code. -->
+<!-- To point to your deployed app, set APP_URL below (no trailing slash). -->
+<link rel="preconnect" href="https://fonts.googleapis.com" />
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400&family=Playfair+Display:wght@400&display=swap" rel="stylesheet" />
+<style>
+  .as-duo-wrap { max-width: 640px; margin: 0 auto; font-family: 'Inter', system-ui, sans-serif; }
+  .as-duo-form { background: #fff; border-radius: 12px; padding: 1.5rem; box-shadow: 0 4px 24px rgba(0,0,0,0.08); border: 1px solid #e8e6e1; }
+  .as-duo-form label { display: block; margin-bottom: 1rem; font-size: 0.9rem; color: #333; }
+  .as-duo-form input, .as-duo-form select, .as-duo-form textarea { display: block; width: 100%; margin-top: 0.35rem; padding: 0.6rem 0.75rem; font-size: 0.95rem; border: 1px solid #ccc; border-radius: 8px; background: #f5ebe0; box-sizing: border-box; font-family: inherit; }
+  .as-duo-form textarea { min-height: 100px; resize: vertical; }
+  .as-duo-form .form-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(200px, 1fr)); gap: 1rem; margin-bottom: 1rem; }
+  @media (max-width: 600px) {
+    .as-duo-form .form-grid { grid-template-columns: 1fr; }
+    .as-duo-form .form-grid > label { min-width: 0; }
+  }
+  .as-duo-form input[type="date"] { min-width: 0; width: 100%; max-width: 100%; }
+  .as-duo-form .full { margin-bottom: 1rem; }
+  .as-duo-form .pkg-fs { border: none; padding: 1rem 0; margin: 0 0 1rem 0; }
+  .as-duo-form .pkg-legend { font-size: 0.9rem; color: #333; margin-bottom: 0.75rem; }
+  .as-duo-form .pkg-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 0.75rem; }
+  .as-duo-form .pkg-card { display: flex; flex-direction: column; align-items: center; justify-content: center; padding: 1rem; border: 1px solid #ccc; border-radius: 8px; cursor: pointer; background: #fff; transition: border-color 0.2s, box-shadow 0.2s; }
+  .as-duo-form .pkg-card:hover { border-color: #3d3630; }
+  .as-duo-form .pkg-card.selected { border-color: #3d3630; box-shadow: 0 0 0 2px #3d3630; }
+  .as-duo-form .pkg-card input { margin: 0 0 0.5rem 0; width: auto; accent-color: #f5eadf; }
+  .as-duo-form .pkg-name { font-size: 0.9rem; text-align: center; }
+  .as-duo-form .pkg-price-inline { display: none; font-family: 'Inter', system-ui, sans-serif; font-size: 0.8rem; font-weight: 300; color: #aaa; margin-top: 0.35rem; text-align: center; }
+  .as-duo-form .pkg-card.selected .pkg-price-inline { display: block; }
+  .as-duo-form .as-btn { display: block; width: auto; min-width: 160px; margin: 1.5rem auto 0; padding: 0.65rem 2rem; font-size: 1rem; color: #fff; background: #3d3630; border: none; border-radius: 999px; cursor: pointer; font-family: inherit; }
+  .as-duo-form .as-btn:hover { background: #2d2620; }
+  .as-duo-form .as-btn:disabled { opacity: 0.7; cursor: not-allowed; }
+  .as-duo-form .as-err { font-size: 0.9rem; color: #c00; margin-top: 0.75rem; display: none; }
+  .as-duo-form .as-sending-hint { font-size: 0.8rem; color: #666; margin-top: 0.5rem; display: none; }
+</style>
+<div class="as-duo-wrap">
+  <div class="as-duo-form" id="as-duo-box">
+    <form id="as-duo-f">
+      <div class="form-grid">
+        <label>Full Name * <input type="text" name="name" placeholder="e.g. Emma Walsh" required /></label>
+        <label>Email * <input type="email" name="email" required /></label>
+        <label>Phone <input type="tel" name="phone" /></label>
+        <label>Wedding Date * <input type="date" name="weddingDate" id="as-duo-weddingDate" required /></label>
+        <label>Venue / Location * <input type="text" name="venue" placeholder="e.g. Garden Estate Vineyard" required /></label>
+      </div>
+      <div class="full">
+        <label>Requested Duo
+          <select name="requestedArtist">
+            <option value="">Select Duo</option>
+            <option value="eli-liv">Eli & Liv</option>
+            <option value="riley-richard">Riley & Richard</option>
+            <option value="garrett-tamara">Garrett & Tamara</option>
+          </select>
+        </label>
+      </div>
+      <fieldset class="pkg-fs">
+        <legend class="pkg-legend">Duo Vocal Experience</legend>
+        <div class="pkg-grid">
+          <label class="pkg-card" data-pkg="signature-aria-duo">
+            <input type="radio" name="packageId" value="signature-aria-duo" />
+            <span class="pkg-name">Signature Aria Duo</span>
+            <span class="pkg-price-inline">From $4,950</span>
+          </label>
+          <label class="pkg-card" data-pkg="aria-plus-duo">
+            <input type="radio" name="packageId" value="aria-plus-duo" />
+            <span class="pkg-name">Aria + Duo</span>
+            <span class="pkg-price-inline">From $6,950</span>
+          </label>
+          <label class="pkg-card" data-pkg="grand-atelier-duo">
+            <input type="radio" name="packageId" value="grand-atelier-duo" />
+            <span class="pkg-name">Grand Atelier Duo</span>
+            <span class="pkg-price-inline">From $9,950</span>
+          </label>
+        </div>
+      </fieldset>
+      <div class="full">
+        <label>Message <textarea name="message" placeholder="Tell us about your wedding or any questions." rows="3"></textarea></label>
+      </div>
+      <p id="as-duo-err" class="as-err" role="alert"></p>
+      <button type="submit" class="as-btn" id="as-duo-btn">Send Inquiry</button>
+      <p id="as-duo-sending-hint" class="as-sending-hint" aria-live="polite">This may take up to a minute when our server is waking up.</p>
+    </form>
+  </div>
+</div>
+<script>
+(function(){
+  var APP_URL = 'https://aurora-sonnet.onrender.com';
+  var THANK_YOU = 'https://aurorasonnet.com/request-a-quote-thank-you';
+  var form = document.getElementById('as-duo-f');
+  var errEl = document.getElementById('as-duo-err');
+  var btn = document.getElementById('as-duo-btn');
+  var weddingDateInput = document.getElementById('as-duo-weddingDate');
+  function setMinWeddingDate() {
+    if (weddingDateInput) {
+      var d = new Date();
+      weddingDateInput.setAttribute('min', d.getFullYear() + '-' + String(d.getMonth() + 1).padStart(2, '0') + '-' + String(d.getDate()).padStart(2, '0'));
+    }
+  }
+  setMinWeddingDate();
+  if (weddingDateInput) weddingDateInput.addEventListener('focus', setMinWeddingDate);
+  if (!form || !btn) return;
+  form.querySelectorAll('.pkg-card').forEach(function(card){
+    card.addEventListener('click', function(){
+      form.querySelectorAll('.pkg-card').forEach(function(c){ c.classList.remove('selected'); });
+      card.classList.add('selected');
+      card.querySelector('input').checked = true;
+    });
+  });
+  form.querySelectorAll('input[name="packageId"]').forEach(function(radio){
+    radio.addEventListener('change', function(){
+      form.querySelectorAll('.pkg-card').forEach(function(c){ c.classList.toggle('selected', c.querySelector('input').checked); });
+    });
+  });
+  function getLocalDateStr() {
+    var d = new Date();
+    return d.getFullYear() + '-' + String(d.getMonth() + 1).padStart(2, '0') + '-' + String(d.getDate()).padStart(2, '0');
+  }
+  form.addEventListener('submit', function(e){
+    e.preventDefault();
+    if (errEl) { errEl.style.display = 'none'; errEl.textContent = ''; }
+    var wd = form.weddingDate && form.weddingDate.value ? form.weddingDate.value.trim() : '';
+    if (wd && wd < getLocalDateStr()) {
+      if (errEl) { errEl.textContent = 'Please choose a wedding date that is today or in the future.'; errEl.style.display = 'block'; }
+      return;
+    }
+    btn.disabled = true;
+    btn.textContent = 'Sending…';
+    var sendingHint = document.getElementById('as-duo-sending-hint');
+    if (sendingHint) sendingHint.style.display = 'block';
+    var r = form.querySelector('input[name="packageId"]:checked');
+    var payload = {
+      name: (form.name && form.name.value) ? form.name.value.trim() : '',
+      email: (form.email && form.email.value) ? form.email.value.trim() : '',
+      phone: (form.phone && form.phone.value) ? form.phone.value.trim() : undefined,
+      weddingDate: (form.weddingDate && form.weddingDate.value) ? form.weddingDate.value.trim() : undefined,
+      venue: (form.venue && form.venue.value) ? form.venue.value.trim() : undefined,
+      requestedArtist: (form.requestedArtist && form.requestedArtist.value) ? form.requestedArtist.value : undefined,
+      packageId: r ? r.value : undefined,
+      message: (form.message && form.message.value) ? form.message.value.trim() : undefined
+    };
+    fetch(APP_URL + '/api/inquiry', { method: 'POST', headers: { 'Content-Type': 'application/json', 'Accept': 'application/json' }, body: JSON.stringify(payload) })
+      .then(function(res){
+        if (res.ok) { try { if (window.top && window.top.location) window.top.location.href = THANK_YOU; } catch(_){} return; }
+        return res.json().then(function(d){ throw new Error(d.error || 'Send failed'); });
+      })
+      .catch(function(err){
+        if (sendingHint) sendingHint.style.display = 'none';
+        if (errEl) { errEl.textContent = (err && err.message) ? err.message : 'Something went wrong. Please try again.'; errEl.style.display = 'block'; }
+        btn.disabled = false;
+        btn.textContent = 'Send Inquiry';
+      });
+  });
+})();
+</script>

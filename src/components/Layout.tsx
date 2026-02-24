@@ -1,8 +1,11 @@
 import { Outlet, useLocation } from 'react-router-dom'
 import { NavLink } from 'react-router-dom'
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useRef } from 'react'
+import { useApp } from '../context/AppContext'
 import UndoBar from './UndoBar'
 import styles from './Layout.module.css'
+
+const INQUIRY_API_URL_KEY = 'aurora_inquiry_api_url'
 
 const leadFormRoutes = ['/inquire', '/inquire-duo', '/inquire-combined', '/inquire-general']
 
@@ -27,11 +30,26 @@ const nav = [
 
 export default function Layout() {
   const location = useLocation()
+  const { actions } = useApp()
   const isInLeadForms = leadFormRoutes.some((r) => location.pathname === r)
   const [leadFormsOpen, setLeadFormsOpen] = useState(isInLeadForms)
+  const hasAutoSynced = useRef(false)
+
   useEffect(() => {
     if (isInLeadForms) setLeadFormsOpen(true)
   }, [isInLeadForms])
+
+  // Auto-sync website inquiries into the app on load so new submissions appear without clicking Sync
+  useEffect(() => {
+    if (hasAutoSynced.current) return
+    const base = typeof localStorage !== 'undefined' ? localStorage.getItem(INQUIRY_API_URL_KEY)?.trim()?.replace(/\/$/, '') : ''
+    if (!base) return
+    hasAutoSynced.current = true
+    const t = setTimeout(() => {
+      actions.syncInquiriesFromWebsite()
+    }, 2000)
+    return () => clearTimeout(t)
+  }, [actions])
 
   return (
     <div className={styles.layout}>

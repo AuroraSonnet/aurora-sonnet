@@ -165,7 +165,7 @@ export default function Settings() {
       <section className={styles.card}>
         <h2>Website inquiries</h2>
         <p className={styles.hint}>
-          When your lead form on aurorasonnet.com posts to your own API (see docs/embed-lead-form.md), new inquiries are saved on that server. Enter its URL below and click Sync to copy them into this app.
+          When your lead form on aurorasonnet.com posts to your own API (see docs/embed-lead-form.md), new inquiries are saved on that server. Enter its URL below and save it; the app will pull new inquiries automatically when you open the app or open Bookings. You can also click Sync to pull now.
         </p>
         <div className={styles.field}>
           <label htmlFor="inquiry-api-url">Inquiry API URL</label>

@@ -1,4 +1,4 @@
-import { createContext, useContext, useCallback, useMemo, useState, useEffect, type ReactNode } from 'react'
+import { createContext, useContext, useCallback, useMemo, useRef, useState, useEffect, type ReactNode } from 'react'
 import {
   clients as initialClients,
   projects as initialProjects,
@@ -17,7 +17,6 @@ import {
 } from '../data/mock'
 import {
   fetchState,
-  seedDatabase,
   apiCreateClient,
   apiUpdateClient,
   apiCreateProject,
@@ -32,6 +31,7 @@ import {
 } from '../api/db'
 
 const STORAGE_KEY = 'aurora_sonnet_data'
+const INQUIRY_API_URL_KEY = 'aurora_inquiry_api_url'
 
 interface DocumentTemplate {
   id: string
@@ -80,6 +80,12 @@ const defaultState: AppState = {
   pipelineStages: defaultPipelineStages,
 }
 
+/** True if API state has no clients/projects (avoid overwriting user data with empty response). */
+function isApiStateEmpty(apiState: { clients: unknown[]; projects: unknown[] } | null): boolean {
+  if (!apiState) return true
+  return apiState.clients.length === 0 && apiState.projects.length === 0
+}
+
 function loadStateFromStorage(): AppState {
   try {
     const raw = localStorage.getItem(STORAGE_KEY)
@@ -122,6 +128,8 @@ type AppActions = {
   deleteExpense: (id: string) => void
   setAutomationEnabled: (id: string, enabled: boolean) => void
   refreshState: () => Promise<void>
+  /** Pull new website inquiries from Inquiry API URL into the app (runs in background). */
+  syncInquiriesFromWebsite: () => Promise<void>
 }
 
 const AppContext = createContext<{ state: AppState; actions: AppActions } | null>(null)
@@ -140,8 +148,10 @@ function nextId(prefix: string, existing: { id: string }[]): string {
 export function AppProvider({ children }: { children: ReactNode }) {
   const [state, setState] = useState<AppState>(loadStateFromStorage)
   const [useApi, setUseApi] = useState(false)
+  const stateRef = useRef(state)
+  stateRef.current = state
 
-  // Try to load from API (Node + SQLite) on mount; fallback to localStorage
+  // Try to load from API (Node + SQLite) on mount; never overwrite with empty to avoid data loss on refresh/update
   useEffect(() => {
     let cancelled = false
     fetchState().then(async (apiState) => {
@@ -164,11 +174,8 @@ export function AppProvider({ children }: { children: ReactNode }) {
             invoiceTemplates: (apiState as { invoiceTemplates?: AppState['invoiceTemplates'] }).invoiceTemplates ?? [],
             pipelineStages: (apiState as { pipelineStages?: AppState['pipelineStages'] }).pipelineStages ?? defaultState.pipelineStages,
           } as AppState)
-        } else {
-          // Empty DB: seed with sample data so first-time users see something
-          const seeded = await seedDatabase()
-          if (!cancelled && seeded) setState(seeded as AppState)
         }
+        // If API returned empty, do NOT overwrite state or auto-seed — keep existing (e.g. localStorage) so user data isn't lost on refresh/update
       }
     })
     return () => {
@@ -275,16 +282,50 @@ export function AppProvider({ children }: { children: ReactNode }) {
 
   const refreshState = useCallback(async () => {
     const apiState = await fetchState()
-    if (apiState) {
-      setState((prev) => ({
-        ...defaultState,
-        ...apiState,
-        automations: (apiState as { automations?: Automation[] }).automations ?? prev.automations,
-        contractTemplates: (apiState as { contractTemplates?: DocumentTemplate[] }).contractTemplates ?? [],
-        invoiceTemplates: (apiState as { invoiceTemplates?: DocumentTemplate[] }).invoiceTemplates ?? [],
-      } as AppState))
-    }
+    // Never replace state with empty API response — prevents clients/pipelines from disappearing on refresh or after update
+    if (!apiState || isApiStateEmpty(apiState)) return
+    setState((prev) => ({
+      ...defaultState,
+      ...apiState,
+      automations: (apiState as { automations?: Automation[] }).automations ?? prev.automations,
+      contractTemplates: (apiState as { contractTemplates?: DocumentTemplate[] }).contractTemplates ?? [],
+      invoiceTemplates: (apiState as { invoiceTemplates?: DocumentTemplate[] }).invoiceTemplates ?? [],
+      pipelineStages: (apiState as { pipelineStages?: AppState['pipelineStages'] }).pipelineStages ?? prev.pipelineStages,
+    } as AppState))
   }, [])
+
+  const syncInquiriesFromWebsite = useCallback(async () => {
+    try {
+      const base =
+        (typeof localStorage !== 'undefined' && localStorage.getItem(INQUIRY_API_URL_KEY))?.trim()?.replace(/\/$/, '')
+      if (!base) return
+      const res = await fetch(`${base}/api/state`)
+      if (!res.ok) return
+      const apiState = (await res.json()) as {
+        clients?: { id: string; name: string; email: string; phone?: string; partnerName?: string; createdAt: string }[]
+        projects?: { id: string; clientId: string; clientName: string; title: string; stage: string; value: number; weddingDate: string; venue?: string; packageType?: string; dueDate: string; createdAt?: string }[]
+      }
+      const cloudClients = apiState.clients ?? []
+      const cloudProjects = apiState.projects ?? []
+      const current = stateRef.current
+      let created = 0
+      for (const c of cloudClients) {
+        if (!current.clients.some((x) => x.id === c.id)) {
+          await apiCreateClient({ ...c, createdAt: c.createdAt ?? new Date().toISOString().slice(0, 10) })
+          created++
+        }
+      }
+      for (const p of cloudProjects) {
+        if (!current.projects.some((x) => x.id === p.id)) {
+          await apiCreateProject({ ...p, dueDate: p.dueDate ?? new Date().toISOString().slice(0, 10) })
+          created++
+        }
+      }
+      if (created > 0) await refreshState()
+    } catch {
+      // ignore (e.g. network, CORS, or URL not set)
+    }
+  }, [refreshState])
 
   const value = useMemo(
     () => ({
@@ -303,6 +344,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
         deleteExpense,
         setAutomationEnabled,
         refreshState,
+        syncInquiriesFromWebsite,
       },
     }),
     [
@@ -320,6 +362,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
       deleteExpense,
       setAutomationEnabled,
       refreshState,
+      syncInquiriesFromWebsite,
     ]
   )
 

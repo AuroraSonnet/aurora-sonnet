@@ -67,6 +67,12 @@ export default function Projects() {
     }
   }, [clientIdFromState, location.pathname, navigate])
 
+  // Pull latest website inquiries when user opens Bookings so new submissions show up
+  useEffect(() => {
+    actions.syncInquiriesFromWebsite()
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- run only on mount when opening Bookings
+  }, [])
+
   const handleNewInquiry = (e: React.FormEvent) => {
     e.preventDefault()
     const client = clients.find((c) => c.id === form.clientId)
