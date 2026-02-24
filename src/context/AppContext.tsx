@@ -296,8 +296,8 @@ export function AppProvider({ children }: { children: ReactNode }) {
 
   const syncInquiriesFromWebsite = useCallback(async () => {
     try {
-      const base =
-        (typeof localStorage !== 'undefined' && localStorage.getItem(INQUIRY_API_URL_KEY))?.trim()?.replace(/\/$/, '')
+      const raw = typeof localStorage !== 'undefined' ? localStorage.getItem(INQUIRY_API_URL_KEY) : null
+      const base = raw && typeof raw === 'string' ? raw.trim().replace(/\/$/, '') : ''
       if (!base) return
       const res = await fetch(`${base}/api/state`)
       if (!res.ok) return
