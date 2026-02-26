@@ -3,12 +3,28 @@ services:
   - type: web
     name: aurora-sonnet
     runtime: node
-    buildCommand: npm install && npm run build
+    # Pin Node 20 for better-sqlite3; extra memory avoids OOM during build
+    buildCommand: npm install && NODE_OPTIONS=--max-old-space-size=4096 npm run build
     startCommand: npm start
     envVars:
+      - key: NODE_VERSION
+        value: "20"
       - key: STRIPE_SECRET_KEY
         sync: false
       - key: STRIPE_WEBHOOK_SECRET
         sync: false
       - key: FRONTEND_ORIGIN
         value: https://aurorasonnet.com
+      # Inquiry + reminder emails (set values in Render Dashboard → Environment)
+      - key: SMTP_HOST
+        sync: false
+      - key: SMTP_PORT
+        sync: false
+      - key: SMTP_USER
+        sync: false
+      - key: SMTP_PASS
+        sync: false
+      - key: SMTP_FROM
+        sync: false
+      - key: REMINDER_EMAIL_TO
+        sync: false
