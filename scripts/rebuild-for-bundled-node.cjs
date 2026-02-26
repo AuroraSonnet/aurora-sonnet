@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 /**
- * Rebuilds better-sqlite3 for the bundled Node.js so the server can load it
+ * Rebuilds better-sqlite3-with-prebuilds for the bundled Node.js so the server can load it
  * when run from the packaged app. Run after download-node.cjs.
  */
 const path = require('path')
@@ -16,8 +16,8 @@ if (!fs.existsSync(npm)) {
   process.exit(1)
 }
 
-console.log('Rebuilding better-sqlite3 for bundled Node...')
-execSync(`"${npm}" rebuild better-sqlite3`, {
+console.log('Rebuilding better-sqlite3-with-prebuilds for bundled Node...')
+execSync(`"${npm}" rebuild better-sqlite3-with-prebuilds`, {
   cwd: projectRoot,
   stdio: 'inherit',
   env: { ...process.env, PATH: path.join(runtime, 'bin') + path.delimiter + process.env.PATH },

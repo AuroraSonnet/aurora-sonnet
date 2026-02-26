@@ -21,7 +21,7 @@
     "copy-env-to-app": "node scripts/copy-env-to-app-support.cjs"
   },
   "dependencies": {
-    "better-sqlite3": "^11.10.0",
+    "better-sqlite3-with-prebuilds": "^7.4.3",
     "docx": "^9.5.3",
     "dotenv": "^16.4.5",
     "express": "^4.21.0",
