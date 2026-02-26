@@ -50,7 +50,7 @@ If it asks for a password, use a **Personal Access Token**: GitHub → Settings 
 
 - Wait a few minutes for the first deploy to finish.
 - When the log shows “Your service is live”, your URL appears at the top, e.g.  
-  **https://aurora-sonnet.onrender.com**
+  **https://aurora-sonnet-1.onrender.com**
 - Copy that full URL (no trailing slash).
 
 ---
@@ -59,9 +59,9 @@ If it asks for a password, use a **Personal Access Token**: GitHub → Settings 
 
 - In **EMBED_SOLO_INQUIRY_APP.html** and **EMBED_GENERAL_INQUIRY_APP.html**, find:
   ```js
-  var YOUR_APP_URL = 'https://aurora-sonnet.onrender.com';
+  var YOUR_APP_URL = 'https://aurora-sonnet-1.onrender.com';
   ```
-- The embed files use `https://aurora-sonnet.onrender.com`. If your Render service has a different URL, replace it in the embed code.
+- The embed files use `https://aurora-sonnet-1.onrender.com`. If your Render service has a different URL, replace it in the embed code.
 - Paste the updated embed code into your Hostinger page. Submissions will go only to your app.
 
 ---
