@@ -14,6 +14,7 @@ import {
   type Contract,
   type Expense,
   type Automation,
+  type CalendarReminder,
 } from '../data/mock'
 import {
   fetchState,
@@ -22,16 +23,21 @@ import {
   apiCreateProject,
   apiUpdateProject,
   apiCreateProposal,
+  apiUpdateProposal,
   apiCreateContract,
   apiUpdateContract,
   apiCreateInvoice,
   apiUpdateInvoice,
   apiCreateExpense,
   apiDeleteExpense,
+  apiCreateCalendarReminder,
+  apiUpdateCalendarReminder,
+  apiDeleteCalendarReminder,
 } from '../api/db'
+import { playNewInquirySound } from '../utils/sound'
+import { getInquiryApiBaseUrl } from '../utils/inquiryApiUrl'
 
 const STORAGE_KEY = 'aurora_sonnet_data'
-const INQUIRY_API_URL_KEY = 'aurora_inquiry_api_url'
 
 interface DocumentTemplate {
   id: string
@@ -46,6 +52,14 @@ interface PipelineStage {
   sortOrder: number
 }
 
+interface NewsletterTemplate {
+  id: string
+  name: string
+  subject: string
+  body: string
+  createdAt: string
+}
+
 interface AppState {
   clients: Client[]
   projects: Project[]
@@ -54,9 +68,11 @@ interface AppState {
   contracts: Contract[]
   expenses: Expense[]
   automations: Automation[]
+  calendarReminders: CalendarReminder[]
   contractTemplates: DocumentTemplate[]
   invoiceTemplates: DocumentTemplate[]
   pipelineStages: PipelineStage[]
+  newsletterTemplates: NewsletterTemplate[]
 }
 
 const defaultPipelineStages: PipelineStage[] = [
@@ -75,15 +91,64 @@ const defaultState: AppState = {
   contracts: initialContracts,
   expenses: initialExpenses,
   automations: initialAutomations,
+  calendarReminders: [],
   contractTemplates: [],
   invoiceTemplates: [],
   pipelineStages: defaultPipelineStages,
+  newsletterTemplates: [],
 }
 
-/** True if API state has no clients/projects (avoid overwriting user data with empty response). */
-function isApiStateEmpty(apiState: { clients: unknown[]; projects: unknown[] } | null): boolean {
-  if (!apiState) return true
-  return apiState.clients.length === 0 && apiState.projects.length === 0
+/** Never overwrite existing data with an empty list. If we have data and the API returns empty for that list, we keep ours. */
+function preferNonEmpty<T>(prev: T[], next: T[] | undefined): T[] {
+  if (!next) return prev
+  if (prev.length > 0 && next.length === 0) return prev
+  return next
+}
+
+/** Merge API state into app state without ever wiping a non-empty list. Use for initial load only (protects against empty API on cold start). */
+function mergeStateFromApi(
+  prev: AppState,
+  apiState: AppState & { automations?: Automation[]; contractTemplates?: DocumentTemplate[]; invoiceTemplates?: DocumentTemplate[]; pipelineStages?: PipelineStage[] }
+): AppState {
+  return {
+    ...defaultState,
+    ...apiState,
+    clients: preferNonEmpty(prev.clients, apiState.clients),
+    projects: preferNonEmpty(prev.projects, apiState.projects),
+    proposals: preferNonEmpty(prev.proposals, apiState.proposals),
+    invoices: preferNonEmpty(prev.invoices, apiState.invoices),
+    contracts: preferNonEmpty(prev.contracts, apiState.contracts),
+    expenses: preferNonEmpty(prev.expenses, apiState.expenses),
+    automations: preferNonEmpty(prev.automations, apiState.automations) as Automation[],
+    calendarReminders: preferNonEmpty(prev.calendarReminders, apiState.calendarReminders),
+    contractTemplates: preferNonEmpty(prev.contractTemplates, apiState.contractTemplates),
+    invoiceTemplates: preferNonEmpty(prev.invoiceTemplates, apiState.invoiceTemplates),
+    pipelineStages: preferNonEmpty(prev.pipelineStages, apiState.pipelineStages),
+    newsletterTemplates: prev.newsletterTemplates,
+  } as AppState
+}
+
+/** Merge API state trusting the response (for explicit refresh after delete/add). Accepts empty lists so deletes work. */
+function mergeStateFromApiTrusted(
+  prev: AppState,
+  apiState: AppState & { automations?: Automation[]; contractTemplates?: DocumentTemplate[]; invoiceTemplates?: DocumentTemplate[]; pipelineStages?: PipelineStage[] }
+): AppState {
+  return {
+    ...defaultState,
+    ...apiState,
+    clients: apiState.clients ?? prev.clients,
+    projects: apiState.projects ?? prev.projects,
+    proposals: apiState.proposals ?? prev.proposals,
+    invoices: apiState.invoices ?? prev.invoices,
+    contracts: apiState.contracts ?? prev.contracts,
+    expenses: apiState.expenses ?? prev.expenses,
+    automations: (apiState.automations ?? prev.automations) as Automation[],
+    calendarReminders: apiState.calendarReminders ?? prev.calendarReminders,
+    contractTemplates: apiState.contractTemplates ?? prev.contractTemplates,
+    invoiceTemplates: apiState.invoiceTemplates ?? prev.invoiceTemplates,
+    pipelineStages: apiState.pipelineStages ?? prev.pipelineStages,
+    newsletterTemplates: prev.newsletterTemplates,
+  } as AppState
 }
 
 function loadStateFromStorage(): AppState {
@@ -99,9 +164,11 @@ function loadStateFromStorage(): AppState {
           contracts: parsed.contracts ?? defaultState.contracts,
           expenses: parsed.expenses ?? defaultState.expenses,
           automations: parsed.automations ?? defaultState.automations,
+          calendarReminders: parsed.calendarReminders ?? defaultState.calendarReminders,
           contractTemplates: parsed.contractTemplates ?? defaultState.contractTemplates,
           invoiceTemplates: parsed.invoiceTemplates ?? defaultState.invoiceTemplates,
           pipelineStages: parsed.pipelineStages ?? defaultState.pipelineStages,
+          newsletterTemplates: parsed.newsletterTemplates ?? defaultState.newsletterTemplates,
         }
     }
   } catch (_) {}
@@ -119,17 +186,28 @@ type AppActions = {
   updateClient: (id: string, updates: Partial<Client>) => void
   addClient: (client: Omit<Client, 'id'>) => string
   addProject: (project: Omit<Project, 'id'>) => string
-  addProposal: (proposal: Omit<Proposal, 'id'>) => string
+  addProposal: (proposal: Omit<Proposal, 'id'>) => Promise<string>
+  updateProposal: (id: string, updates: Partial<Proposal>) => Promise<boolean>
   addContract: (contract: Omit<Contract, 'id'>) => string
   updateContract: (id: string, updates: Partial<Contract>) => void
   addInvoice: (invoice: Omit<Invoice, 'id'>) => string
   updateInvoice: (id: string, updates: Partial<Invoice>) => void
   addExpense: (expense: Omit<Expense, 'id'>) => string
   deleteExpense: (id: string) => void
+  addCalendarReminder: (reminder: Omit<CalendarReminder, 'id'>) => string
+  updateCalendarReminder: (id: string, updates: Partial<CalendarReminder>) => void
+  deleteCalendarReminder: (id: string) => void
   setAutomationEnabled: (id: string, enabled: boolean) => void
   refreshState: () => Promise<void>
+  /** Remove one client and their projects from local state only (after API delete succeeded). Avoids refreshState overwriting with empty. */
+  removeClientLocally: (clientId: string) => void
+  /** Add a client and their projects back to local state (for undo after delete). Keeps undo correct without relying on refreshState. */
+  restoreClientLocally: (client: Client, projects: Project[]) => void
   /** Pull new website inquiries from Inquiry API URL into the app (runs in background). */
   syncInquiriesFromWebsite: () => Promise<void>
+  addNewsletterTemplate: (template: Omit<NewsletterTemplate, 'id' | 'createdAt'>) => string
+  updateNewsletterTemplate: (id: string, updates: Partial<Pick<NewsletterTemplate, 'name' | 'subject' | 'body'>>) => void
+  deleteNewsletterTemplate: (id: string) => void
 }
 
 const AppContext = createContext<{ state: AppState; actions: AppActions } | null>(null)
@@ -166,14 +244,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
           apiState.contracts.length > 0 ||
           apiState.expenses.length > 0
         if (hasData) {
-          setState({
-            ...defaultState,
-            ...apiState,
-            automations: (apiState as { automations?: Automation[] }).automations ?? defaultState.automations,
-            contractTemplates: (apiState as { contractTemplates?: AppState['contractTemplates'] }).contractTemplates ?? [],
-            invoiceTemplates: (apiState as { invoiceTemplates?: AppState['invoiceTemplates'] }).invoiceTemplates ?? [],
-            pipelineStages: (apiState as { pipelineStages?: AppState['pipelineStages'] }).pipelineStages ?? defaultState.pipelineStages,
-          } as AppState)
+          setState((prev) => mergeStateFromApi(prev, apiState as AppState & { automations?: Automation[]; contractTemplates?: DocumentTemplate[]; invoiceTemplates?: DocumentTemplate[]; pipelineStages?: PipelineStage[] }))
         }
         // If API returned empty, do NOT overwrite state or auto-seed — keep existing (e.g. localStorage) so user data isn't lost on refresh/update
       }
@@ -220,13 +291,19 @@ export function AppProvider({ children }: { children: ReactNode }) {
     return id
   }, [state.projects, useApi])
 
-  const addProposal = useCallback((proposal: Omit<Proposal, 'id'>): string => {
+  const addProposal = useCallback(async (proposal: Omit<Proposal, 'id'>): Promise<string> => {
     const id = nextId('pr', state.proposals)
     const newProposal = { ...proposal, id }
     setState((s) => ({ ...s, proposals: [...s.proposals, newProposal] }))
-    if (useApi) apiCreateProposal(newProposal as Record<string, unknown>)
+    if (useApi) await apiCreateProposal(newProposal as Record<string, unknown>)
     return id
   }, [state.proposals, useApi])
+
+  const updateProposal = useCallback(async (id: string, updates: Partial<Proposal>): Promise<boolean> => {
+    setState((s) => ({ ...s, proposals: s.proposals.map((p) => (p.id === id ? { ...p, ...updates } : p)) }))
+    if (useApi) return apiUpdateProposal(id, updates as Record<string, unknown>)
+    return true
+  }, [useApi])
 
   const addContract = useCallback((contract: Omit<Contract, 'id'>): string => {
     const id = nextId('c', state.contracts)
@@ -273,6 +350,52 @@ export function AppProvider({ children }: { children: ReactNode }) {
     if (useApi) apiDeleteExpense(id)
   }, [useApi])
 
+  const addCalendarReminder = useCallback((reminder: Omit<CalendarReminder, 'id'>): string => {
+    const id = nextId('cr', state.calendarReminders)
+    const newReminder = { ...reminder, id }
+    setState((s) => ({ ...s, calendarReminders: [...s.calendarReminders, newReminder] }))
+    if (useApi) apiCreateCalendarReminder(newReminder)
+    return id
+  }, [state.calendarReminders, useApi])
+
+  const updateCalendarReminder = useCallback((id: string, updates: Partial<CalendarReminder>) => {
+    setState((s) => ({
+      ...s,
+      calendarReminders: s.calendarReminders.map((r) => (r.id === id ? { ...r, ...updates } : r)),
+    }))
+    if (useApi) apiUpdateCalendarReminder(id, updates as Record<string, unknown>)
+  }, [useApi])
+
+  const deleteCalendarReminder = useCallback((id: string) => {
+    setState((s) => ({ ...s, calendarReminders: s.calendarReminders.filter((r) => r.id !== id) }))
+    if (useApi) apiDeleteCalendarReminder(id)
+  }, [useApi])
+
+  const addNewsletterTemplate = useCallback(
+    (template: Omit<NewsletterTemplate, 'id' | 'createdAt'>): string => {
+      const id = nextId('nt', state.newsletterTemplates)
+      const createdAt = new Date().toISOString().slice(0, 10)
+      const nextTemplate: NewsletterTemplate = { ...template, id, createdAt }
+      setState((s) => ({ ...s, newsletterTemplates: [...s.newsletterTemplates, nextTemplate] }))
+      return id
+    },
+    [state.newsletterTemplates]
+  )
+
+  const updateNewsletterTemplate = useCallback((id: string, updates: Partial<Pick<NewsletterTemplate, 'name' | 'subject' | 'body'>>) => {
+    setState((s) => ({
+      ...s,
+      newsletterTemplates: s.newsletterTemplates.map((t) => (t.id === id ? { ...t, ...updates } : t)),
+    }))
+  }, [])
+
+  const deleteNewsletterTemplate = useCallback((id: string) => {
+    setState((s) => ({
+      ...s,
+      newsletterTemplates: s.newsletterTemplates.filter((t) => t.id !== id),
+    }))
+  }, [])
+
   const setAutomationEnabled = useCallback((id: string, enabled: boolean) => {
     setState((s) => ({
       ...s,
@@ -282,46 +405,114 @@ export function AppProvider({ children }: { children: ReactNode }) {
 
   const refreshState = useCallback(async () => {
     const apiState = await fetchState()
-    // Never replace state with empty API response — prevents clients/pipelines from disappearing on refresh or after update
-    if (!apiState || isApiStateEmpty(apiState)) return
-    setState((prev) => ({
-      ...defaultState,
-      ...apiState,
-      automations: (apiState as { automations?: Automation[] }).automations ?? prev.automations,
-      contractTemplates: (apiState as { contractTemplates?: DocumentTemplate[] }).contractTemplates ?? [],
-      invoiceTemplates: (apiState as { invoiceTemplates?: DocumentTemplate[] }).invoiceTemplates ?? [],
-      pipelineStages: (apiState as { pipelineStages?: AppState['pipelineStages'] }).pipelineStages ?? prev.pipelineStages,
-    } as AppState))
+    if (!apiState) return
+    // Use trusted merge so deletes and sync updates are applied (accepts empty lists)
+    setState((prev) => mergeStateFromApiTrusted(prev, apiState as AppState & { automations?: Automation[]; contractTemplates?: DocumentTemplate[]; invoiceTemplates?: DocumentTemplate[]; pipelineStages?: PipelineStage[] }))
+  }, [])
+
+  const removeClientLocally = useCallback((clientId: string) => {
+    setState((s) => ({
+      ...s,
+      clients: s.clients.filter((c) => c.id !== clientId),
+      projects: s.projects.filter((p) => p.clientId !== clientId),
+    }))
+  }, [])
+
+  const restoreClientLocally = useCallback((client: Client, projects: Project[]) => {
+    setState((s) => ({
+      ...s,
+      clients: s.clients.some((c) => c.id === client.id) ? s.clients : [...s.clients, client],
+      projects: [
+        ...s.projects.filter((p) => p.clientId !== client.id),
+        ...projects,
+      ],
+    }))
   }, [])
 
   const syncInquiriesFromWebsite = useCallback(async () => {
     try {
-      const raw = typeof localStorage !== 'undefined' ? localStorage.getItem(INQUIRY_API_URL_KEY) : null
-      const base = raw && typeof raw === 'string' ? raw.trim().replace(/\/$/, '') : ''
+      const base = getInquiryApiBaseUrl()
       if (!base) return
       const res = await fetch(`${base}/api/state`)
       if (!res.ok) return
       const apiState = (await res.json()) as {
         clients?: { id: string; name: string; email: string; phone?: string; partnerName?: string; createdAt: string }[]
-        projects?: { id: string; clientId: string; clientName: string; title: string; stage: string; value: number; weddingDate: string; venue?: string; packageType?: string; dueDate: string; createdAt?: string }[]
+        projects?: { id: string; clientId: string; clientName: string; title: string; stage: string; value: number; weddingDate: string; venue?: string; packageType?: string; dueDate: string; createdAt?: string; notes?: string }[]
       }
       const cloudClients = apiState.clients ?? []
       const cloudProjects = apiState.projects ?? []
       const current = stateRef.current
+      let localClientsSnapshot = [...current.clients]
+      let localProjectsSnapshot = [...current.projects]
       let created = 0
+      let usedApiSuccess = false
       for (const c of cloudClients) {
-        if (!current.clients.some((x) => x.id === c.id)) {
-          await apiCreateClient({ ...c, createdAt: c.createdAt ?? new Date().toISOString().slice(0, 10) })
-          created++
+        if (!localClientsSnapshot.some((x) => x.id === c.id)) {
+          const clientData = { ...c, createdAt: c.createdAt ?? new Date().toISOString().slice(0, 10) }
+          const ok = await apiCreateClient(clientData)
+          if (ok) {
+            localClientsSnapshot = [...localClientsSnapshot, clientData]
+            created++
+            usedApiSuccess = true
+          } else {
+            setState((prev) => {
+              const next = { ...prev, clients: [...prev.clients, clientData] }
+              saveState(next)
+              return next
+            })
+            localClientsSnapshot = [...localClientsSnapshot, clientData]
+            created++
+          }
         }
       }
       for (const p of cloudProjects) {
-        if (!current.projects.some((x) => x.id === p.id)) {
-          await apiCreateProject({ ...p, dueDate: p.dueDate ?? new Date().toISOString().slice(0, 10) })
+        const alreadyExists = localProjectsSnapshot.some(
+          (x) =>
+            x.clientName === p.clientName &&
+            x.title === p.title &&
+            x.stage === p.stage &&
+            (x.notes || '') === (p.notes || '') &&
+            x.weddingDate === p.weddingDate
+        )
+        if (alreadyExists) continue
+        const newId = nextId('p', localProjectsSnapshot)
+        const createdAt = p.createdAt ?? new Date().toISOString().slice(0, 10)
+        const dueDate = p.dueDate ?? createdAt
+        const projectData = { ...p, id: newId, createdAt, dueDate }
+        const ok = await apiCreateProject(projectData as Record<string, unknown>)
+        if (ok) {
+          localProjectsSnapshot = [...localProjectsSnapshot, { ...p, id: newId }]
+          created++
+          usedApiSuccess = true
+        } else {
+          const newProject = {
+            ...p,
+            id: newId,
+            clientId: p.clientId,
+            clientName: p.clientName,
+            title: p.title,
+            stage: p.stage,
+            value: p.value,
+            weddingDate: p.weddingDate,
+            venue: p.venue,
+            packageType: p.packageType,
+            dueDate,
+            createdAt,
+            notes: p.notes,
+          }
+          setState((prev) => {
+            const next = { ...prev, projects: [...prev.projects, newProject] }
+            saveState(next)
+            return next
+          })
+          localProjectsSnapshot = [...localProjectsSnapshot, newProject]
           created++
         }
       }
-      if (created > 0) await refreshState()
+      if (created > 0) {
+        if (usedApiSuccess) await refreshState()
+        playNewInquirySound()
+      }
     } catch {
       // ignore (e.g. network, CORS, or URL not set)
     }
@@ -336,15 +527,24 @@ export function AppProvider({ children }: { children: ReactNode }) {
         addClient,
         addProject,
         addProposal,
+        updateProposal,
         addContract,
         updateContract,
         addInvoice,
         updateInvoice,
         addExpense,
         deleteExpense,
+        addCalendarReminder,
+        updateCalendarReminder,
+        deleteCalendarReminder,
         setAutomationEnabled,
         refreshState,
+        removeClientLocally,
+        restoreClientLocally,
         syncInquiriesFromWebsite,
+        addNewsletterTemplate,
+        updateNewsletterTemplate,
+        deleteNewsletterTemplate,
       },
     }),
     [
@@ -354,15 +554,24 @@ export function AppProvider({ children }: { children: ReactNode }) {
       addClient,
       addProject,
       addProposal,
+      updateProposal,
       addContract,
       updateContract,
       addInvoice,
       updateInvoice,
       addExpense,
       deleteExpense,
+      addCalendarReminder,
+      updateCalendarReminder,
+      deleteCalendarReminder,
       setAutomationEnabled,
       refreshState,
+      removeClientLocally,
+      restoreClientLocally,
       syncInquiriesFromWebsite,
+      addNewsletterTemplate,
+      updateNewsletterTemplate,
+      deleteNewsletterTemplate,
     ]
   )
 

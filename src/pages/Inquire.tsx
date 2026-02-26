@@ -1,6 +1,7 @@
 import { useState } from 'react'
 import { useApp } from '../context/AppContext'
 import { apiSubmitInquiry } from '../api/db'
+import { getInquiryApiBaseUrl } from '../utils/inquiryApiUrl'
 import { PERFORMANCE_PACKAGES, getPackagePrice, type PackageId } from '../data/packages'
 import styles from './Inquire.module.css'
 
@@ -25,14 +26,14 @@ export default function Inquire() {
 
   const [submitting, setSubmitting] = useState(false)
   const [submitError, setSubmitError] = useState('')
-  const [submitted] = useState(false)
+  const [submitted, setSubmitted] = useState(false)
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault()
     setSubmitError('')
     setSubmitting(true)
     try {
-      const result = await apiSubmitInquiry({
+      const payload = {
         name: form.name.trim(),
         email: form.email.trim(),
         phone: form.phone.trim() || undefined,
@@ -41,13 +42,25 @@ export default function Inquire() {
         packageId: form.packageId || undefined,
         requestedArtist: form.requestedArtist || undefined,
         message: form.message.trim() || undefined,
-      })
+      }
+      let result = await apiSubmitInquiry(payload)
+      if (!result) {
+        const res = await fetch(`${getInquiryApiBaseUrl()}/api/inquiry`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(payload),
+        })
+        if (res.ok) {
+          result = (await res.json()) as { clientId: string; projectId: string }
+          await actions.syncInquiriesFromWebsite()
+        }
+      }
       if (!result) {
         setSubmitError('Failed to submit. Please try again.')
         return
       }
       await actions.refreshState()
-      window.location.href = 'https://aurorasonnet.com/request-a-quote-thank-you'
+      setSubmitted(true)
     } catch {
       setSubmitError('Failed to submit. Please try again.')
     } finally {

@@ -1,6 +1,7 @@
 import express from 'express'
 import Stripe from 'stripe'
 import { PDFDocument } from 'pdf-lib'
+import nodemailer from 'nodemailer'
 import { readFileSync, writeFileSync, existsSync, mkdirSync, unlinkSync } from 'fs'
 import { fileURLToPath } from 'url'
 import { dirname, join } from 'path'
@@ -15,6 +16,7 @@ import {
   updateProject,
   deleteProject,
   createProposal,
+  updateProposal,
   deleteProposal,
   createContract,
   updateContract,
@@ -24,6 +26,9 @@ import {
   deleteInvoice,
   createExpense,
   deleteExpense,
+  createCalendarReminder,
+  updateCalendarReminder,
+  deleteCalendarReminder,
   createContractTemplate,
   updateContractTemplate,
   deleteContractTemplate,
@@ -49,12 +54,51 @@ dotenv.config({ path: join(__dirname, '.env') })
 if (process.env.DATA_DIR) {
   dotenv.config({ path: join(process.env.DATA_DIR, '.env') })
 }
+// Fallback: load .env from cwd/server (e.g. when server is run from project root)
+try {
+  const cwdServerEnv = join(process.cwd(), 'server', '.env')
+  if (existsSync(cwdServerEnv)) {
+    dotenv.config({ path: cwdServerEnv })
+  }
+} catch (_) {}
 
 const app = express()
 const PORT = process.env.PORT || 3001
 
 let stripeSecret = process.env.STRIPE_SECRET_KEY
 let stripe = stripeSecret ? new Stripe(stripeSecret) : null
+
+// Calendar reminder email transport (Hostinger SMTP)
+const SMTP_HOST = process.env.SMTP_HOST
+const SMTP_PORT = Number(process.env.SMTP_PORT || 587)
+const SMTP_USER = process.env.SMTP_USER
+const SMTP_PASS = process.env.SMTP_PASS
+const SMTP_FROM = process.env.SMTP_FROM || SMTP_USER
+const REMINDER_EMAIL_TO = process.env.REMINDER_EMAIL_TO || SMTP_USER
+
+let reminderTransporter = null
+if (SMTP_HOST && SMTP_PORT && SMTP_USER && SMTP_PASS) {
+  reminderTransporter = nodemailer.createTransport({
+    host: SMTP_HOST,
+    port: SMTP_PORT,
+    secure: SMTP_PORT === 465,
+    auth: {
+      user: SMTP_USER,
+      pass: SMTP_PASS,
+    },
+  })
+}
+
+function logSmtpStatus() {
+  if (reminderTransporter && (REMINDER_EMAIL_TO || SMTP_USER)) {
+    console.log('SMTP: configured — inquiry and reminder emails enabled')
+  } else {
+    const where = process.env.DATA_DIR
+      ? `For the Mac app, put a .env file in: ${process.env.DATA_DIR}`
+      : `Put SMTP_HOST, SMTP_PORT, SMTP_USER, SMTP_PASS in server/.env`
+    console.log('SMTP: not configured — inquiry and reminder emails disabled.', where)
+  }
+}
 
 const dataDir = process.env.DATA_DIR || __dirname
 const PAYMENTS_FILE = join(dataDir, 'payments.json')
@@ -70,6 +114,50 @@ function ensureContractsDir() {
   if (!existsSync(CONTRACTS_DIR)) mkdirSync(CONTRACTS_DIR, { recursive: true })
 }
 ensureTemplatesDirs()
+ensureContractsDir()
+
+async function sendDueCalendarReminders() {
+  if (!reminderTransporter || !REMINDER_EMAIL_TO) return { sent: 0 }
+  const state = getState()
+  const nowIso = new Date().toISOString()
+  const due = (state.calendarReminders || []).filter(
+    (r) => r.reminderAt && !r.sentAt && r.reminderAt <= nowIso
+  )
+  if (!due.length) return { sent: 0 }
+
+  let sentCount = 0
+  for (const r of due) {
+    const client = r.clientId ? state.clients.find((c) => c.id === r.clientId) : null
+    const subject = `Reminder: ${r.title} (${r.date})`
+    const lines = [
+      `Reminder for ${r.date}`,
+      '',
+      r.title,
+      '',
+      r.notes || '',
+      '',
+    ]
+    if (client) {
+      lines.push(`Client: ${client.name}`)
+      if (client.email) lines.push(`Client email: ${client.email}`)
+    }
+    const text = lines.filter(Boolean).join('\n')
+    try {
+      await reminderTransporter.sendMail({
+        from: SMTP_FROM,
+        to: REMINDER_EMAIL_TO,
+        subject,
+        text,
+      })
+      const sentAt = new Date().toISOString()
+      updateCalendarReminder(r.id, { sentAt })
+      sentCount += 1
+    } catch (err) {
+      console.error('Failed to send reminder email', err)
+    }
+  }
+  return { sent: sentCount }
+}
 
 function readPayments() {
   if (!existsSync(PAYMENTS_FILE)) return {}
@@ -220,7 +308,59 @@ function isAllowedRedirectUrl(url) {
   }
 }
 
-app.post('/api/inquiry', (req, res) => {
+const INQUIRY_NOTIFY_EMAIL = process.env.INQUIRY_NOTIFY_EMAIL || REMINDER_EMAIL_TO || SMTP_USER
+
+async function sendInquiryNotification(payload) {
+  if (!reminderTransporter || !INQUIRY_NOTIFY_EMAIL) {
+    console.log('Inquiry notification skipped: SMTP not configured or no notify address')
+    return
+  }
+  const {
+    name,
+    email,
+    phone,
+    title,
+    isGeneral,
+    weddingDate,
+    venue,
+    packageId,
+    message,
+    requestedArtist,
+  } = payload
+  const typeLabel = isGeneral ? 'General contact' : 'Artist / wedding inquiry'
+  const subject = `New inquiry: ${name} — ${typeLabel}`
+  const lines = [
+    `You received a new ${typeLabel}.`,
+    '',
+    '— Contact —',
+    `Name: ${name}`,
+    `Email: ${email}`,
+    ...(phone ? [`Phone: ${phone}`] : []),
+    '',
+    '— Details —',
+    `Inquiry type: ${title}`,
+    ...(weddingDate ? [`Wedding/event date: ${weddingDate}`] : []),
+    ...(venue ? [`Venue: ${venue}`] : []),
+    ...(packageId ? [`Package: ${packageId}`] : []),
+    ...(requestedArtist ? [`Requested artist: ${requestedArtist}`] : []),
+    ...(message ? ['', '— Message —', message] : []),
+  ]
+  const text = lines.join('\n')
+  try {
+    await reminderTransporter.sendMail({
+      from: SMTP_FROM,
+      to: INQUIRY_NOTIFY_EMAIL,
+      subject,
+      text,
+    })
+    console.log('Inquiry notification email sent to', INQUIRY_NOTIFY_EMAIL)
+  } catch (err) {
+    const msg = err.response ? `${err.message} ${err.response}` : (err.message || String(err))
+    console.error('Failed to send inquiry notification email:', msg)
+  }
+}
+
+app.post('/api/inquiry', async (req, res) => {
   try {
     const body = req.body || {}
     const name = String(body.name ?? '').trim()
@@ -246,6 +386,7 @@ app.post('/api/inquiry', (req, res) => {
     const isGeneral = !venue && !packageId
     const title = isGeneral ? 'General inquiry' : (venue ? `${venue} Wedding` : 'Wedding inquiry')
 
+    // Only create a new contact when this email is not already on the Contacts page
     if (!existingClient) {
       createClient({
         id: clientId,
@@ -272,6 +413,19 @@ app.post('/api/inquiry', (req, res) => {
       createdAt: today,
       notes: inquiryMessage,
       requestedArtist: requestedArtist || undefined,
+    })
+
+    await sendInquiryNotification({
+      name,
+      email,
+      phone: (body.phone || '').trim() || undefined,
+      title,
+      isGeneral,
+      weddingDate,
+      venue,
+      packageId,
+      message: inquiryMessage,
+      requestedArtist,
     })
 
     if (nextUrl) {
@@ -385,6 +539,16 @@ app.post('/api/proposals', (req, res) => {
   } catch (err) {
     console.error(err)
     res.status(500).json({ error: 'Failed to create proposal' })
+  }
+})
+
+app.patch('/api/proposals/:id', (req, res) => {
+  try {
+    updateProposal(req.params.id, req.body)
+    res.json({ ok: true })
+  } catch (err) {
+    console.error(err)
+    res.status(500).json({ error: 'Failed to update proposal' })
   }
 })
 
@@ -614,6 +778,91 @@ app.delete('/api/expenses/:id', (req, res) => {
   } catch (err) {
     console.error(err)
     res.status(500).json({ error: 'Failed to delete expense' })
+  }
+})
+
+app.post('/api/calendar-reminders', (req, res) => {
+  try {
+    const r = req.body
+    if (!r.id || !r.date || !r.title || !r.createdAt) {
+      return res.status(400).json({ error: 'Missing id, date, title, or createdAt' })
+    }
+    createCalendarReminder({
+      id: r.id,
+      date: r.date,
+      title: r.title,
+      notes: r.notes ?? null,
+      clientId: r.clientId ?? null,
+      projectId: r.projectId ?? null,
+      reminderAt: r.reminderAt ?? null,
+      createdAt: r.createdAt,
+    })
+    res.status(201).json(getState().calendarReminders.find((x) => x.id === r.id))
+  } catch (err) {
+    console.error(err)
+    res.status(500).json({ error: 'Failed to create calendar reminder' })
+  }
+})
+
+app.patch('/api/calendar-reminders/:id', (req, res) => {
+  try {
+    updateCalendarReminder(req.params.id, req.body)
+    const updated = getState().calendarReminders.find((r) => r.id === req.params.id)
+    if (updated) res.json(updated)
+    else res.status(404).json({ error: 'Calendar reminder not found' })
+  } catch (err) {
+    console.error(err)
+    res.status(500).json({ error: 'Failed to update calendar reminder' })
+  }
+})
+
+app.delete('/api/calendar-reminders/:id', (req, res) => {
+  try {
+    deleteCalendarReminder(req.params.id)
+    res.json({ ok: true })
+  } catch (err) {
+    console.error(err)
+    res.status(500).json({ error: 'Failed to delete calendar reminder' })
+  }
+})
+
+app.post('/api/calendar-reminders/send-due', async (req, res) => {
+  try {
+    const result = await sendDueCalendarReminders()
+    res.json(result)
+  } catch (err) {
+    console.error(err)
+    res.status(500).json({ error: 'Failed to send due calendar reminders' })
+  }
+})
+
+// Test SMTP — always return HTML so browser shows something; API clients can use Accept: application/json
+function htmlPage(title, body) {
+  const safe = (s) => String(s).replace(/</g, '&lt;').replace(/&/g, '&amp;')
+  return `<!DOCTYPE html><html><head><meta charset="utf-8"><title>${safe(title)}</title></head><body style="font-family:system-ui,sans-serif;max-width:32em;margin:2rem auto;padding:0 1rem;"><h1>${safe(title)}</h1><p>${safe(body)}</p></body></html>`
+}
+app.get('/api/test-email', async (req, res) => {
+  const wantsJson = req && req.get && /application\/json/i.test(req.get('Accept'))
+  const to = REMINDER_EMAIL_TO || INQUIRY_NOTIFY_EMAIL || SMTP_USER
+  if (!reminderTransporter || !to) {
+    const body = 'SMTP not configured. Set SMTP_HOST, SMTP_PORT, SMTP_USER, SMTP_PASS (and REMINDER_EMAIL_TO or SMTP_USER) on Render.'
+    if (wantsJson) return res.status(503).json({ ok: false, error: body })
+    return res.status(503).set('Content-Type', 'text/html; charset=utf-8').send(htmlPage('SMTP not configured', body))
+  }
+  try {
+    await reminderTransporter.sendMail({
+      from: SMTP_FROM,
+      to,
+      subject: 'Aurora Sonnet — test email',
+      text: 'If you got this, inquiry notification emails are working.',
+    })
+    const message = 'Test email sent to ' + to
+    if (wantsJson) return res.json({ ok: true, message })
+    return res.set('Content-Type', 'text/html; charset=utf-8').send(htmlPage('Test email sent', message))
+  } catch (err) {
+    const msg = err.response ? `${err.message} ${err.response}` : (err.message || String(err))
+    if (wantsJson) return res.status(500).json({ ok: false, error: msg })
+    return res.status(500).set('Content-Type', 'text/html; charset=utf-8').send(htmlPage('SMTP error', msg))
   }
 })
 
@@ -1006,4 +1255,15 @@ app.listen(PORT, () => {
   console.log(`Aurora Sonnet API running on http://localhost:${PORT}`)
   if (existsSync(distPath)) console.log('Serving frontend from /dist')
   if (!stripeSecret) console.log('Warning: STRIPE_SECRET_KEY not set. Payment endpoints will return 503.')
+  logSmtpStatus()
+  // Send due calendar reminder emails every 15 minutes when SMTP is configured
+  if (reminderTransporter) {
+    const REMINDER_INTERVAL_MS = 15 * 60 * 1000
+    setInterval(() => {
+      sendDueCalendarReminders().then(({ sent }) => {
+        if (sent > 0) console.log(`Sent ${sent} calendar reminder email(s)`)
+      })
+    }, REMINDER_INTERVAL_MS)
+    console.log('Calendar reminder emails: will check every 15 minutes')
+  }
 })

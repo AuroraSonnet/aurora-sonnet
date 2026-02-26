@@ -90,6 +90,17 @@ db.exec(`
     label TEXT NOT NULL,
     sortOrder INTEGER NOT NULL
   );
+  CREATE TABLE IF NOT EXISTS calendar_reminders (
+    id TEXT PRIMARY KEY,
+    date TEXT NOT NULL,
+    title TEXT NOT NULL,
+    notes TEXT,
+    clientId TEXT,
+    projectId TEXT,
+    reminderAt TEXT,
+    sentAt TEXT,
+    createdAt TEXT NOT NULL
+  );
 `)
 
 // Optional templateId for "create from template" (migrate existing DBs)
@@ -136,6 +147,24 @@ try {
 }
 try {
   db.exec('ALTER TABLE projects ADD COLUMN deletedAt TEXT')
+} catch (e) {
+  if (!/duplicate column/i.test(e.message)) throw e
+}
+try {
+  db.exec('ALTER TABLE proposals ADD COLUMN emailBody TEXT')
+} catch (e) {
+  if (!/duplicate column/i.test(e.message)) throw e
+}
+for (const col of ['customPackageName', 'customPackageDetails', 'customPriceBreakdown']) {
+  try {
+    db.exec(`ALTER TABLE proposals ADD COLUMN ${col} TEXT`)
+  } catch (e) {
+    if (!/duplicate column/i.test(e.message)) throw e
+  }
+}
+// sentAt for calendar reminders (whether email was sent)
+try {
+  db.exec('ALTER TABLE calendar_reminders ADD COLUMN sentAt TEXT')
 } catch (e) {
   if (!/duplicate column/i.test(e.message)) throw e
 }
@@ -198,6 +227,10 @@ function rowToProposal(r) {
     status: r.status,
     value: r.value,
     sentAt: r.sentAt || undefined,
+    emailBody: r.emailBody || undefined,
+    customPackageName: r.customPackageName || undefined,
+    customPackageDetails: r.customPackageDetails || undefined,
+    customPriceBreakdown: r.customPriceBreakdown || undefined,
   }
 }
 
@@ -250,6 +283,20 @@ function rowToPipelineStage(r) {
   return { id: r.id, label: r.label, sortOrder: r.sortOrder }
 }
 
+function rowToCalendarReminder(r) {
+  return {
+    id: r.id,
+    date: r.date,
+    title: r.title,
+    notes: r.notes || undefined,
+    clientId: r.clientId || undefined,
+    projectId: r.projectId || undefined,
+    reminderAt: r.reminderAt || undefined,
+    sentAt: r.sentAt || undefined,
+    createdAt: r.createdAt,
+  }
+}
+
 export function getState() {
   const pipelineStages = db.prepare('SELECT * FROM pipeline_stages ORDER BY sortOrder ASC').all().map(rowToPipelineStage)
   return {
@@ -262,6 +309,7 @@ export function getState() {
     contractTemplates: db.prepare('SELECT * FROM contract_templates ORDER BY createdAt DESC').all(),
     invoiceTemplates: db.prepare('SELECT * FROM invoice_templates ORDER BY createdAt DESC').all(),
     pipelineStages: pipelineStages.length ? pipelineStages : defaultPipelineStages.map((s) => ({ id: s.id, label: s.label, sortOrder: s.sortOrder })),
+    calendarReminders: db.prepare('SELECT * FROM calendar_reminders ORDER BY date ASC, createdAt ASC').all().map(rowToCalendarReminder),
   }
 }
 
@@ -359,7 +407,7 @@ export function deleteProject(id) {
 
 export function createProposal(proposal) {
   db.prepare(
-    'INSERT INTO proposals (id, projectId, clientName, title, status, value, sentAt) VALUES (?, ?, ?, ?, ?, ?, ?)'
+    'INSERT INTO proposals (id, projectId, clientName, title, status, value, sentAt, emailBody, customPackageName, customPackageDetails, customPriceBreakdown) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)'
   ).run(
     proposal.id,
     proposal.projectId,
@@ -367,9 +415,34 @@ export function createProposal(proposal) {
     proposal.title,
     proposal.status,
     proposal.value,
-    proposal.sentAt ?? null
+    proposal.sentAt ?? null,
+    proposal.emailBody ?? null,
+    proposal.customPackageName ?? null,
+    proposal.customPackageDetails ?? null,
+    proposal.customPriceBreakdown ?? null
   )
   return proposal.id
+}
+
+export function updateProposal(id, updates) {
+  const row = db.prepare('SELECT * FROM proposals WHERE id = ?').get(id)
+  if (!row) return
+  const p = { ...rowToProposal(row), ...updates }
+  db.prepare(
+    'UPDATE proposals SET projectId=?, clientName=?, title=?, status=?, value=?, sentAt=?, emailBody=?, customPackageName=?, customPackageDetails=?, customPriceBreakdown=? WHERE id=?'
+  ).run(
+    p.projectId,
+    p.clientName,
+    p.title,
+    p.status,
+    p.value,
+    p.sentAt ?? null,
+    p.emailBody ?? null,
+    p.customPackageName ?? null,
+    p.customPackageDetails ?? null,
+    p.customPriceBreakdown ?? null,
+    id
+  )
 }
 
 export function deleteProposal(id) {
@@ -479,6 +552,47 @@ export function createExpense(expense) {
 
 export function deleteExpense(id) {
   db.prepare('DELETE FROM expenses WHERE id = ?').run(id)
+}
+
+// Calendar reminders
+export function createCalendarReminder(reminder) {
+  db.prepare(
+    'INSERT INTO calendar_reminders (id, date, title, notes, clientId, projectId, reminderAt, sentAt, createdAt) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)'
+  ).run(
+    reminder.id,
+    reminder.date,
+    reminder.title,
+    reminder.notes ?? null,
+    reminder.clientId ?? null,
+    reminder.projectId ?? null,
+    reminder.reminderAt ?? null,
+    reminder.sentAt ?? null,
+    reminder.createdAt
+  )
+  return reminder.id
+}
+
+export function updateCalendarReminder(id, updates) {
+  const row = db.prepare('SELECT * FROM calendar_reminders WHERE id = ?').get(id)
+  if (!row) return
+  const r = { ...rowToCalendarReminder(row), ...updates }
+  db.prepare(
+    'UPDATE calendar_reminders SET date=?, title=?, notes=?, clientId=?, projectId=?, reminderAt=?, sentAt=?, createdAt=? WHERE id=?'
+  ).run(
+    r.date,
+    r.title,
+    r.notes ?? null,
+    r.clientId ?? null,
+    r.projectId ?? null,
+    r.reminderAt ?? null,
+    r.sentAt ?? null,
+    r.createdAt,
+    id
+  )
+}
+
+export function deleteCalendarReminder(id) {
+  db.prepare('DELETE FROM calendar_reminders WHERE id = ?').run(id)
 }
 
 // Contract templates (fileName may be '' for editor-only templates)

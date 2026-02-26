@@ -1,7 +1,8 @@
 import { useState } from 'react'
 import { useApp } from '../context/AppContext'
 import { apiSubmitInquiry } from '../api/db'
-import { DUO_PACKAGES, type DuoPackageId } from '../data/packages'
+import { getInquiryApiBaseUrl } from '../utils/inquiryApiUrl'
+import { DUO_PACKAGES, getPackageOrDuoPrice, type DuoPackageId } from '../data/packages'
 import styles from './Inquire.module.css'
 
 export default function InquireDuo() {
@@ -31,7 +32,7 @@ export default function InquireDuo() {
     setSubmitError('')
     setSubmitting(true)
     try {
-      const result = await apiSubmitInquiry({
+      const payload = {
         name: form.name.trim(),
         email: form.email.trim(),
         phone: form.phone.trim() || undefined,
@@ -40,13 +41,25 @@ export default function InquireDuo() {
         packageId: form.packageId || undefined,
         requestedArtist: form.requestedArtist || undefined,
         message: form.message.trim() || undefined,
-      })
+      }
+      let result = await apiSubmitInquiry(payload)
+      if (!result) {
+        const res = await fetch(`${getInquiryApiBaseUrl()}/api/inquiry`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(payload),
+        })
+        if (res.ok) {
+          result = (await res.json()) as { clientId: string; projectId: string }
+          await actions.syncInquiriesFromWebsite()
+        }
+      }
       if (!result) {
         setSubmitError('Failed to submit. Please try again.')
         return
       }
       await actions.refreshState()
-      window.location.href = 'https://aurorasonnet.com/inquiry-thank-you'
+      window.location.href = 'https://aurorasonnet.com/request-a-quote-thank-you'
     } catch {
       setSubmitError('Failed to submit. Please try again.')
     } finally {
@@ -120,13 +133,13 @@ export default function InquireDuo() {
         </div>
 
         <label className={styles.fullWidth}>
-          Requested duo
+          Requested Duo
           <select
             value={form.requestedArtist}
             onChange={(e) => setForm((s) => ({ ...s, requestedArtist: e.target.value as typeof form.requestedArtist }))}
             className={styles.input}
           >
-            <option value="">Select duo</option>
+            <option value="">Select Duo</option>
             {ARTISTS.map((a) => (
               <option key={a.id} value={a.id}>
                 {a.name}
@@ -152,6 +165,11 @@ export default function InquireDuo() {
                   className={styles.packageRadio}
                 />
                 <span className={styles.packageName}>{pkg.shortName}</span>
+                {form.packageId === pkg.id && getPackageOrDuoPrice(pkg.id) != null && (
+                  <span className={styles.experienceFromPriceInline} aria-live="polite">
+                    From {new Intl.NumberFormat('en-US', { style: 'currency', currency: 'USD', maximumFractionDigits: 0 }).format(getPackageOrDuoPrice(pkg.id)!)}
+                  </span>
+                )}
               </label>
             ))}
           </div>

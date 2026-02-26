@@ -1,13 +1,11 @@
 import { useState, useEffect } from 'react'
 import { useApp } from '../context/AppContext'
 import { getStripeSettings, saveStripeSettings } from '../api/stripe'
-import { apiCreateClient, apiCreateProject } from '../api/db'
+import { getInquiryApiBaseUrl, getInquiryApiUrlKey } from '../utils/inquiryApiUrl'
 import styles from './Settings.module.css'
 
-const INQUIRY_API_URL_KEY = 'aurora_inquiry_api_url'
-
 export default function Settings() {
-  const { state, actions } = useApp()
+  const { actions } = useApp()
   const [configured, setConfigured] = useState(false)
   const [loading, setLoading] = useState(true)
   const [saving, setSaving] = useState(false)
@@ -17,6 +15,8 @@ export default function Settings() {
   const [inquiryApiUrl, setInquiryApiUrl] = useState('')
   const [syncing, setSyncing] = useState(false)
   const [syncMessage, setSyncMessage] = useState<{ type: 'ok' | 'err'; text: string } | null>(null)
+  const [testEmailLoading, setTestEmailLoading] = useState(false)
+  const [testEmailResult, setTestEmailResult] = useState<{ type: 'ok' | 'err'; text: string } | null>(null)
 
   useEffect(() => {
     getStripeSettings().then((r) => {
@@ -26,17 +26,12 @@ export default function Settings() {
   }, [])
 
   useEffect(() => {
-    try {
-      const saved = localStorage.getItem(INQUIRY_API_URL_KEY)
-      if (saved) setInquiryApiUrl(saved)
-    } catch {
-      // ignore
-    }
+    setInquiryApiUrl(getInquiryApiBaseUrl())
   }, [])
 
   const saveInquiryApiUrl = () => {
     try {
-      localStorage.setItem(INQUIRY_API_URL_KEY, inquiryApiUrl.trim())
+      localStorage.setItem(getInquiryApiUrlKey(), inquiryApiUrl.trim())
       setSyncMessage({ type: 'ok', text: 'URL saved.' })
     } catch {
       setSyncMessage({ type: 'err', text: 'Failed to save URL.' })
@@ -52,33 +47,30 @@ export default function Settings() {
     setSyncMessage(null)
     setSyncing(true)
     try {
-      const res = await fetch(`${base}/api/state`)
-      if (!res.ok) throw new Error('Failed to fetch from API')
-      const apiState = (await res.json()) as {
-        clients?: { id: string; name: string; email: string; phone?: string; partnerName?: string; createdAt: string }[]
-        projects?: { id: string; clientId: string; clientName: string; title: string; stage: string; value: number; weddingDate: string; venue?: string; packageType?: string; dueDate: string; createdAt?: string }[]
-      }
-      const cloudClients = apiState.clients ?? []
-      const cloudProjects = apiState.projects ?? []
-      let created = 0
-      for (const c of cloudClients) {
-        if (!state.clients.some((x) => x.id === c.id)) {
-          await apiCreateClient({ ...c, createdAt: c.createdAt ?? new Date().toISOString().slice(0, 10) })
-          created++
-        }
-      }
-      for (const p of cloudProjects) {
-        if (!state.projects.some((x) => x.id === p.id)) {
-          await apiCreateProject({ ...p, dueDate: p.dueDate ?? new Date().toISOString().slice(0, 10) })
-          created++
-        }
-      }
-      await actions.refreshState()
-      setSyncMessage({ type: 'ok', text: created > 0 ? `Synced ${created} new client(s)/project(s).` : 'No new inquiries to sync.' })
+      await actions.syncInquiriesFromWebsite()
+      setSyncMessage({ type: 'ok', text: 'Synced inquiries. Check Clients and Bookings.' })
     } catch (err) {
       setSyncMessage({ type: 'err', text: err instanceof Error ? err.message : 'Sync failed' })
     } finally {
       setSyncing(false)
+    }
+  }
+
+  const testSmtp = async () => {
+    setTestEmailResult(null)
+    setTestEmailLoading(true)
+    try {
+      const res = await fetch('/api/test-email', { headers: { Accept: 'application/json' } })
+      const data = await res.json().catch(() => ({}))
+      if (res.ok && data.ok) {
+        setTestEmailResult({ type: 'ok', text: data.message || 'Test email sent.' })
+      } else {
+        setTestEmailResult({ type: 'err', text: data.error || `Request failed (${res.status})` })
+      }
+    } catch (err) {
+      setTestEmailResult({ type: 'err', text: err instanceof Error ? err.message : 'Could not reach server' })
+    } finally {
+      setTestEmailLoading(false)
     }
   }
 
@@ -160,6 +152,21 @@ export default function Settings() {
             {saving ? 'Saving…' : 'Save Stripe settings'}
           </button>
         </form>
+      </section>
+
+      <section className={styles.card}>
+        <h2>Email (SMTP)</h2>
+        <p className={styles.hint}>
+          Inquiry and calendar reminder emails use the server’s SMTP settings. Test that they work from this app.
+        </p>
+        <div className={styles.buttonRow}>
+          <button type="button" onClick={testSmtp} className={styles.submitBtn} disabled={testEmailLoading}>
+            {testEmailLoading ? 'Testing…' : 'Test SMTP'}
+          </button>
+        </div>
+        {testEmailResult && (
+          <p className={testEmailResult.type === 'ok' ? styles.messageOk : styles.messageErr}>{testEmailResult.text}</p>
+        )}
       </section>
 
       <section className={styles.card}>
