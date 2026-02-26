@@ -183,7 +183,7 @@ app.use((req, res, next) => {
   next()
 })
 
-// CORS: allow Vite dev, optional frontend origin, aurorasonnet.com (embed form), and app sync (GET /api/state from any origin when deployed)
+// CORS: allow Vite dev, optional frontend origin, aurorasonnet.com (embed form), and public API endpoints (/api/state, /api/inquiry) from any HTTPS origin
 const frontendOrigin = process.env.FRONTEND_ORIGIN
 const allowedOrigins = [
   frontendOrigin,
@@ -193,10 +193,12 @@ const allowedOrigins = [
 app.use((req, res, next) => {
   const origin = req.headers.origin
   const isStateGet = req.method === 'GET' && req.path === '/api/state'
+  const isInquiry = req.path === '/api/inquiry'
   const allow =
     (origin && (origin.includes('localhost') || origin.includes('127.0.0.1'))) ||
     (origin && allowedOrigins.includes(origin)) ||
-    (isStateGet && origin)
+    // Allow any HTTPS origin for public endpoints so the form can live on any site
+    (origin && origin.startsWith('https://') && (isStateGet || isInquiry))
   if (allow) res.setHeader('Access-Control-Allow-Origin', origin)
   res.setHeader('Access-Control-Allow-Methods', 'GET, POST, PATCH, DELETE, OPTIONS')
   res.setHeader('Access-Control-Allow-Headers', 'Content-Type, Accept')
