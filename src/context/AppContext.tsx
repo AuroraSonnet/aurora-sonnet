@@ -456,7 +456,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
         try {
           const res = await fetch(`${base}/api/state`)
           if (res.ok) {
-            const fallback = (await res.json()) as MinimalState & { automations?: Automation[]; contractTemplates?: DocumentTemplate[]; invoiceTemplates?: DocumentTemplate[]; pipelineStages?: PipelineStage[] }
+            const fallback = (await res.json()) as AppState & { automations?: Automation[]; contractTemplates?: DocumentTemplate[]; invoiceTemplates?: DocumentTemplate[]; pipelineStages?: PipelineStage[] }
             if (hasData(fallback)) apiState = fallback
           }
         } catch {
