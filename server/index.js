@@ -417,7 +417,8 @@ app.post('/api/inquiry', async (req, res) => {
       requestedArtist: requestedArtist || undefined,
     })
 
-    await sendInquiryNotification({
+    // Fire-and-forget email so the form response isn't blocked by slow SMTP
+    sendInquiryNotification({
       name,
       email,
       phone: (body.phone || '').trim() || undefined,
@@ -428,6 +429,8 @@ app.post('/api/inquiry', async (req, res) => {
       packageId,
       message: inquiryMessage,
       requestedArtist,
+    }).catch((err) => {
+      console.error('Inquiry notification error (non-blocking):', err?.message || String(err))
     })
 
     if (nextUrl) {
