@@ -429,7 +429,15 @@ export function AppProvider({ children }: { children: ReactNode }) {
   }, [])
 
   const refreshState = useCallback(async () => {
-    function hasData(s: AppState | null): boolean {
+    type MinimalState = {
+      clients?: { id: string }[]
+      projects?: { id: string }[]
+      proposals?: { id: string }[]
+      invoices?: { id: string }[]
+      contracts?: { id: string }[]
+      expenses?: { id: string }[]
+    }
+    function hasData(s: MinimalState | null | undefined): boolean {
       if (!s) return false
       return (
         (s.clients?.length ?? 0) > 0 ||
@@ -448,7 +456,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
         try {
           const res = await fetch(`${base}/api/state`)
           if (res.ok) {
-            const fallback = (await res.json()) as AppState & { automations?: Automation[]; contractTemplates?: DocumentTemplate[]; invoiceTemplates?: DocumentTemplate[]; pipelineStages?: PipelineStage[] }
+            const fallback = (await res.json()) as MinimalState & { automations?: Automation[]; contractTemplates?: DocumentTemplate[]; invoiceTemplates?: DocumentTemplate[]; pipelineStages?: PipelineStage[] }
             if (hasData(fallback)) apiState = fallback
           }
         } catch {
@@ -456,7 +464,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
         }
       }
     }
-    if (!apiState || !hasData(apiState)) return // don't overwrite with empty
+    if (!apiState || !hasData(apiState as MinimalState)) return // don't overwrite with empty
     setState((prev) => mergeStateFromApiTrusted(prev, apiState as AppState & { automations?: Automation[]; contractTemplates?: DocumentTemplate[]; invoiceTemplates?: DocumentTemplate[]; pipelineStages?: PipelineStage[] }))
   }, [])
 
