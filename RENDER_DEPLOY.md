@@ -23,6 +23,17 @@
    Default is: `npm start` (runs `node server/index.js`).  
    Render sets `PORT`; the server listens on `process.env.PORT`.
 
+## If Native Node builds keep failing (better-sqlite3 / prebuilds)
+
+Switch the service to **Docker** so the build runs in a container with build tools:
+
+1. In Render Dashboard → **aurora-sonnet** → **Settings**.
+2. Under **Build & Deploy**, set **Runtime** to **Docker**.
+3. Leave **Dockerfile Path** blank (uses `./Dockerfile` in the repo root).
+4. Save and trigger **Manual Deploy**.
+
+The Dockerfile uses Node 18, installs Python/make/g++ for native compile, then runs `npm ci` and `npm run build`. Render will inject `PORT` at runtime.
+
 ## After a failed deploy
 
 - Fix any config or code issues suggested by the logs.  
