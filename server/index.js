@@ -39,6 +39,7 @@ import {
   updatePipelineStage,
   deletePipelineStage,
   seedDb,
+  getNextClientId,
 } from './db.js'
 import {
   seedClients,
@@ -380,7 +381,8 @@ app.post('/api/inquiry', async (req, res) => {
     const state = getState()
     const emailLower = email.toLowerCase()
     const existingClient = state.clients.find((c) => (c.email || '').toLowerCase() === emailLower)
-    const clientId = existingClient ? existingClient.id : nextId('c', state.clients)
+    // Use DB-based id generator so we never reuse ids of soft-deleted clients
+    const clientId = existingClient ? existingClient.id : getNextClientId()
     const projectId = nextId('p', state.projects)
     const today = new Date().toISOString().slice(0, 10)
     const weddingDate = (body.weddingDate || '').trim() || today

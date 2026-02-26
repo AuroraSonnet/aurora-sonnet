@@ -336,6 +336,13 @@ export function updateClient(id, updates) {
   ).run(c.name, c.email, c.phone ?? null, c.partnerName ?? null, c.createdAt, id)
 }
 
+/** Generate a new client id that never reuses ids of soft-deleted clients. */
+export function getNextClientId() {
+  const row = db.prepare("SELECT MAX(CAST(SUBSTR(id, 2) AS INTEGER)) AS maxId FROM clients").get()
+  const max = typeof row?.maxId === 'number' ? row.maxId : 0
+  return `c${max + 1}`
+}
+
 const _softDeleteClient = db.transaction((id) => {
   const ts = new Date().toISOString()
   db.prepare('UPDATE projects SET deletedAt = ? WHERE clientId = ?').run(ts, id)
