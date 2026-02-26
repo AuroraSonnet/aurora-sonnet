@@ -110,7 +110,7 @@ Copy from the line `<!--` below through `</script>`.
 </div>
 <script>
 (function() {
-  var YOUR_APP_URL = 'https://aurora-sonnet-1.onrender.com';
+  var YOUR_APP_URL = 'https://aurora-sonnet.onrender.com';
   var THANK_YOU_URL = 'https://aurorasonnet.com/request-a-quote-thank-you';
 
   var form = document.getElementById('aurora-solo-inquiry-form');
@@ -274,7 +274,7 @@ Copy from the line `<!--` below through `</script>`.
 </div>
 <script>
 (function(){
-  var API = 'https://aurora-sonnet-1.onrender.com/api/inquiry';
+  var API = 'https://aurora-sonnet.onrender.com/api/inquiry';
   var THANK_YOU = 'https://aurorasonnet.com/request-a-quote-thank-you';
   var form = document.getElementById('as-duo-f');
   var errEl = document.getElementById('as-duo-err');
@@ -412,7 +412,7 @@ Copy from the line `<!--` below through `</script>`.
 </div>
 <script>
 (function(){
-  var API = 'https://aurora-sonnet-1.onrender.com/api/inquiry';
+  var API = 'https://aurora-sonnet.onrender.com/api/inquiry';
   var THANK_YOU = 'https://aurorasonnet.com/request-a-quote-thank-you';
   var SOLO_IDS = ['dr-stephanie-susberich', 'blake-friedman'];
   var DUO_IDS = ['eli-liv', 'riley-richard', 'garrett-tamara'];

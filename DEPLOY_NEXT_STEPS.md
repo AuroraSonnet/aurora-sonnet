@@ -77,7 +77,7 @@ If either is empty, paste the value in.
 
 1. Click **Create Web Service** at the bottom.
 2. Wait a few minutes. The log will show “Build successful” and “Your service is live”.
-3. At the top you’ll see a URL like **https://aurora-sonnet-1.onrender.com**. Copy that URL.
+3. At the top you’ll see a URL like **https://aurora-sonnet.onrender.com**. Copy that URL.
 
 ---
 
@@ -87,14 +87,14 @@ If either is empty, paste the value in.
 On Hostinger, make your “General inquiry” or “Contact” button link to:
 
 ```
-https://aurora-sonnet-1.onrender.com/inquire-general
+https://aurora-sonnet.onrender.com/inquire-general
 ```
 
 **If you want the form embedded on Hostinger:**  
 In the form embed code, find this line:
 
 ```js
-var API_BASE_URL = 'https://aurora-sonnet-1.onrender.com';
+var API_BASE_URL = 'https://aurora-sonnet.onrender.com';
 ```
 
 ---

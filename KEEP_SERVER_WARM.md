@@ -12,7 +12,7 @@ Use a **free uptime or cron service** to ping your Render URL every 10–14 minu
 2. Click **Add New Monitor**.
 3. **Monitor Type:** HTTP(s).
 4. **Friendly Name:** e.g. `Aurora Sonnet keep-alive`.
-5. **URL:** your Render app URL, e.g. `https://aurora-sonnet-1.onrender.com` (you can use the root URL or `https://aurora-sonnet-1.onrender.com/api/state`).
+5. **URL:** your Render app URL, e.g. `https://aurora-sonnet.onrender.com` (you can use the root URL or `https://aurora-sonnet.onrender.com/api/state`).
 6. **Monitoring Interval:** 5 minutes (free tier allows this).
 7. Save. UptimeRobot will request that URL every 5 minutes, so Render won’t spin down.
 
@@ -20,7 +20,7 @@ Use a **free uptime or cron service** to ping your Render URL every 10–14 minu
 
 1. Go to **https://cron-job.org** and sign up.
 2. Create a new cron job that runs every **10** or **15** minutes.
-3. Set the URL to your Render app (e.g. `https://aurora-sonnet-1.onrender.com`).
+3. Set the URL to your Render app (e.g. `https://aurora-sonnet.onrender.com`).
 4. Save. The job will ping your app so it stays warm.
 
 After this is in place, the first form submission after a long idle may still be slow once in a while, but most submissions should complete in a few seconds.
