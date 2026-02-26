@@ -88,3 +88,9 @@
   color: #c00;
   margin: 0.5rem 0 0 0;
 }
+
+.success {
+  font-size: 1rem;
+  color: #2d7a3e;
+  margin: 0;
+}

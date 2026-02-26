@@ -1,0 +1,357 @@
+.page {
+  max-width: 900px;
+  margin: 0 auto;
+}
+
+.header {
+  margin-bottom: 1.25rem;
+}
+
+.header h1 {
+  font-size: 1.75rem;
+}
+
+.subtitle {
+  color: var(--text-secondary);
+  font-size: 0.95rem;
+  margin: 0.25rem 0 0;
+}
+
+.header {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-start;
+  gap: 0.5rem;
+}
+
+.headerActions {
+  margin-left: auto;
+}
+
+.sendRemindersBtn {
+  padding: 0.5rem 1rem;
+  font-size: 0.9rem;
+  background: var(--accent);
+  color: #fff;
+  border: none;
+  border-radius: var(--radius-sm);
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.sendRemindersBtn:hover:not(:disabled) {
+  filter: brightness(1.1);
+}
+
+.sendRemindersBtn:disabled {
+  opacity: 0.7;
+  cursor: not-allowed;
+}
+
+.reminderToast {
+  margin: 0 0 1rem;
+  padding: 0.5rem 0.75rem;
+  background: var(--bg-app);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  font-size: 0.9rem;
+  color: var(--text-secondary);
+}
+
+.controls {
+  display: flex;
+  align-items: center;
+  gap: 1rem;
+  margin-bottom: 1rem;
+}
+
+.navBtn {
+  background: var(--bg-app);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  padding: 0.4rem 0.75rem;
+  font-size: 1.1rem;
+  cursor: pointer;
+  color: var(--text);
+}
+
+.navBtn:hover {
+  background: var(--border);
+}
+
+.monthTitle {
+  font-size: 1.25rem;
+  font-weight: 600;
+  margin: 0;
+  min-width: 180px;
+  text-align: center;
+}
+
+.gridWrap {
+  background: var(--bg-card);
+  border-radius: var(--radius);
+  box-shadow: var(--shadow);
+  border: 1px solid var(--border);
+  overflow: hidden;
+  padding: 0.75rem;
+}
+
+.weekdayRow {
+  display: grid;
+  grid-template-columns: repeat(7, 1fr);
+  gap: 2px;
+  margin-bottom: 4px;
+}
+
+.weekday {
+  font-size: 0.75rem;
+  font-weight: 600;
+  color: var(--text-secondary);
+  text-align: center;
+}
+
+.daysGrid {
+  display: grid;
+  grid-template-columns: repeat(7, 1fr);
+  gap: 2px;
+}
+
+.dayCell {
+  aspect-ratio: 1;
+  max-height: 80px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: flex-start;
+  padding: 0.35rem;
+  background: var(--bg-app);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  cursor: pointer;
+  font-size: 0.9rem;
+  color: var(--text);
+  text-align: center;
+}
+
+.dayCell:hover {
+  background: var(--border);
+}
+
+.dayOther {
+  color: var(--text-muted);
+  opacity: 0.7;
+}
+
+.dayToday {
+  border-color: var(--accent);
+  background: rgba(var(--accent-rgb, 100, 80, 60), 0.08);
+  font-weight: 600;
+}
+
+.dayNum {
+  display: block;
+}
+
+.dayDots {
+  font-size: 0.65rem;
+  color: var(--accent);
+  margin-top: 2px;
+  letter-spacing: 0.5px;
+}
+
+/* Modal */
+.overlay {
+  position: fixed;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.4);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 1000;
+  padding: 1rem;
+}
+
+.modal {
+  background: var(--bg-card);
+  border-radius: var(--radius);
+  box-shadow: var(--shadow);
+  max-width: 440px;
+  width: 100%;
+  max-height: 90vh;
+  overflow-y: auto;
+  padding: 1.25rem;
+}
+
+.modalTitle {
+  font-size: 1.2rem;
+  margin: 0 0 1rem;
+}
+
+.reminderList {
+  display: flex;
+  flex-direction: column;
+  gap: 0.75rem;
+  margin-bottom: 1rem;
+}
+
+.reminderCard {
+  padding: 0.75rem;
+  background: var(--bg-app);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+}
+
+.reminderTitle {
+  font-weight: 600;
+  margin: 0 0 0.25rem;
+}
+
+.reminderNotes {
+  font-size: 0.9rem;
+  color: var(--text-secondary);
+  margin: 0 0 0.35rem;
+  white-space: pre-wrap;
+}
+
+.reminderAt {
+  font-size: 0.8rem;
+  color: var(--text-muted);
+  margin: 0.25rem 0 0;
+}
+
+.clientLink {
+  display: inline-block;
+  font-size: 0.85rem;
+  color: var(--accent);
+  margin-bottom: 0.35rem;
+}
+
+.clientLink:hover {
+  text-decoration: underline;
+}
+
+.cardActions {
+  display: flex;
+  gap: 0.5rem;
+  margin-top: 0.5rem;
+}
+
+.smallBtn,
+.smallBtnDanger {
+  padding: 0.25rem 0.5rem;
+  font-size: 0.8rem;
+  border-radius: var(--radius-sm);
+  border: none;
+  cursor: pointer;
+}
+
+.smallBtn {
+  background: var(--bg-card);
+  border: 1px solid var(--border);
+  color: var(--text);
+}
+
+.smallBtn:hover {
+  background: var(--border);
+}
+
+.smallBtnDanger {
+  background: transparent;
+  color: var(--text-muted);
+}
+
+.smallBtnDanger:hover {
+  color: #c00;
+}
+
+.inlineForm {
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+}
+
+.inlineActions {
+  display: flex;
+  gap: 0.5rem;
+  margin-top: 0.35rem;
+}
+
+.addSection {
+  padding-top: 0.75rem;
+  border-top: 1px solid var(--border);
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+}
+
+.label {
+  font-size: 0.85rem;
+  font-weight: 600;
+  color: var(--text-secondary);
+}
+
+.input,
+.textarea,
+.select {
+  width: 100%;
+  padding: 0.5rem 0.75rem;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  font-size: 0.9rem;
+  font-family: inherit;
+  box-sizing: border-box;
+}
+
+.textarea {
+  resize: vertical;
+  min-height: 60px;
+}
+
+.reminderAtLabel {
+  display: flex;
+  flex-direction: column;
+  gap: 0.25rem;
+  font-size: 0.85rem;
+}
+
+.reminderAtLabel input[type='checkbox'] {
+  margin-right: 0.5rem;
+}
+
+.modalActions {
+  display: flex;
+  gap: 0.5rem;
+  margin-top: 0.5rem;
+}
+
+.primaryBtn {
+  background: var(--accent);
+  color: #fff;
+  border: none;
+  padding: 0.5rem 1rem;
+  border-radius: var(--radius-sm);
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.primaryBtn:hover:not(:disabled) {
+  filter: brightness(1.1);
+}
+
+.primaryBtn:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
+}
+
+.linkBtn {
+  background: none;
+  border: none;
+  color: var(--accent);
+  cursor: pointer;
+  padding: 0.5rem;
+  font-size: 0.9rem;
+}
+
+.linkBtn:hover {
+  text-decoration: underline;
+}

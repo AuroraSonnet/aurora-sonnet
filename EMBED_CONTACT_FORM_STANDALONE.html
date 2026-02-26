@@ -2,7 +2,7 @@
   STANDALONE GENERAL INQUIRY FORM — No iframe, paste directly on Hostinger
   
   SETUP:
-  1. Replace YOUR_API_BASE_URL below with your Aurora Sonnet Node API URL (no trailing slash), e.g. https://your-app.onrender.com
+  1. API_BASE_URL below is set to https://aurora-sonnet.onrender.com (update if your Render service name differs).
   2. On success, visitors are redirected to https://aurorasonnet.com/general-inquiry-thank-you
   3. Paste this entire file into an HTML block on your contact page.
   NOTE: The form submits via JavaScript to your API; your Node server must be deployed and CORS allows aurorasonnet.com.
@@ -46,8 +46,8 @@
 
 <script>
 (function () {
-  // After you deploy the app (see DEPLOY_NEXT_STEPS.md), replace with your app URL, e.g. https://aurora-sonnet-xxxx.onrender.com (no trailing slash).
-  var API_BASE_URL = 'https://aurora-sonnet-xxxx.onrender.com';
+  // Aurora Sonnet API (Render). No trailing slash.
+  var API_BASE_URL = 'https://aurora-sonnet.onrender.com';
   var THANK_YOU_URL = 'https://aurorasonnet.com/general-inquiry-thank-you';
 
   var form = document.getElementById('aurora-inquiry-form');

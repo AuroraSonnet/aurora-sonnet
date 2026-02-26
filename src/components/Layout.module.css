@@ -110,6 +110,30 @@
 .sidebarFooter {
   padding: 1rem 1.25rem;
   border-top: 1px solid var(--border-sidebar);
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+}
+
+.refreshBtn {
+  display: block;
+  width: 100%;
+  padding: 0.4rem 0.6rem;
+  font-size: 0.8rem;
+  background: rgba(255, 255, 255, 0.1);
+  color: rgba(255, 255, 255, 0.9);
+  border: 1px solid var(--border-sidebar);
+  border-radius: var(--radius-sm);
+  cursor: pointer;
+}
+
+.refreshBtn:hover:not(:disabled) {
+  background: rgba(255, 255, 255, 0.15);
+}
+
+.refreshBtn:disabled {
+  opacity: 0.7;
+  cursor: not-allowed;
 }
 
 .badge {

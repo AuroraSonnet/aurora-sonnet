@@ -9,7 +9,7 @@ export default function Clients() {
   const navigate = useNavigate()
   const { state, actions } = useApp()
   const { pushUndo } = useUndo()
-  const { clients } = state
+  const { clients, projects } = state
   const [showAdd, setShowAdd] = useState(false)
   const [form, setForm] = useState({
     name: '',
@@ -20,17 +20,19 @@ export default function Clients() {
 
   const handleDeleteClient = async (clientId: string, clientName: string) => {
     if (!window.confirm(`Delete ${clientName}? Their bookings will be hidden and can be restored with Undo.`)) return
+    const deletedClient = clients.find((c) => c.id === clientId)
+    const deletedProjects = projects.filter((p) => p.clientId === clientId)
     const ok = await apiDeleteClient(clientId)
-    if (ok) {
+    if (ok && deletedClient) {
       pushUndo({
         id: `client-delete-${clientId}`,
         label: `"${clientName}" deleted`,
         undo: async () => {
           await apiRestoreClient(clientId)
-          await actions.refreshState()
+          actions.restoreClientLocally(deletedClient, deletedProjects)
         },
       })
-      await actions.refreshState()
+      actions.removeClientLocally(clientId)
     }
   }
 
@@ -47,12 +49,38 @@ export default function Clients() {
       id: `client-${clientId}`,
       label: `Client "${form.name.trim()}" added`,
       undo: async () => {
-        await apiDeleteClient(clientId)
-        await actions.refreshState()
+        const ok = await apiDeleteClient(clientId)
+        if (ok) actions.removeClientLocally(clientId)
       },
     })
     setShowAdd(false)
     setForm({ name: '', email: '', phone: '', partnerName: '' })
+  }
+
+  const handleExportEmails = () => {
+    const seen = new Set<string>()
+    const rows: string[] = ['Name,Email']
+    for (const c of clients) {
+      const email = (c.email || '').trim()
+      if (!email) continue
+      const key = email.toLowerCase()
+      if (seen.has(key)) continue
+      seen.add(key)
+      const name = (c.name || '').replace(/"/g, '""')
+      const safeEmail = email.replace(/"/g, '""')
+      rows.push(`"${name}","${safeEmail}"`)
+    }
+    if (rows.length === 1) {
+      window.alert('No client emails to export yet.')
+      return
+    }
+    const csv = rows.join('\n')
+    const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' })
+    const link = document.createElement('a')
+    link.href = URL.createObjectURL(blob)
+    link.download = `aurora-sonnet-client-emails-${new Date().toISOString().slice(0, 10)}.csv`
+    link.click()
+    URL.revokeObjectURL(link.href)
   }
 
   return (
@@ -140,6 +168,9 @@ export default function Clients() {
           <option>Name Z–A</option>
           <option>Recently added</option>
         </select>
+        <button type="button" className={styles.exportBtn} onClick={handleExportEmails}>
+          Download emails
+        </button>
       </div>
 
       <ul className={styles.list}>

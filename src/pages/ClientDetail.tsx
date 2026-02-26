@@ -4,6 +4,7 @@ import { useApp } from '../context/AppContext'
 import { useUndo } from '../context/UndoContext'
 import { apiDeleteClient, apiRestoreClient } from '../api/db'
 import { getPackageLabel } from '../data/packages'
+import { getInquiryReplyBody } from '../utils/emailSignature'
 import styles from './ClientDetail.module.css'
 
 export default function ClientDetail() {
@@ -37,13 +38,15 @@ export default function ClientDetail() {
     if (!client.email) return
     const firstName = getFirstName(client.name)
     const subject = encodeURIComponent('Re: Your inquiry — Aurora Sonnet')
-    const body = encodeURIComponent(`Hi ${firstName},\n\nThank you for your inquiry.\n\nBest regards`)
-    window.location.href = `mailto:${encodeURIComponent(client.email)}?subject=${subject}&body=${body}`
+    const bodyText = getInquiryReplyBody(firstName)
+    window.location.href = `mailto:${encodeURIComponent(client.email)}?subject=${subject}&body=${encodeURIComponent(bodyText)}`
   }
 
   const handleDelete = async () => {
     if (!id || !client) return
     const clientName = client.name
+    const deletedClient = { ...client }
+    const deletedProjects = clientProjects.map((p) => ({ ...p }))
     setDeleting(true)
     try {
       const ok = await apiDeleteClient(id)
@@ -54,10 +57,10 @@ export default function ClientDetail() {
           label: `"${clientName}" deleted`,
           undo: async () => {
             await apiRestoreClient(id)
-            await actions.refreshState()
+            actions.restoreClientLocally(deletedClient, deletedProjects)
           },
         })
-        await actions.refreshState()
+        actions.removeClientLocally(id)
         navigate('/clients')
       }
     } finally {
@@ -96,6 +99,13 @@ export default function ClientDetail() {
             onClick={() => navigate('/bookings', { state: { openNewInquiryForClientId: client.id } })}
           >
             New booking
+          </button>
+          <button
+            type="button"
+            className={styles.secBtn}
+            onClick={() => navigate('/calendar', { state: { preselectedClientId: client.id, openAddModal: true } })}
+          >
+            Add to calendar
           </button>
           <button
             type="button"

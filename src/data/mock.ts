@@ -38,6 +38,14 @@ export interface Proposal {
   status: 'draft' | 'sent' | 'accepted' | 'declined'
   value: number
   sentAt?: string
+  /** Custom email body when sending proposal (optional). */
+  emailBody?: string
+  /** Custom package: name (e.g. "Custom Celebration Package"). */
+  customPackageName?: string
+  /** Custom package: description / details (bullets or paragraph). */
+  customPackageDetails?: string
+  /** Custom package: price breakdown (e.g. "Ceremony — $1,500\nReception — $2,000"). */
+  customPriceBreakdown?: string
 }
 
 export interface Invoice {
@@ -103,6 +111,21 @@ export interface Automation {
   enabled: boolean
   delayDays?: number
   description: string
+}
+
+/** Calendar reminder (manual reminders, not automations). Can link to a client. */
+export interface CalendarReminder {
+  id: string
+  date: string
+  title: string
+  notes?: string
+  clientId?: string
+  projectId?: string
+  /** When to send the user an email reminder (ISO datetime). If set, app/cron can send reminder. */
+  reminderAt?: string
+  /** When the reminder email was actually sent (ISO datetime). */
+  sentAt?: string
+  createdAt: string
 }
 
 // Wedding-focused mock data for Aurora Sonnet (singing agency)

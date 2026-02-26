@@ -4,7 +4,7 @@ To have form submissions **saved in your Aurora Sonnet app** (new client + proje
 
 ## What you need
 
-1. **Your Aurora Sonnet app deployed** so it has a public URL (e.g. `https://aurora-sonnet-xxxx.onrender.com`).  
+1. **Your Aurora Sonnet app deployed** so it has a public URL (e.g. `https://aurora-sonnet.onrender.com`).  
    → Follow **DEPLOY_NEXT_STEPS.md** in this repo (Render in 8 steps).
 
 2. **This embed code** on your Hostinger contact page, with **one change**: set `YOUR_APP_URL` to that deployed URL (no trailing slash).

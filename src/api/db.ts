@@ -21,6 +21,7 @@ export interface AppState {
   invoices: { id: string; projectId?: string; clientName: string; clientEmail?: string; projectTitle: string; amount: number; status: string; dueDate: string; paidAt?: string; type?: string; templateId?: string }[]
   contracts: { id: string; projectId: string; clientName: string; title: string; status: string; value: number; weddingDate: string; venue?: string; packageType?: string; signedAt?: string; createdAt: string; templateId?: string; signToken?: string; clientSignedAt?: string }[]
   expenses: { id: string; date: string; description: string; amount: number; category: string }[]
+  calendarReminders?: { id: string; date: string; title: string; notes?: string; clientId?: string; projectId?: string; reminderAt?: string; sentAt?: string; createdAt: string }[]
   contractTemplates?: DocumentTemplate[]
   invoiceTemplates?: DocumentTemplate[]
   pipelineStages?: PipelineStage[]
@@ -180,6 +181,15 @@ export async function apiDeleteProject(id: string): Promise<boolean> {
   }
 }
 
+export async function apiUpdateProposal(id: string, updates: Record<string, unknown>): Promise<boolean> {
+  try {
+    const res = await fetch(`${API}/proposals/${id}`, { method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(updates) })
+    return res.ok
+  } catch {
+    return false
+  }
+}
+
 export async function apiDeleteProposal(id: string): Promise<boolean> {
   try {
     const res = await fetch(`${API}/proposals/${id}`, { method: 'DELETE' })
@@ -244,6 +254,50 @@ export async function apiDeleteInvoice(id: string): Promise<boolean> {
 export async function apiDeleteExpense(id: string): Promise<boolean> {
   try {
     const res = await fetch(`${API}/expenses/${id}`, { method: 'DELETE' })
+    return res.ok
+  } catch {
+    return false
+  }
+}
+
+export async function apiCreateCalendarReminder(reminder: {
+  id: string
+  date: string
+  title: string
+  notes?: string
+  clientId?: string
+  projectId?: string
+  reminderAt?: string
+  createdAt: string
+}): Promise<boolean> {
+  try {
+    const res = await fetch(`${API}/calendar-reminders`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(reminder),
+    })
+    return res.ok
+  } catch {
+    return false
+  }
+}
+
+export async function apiUpdateCalendarReminder(id: string, updates: Record<string, unknown>): Promise<boolean> {
+  try {
+    const res = await fetch(`${API}/calendar-reminders/${id}`, {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(updates),
+    })
+    return res.ok
+  } catch {
+    return false
+  }
+}
+
+export async function apiDeleteCalendarReminder(id: string): Promise<boolean> {
+  try {
+    const res = await fetch(`${API}/calendar-reminders/${id}`, { method: 'DELETE' })
     return res.ok
   } catch {
     return false

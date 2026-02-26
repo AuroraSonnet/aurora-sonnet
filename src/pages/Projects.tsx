@@ -12,6 +12,7 @@ import {
 } from '../api/db'
 import type { Project } from '../data/mock'
 import { ALL_PACKAGES, getPackageOrDuoPrice } from '../data/packages'
+import { getInquiryReplyBody } from '../utils/emailSignature'
 import styles from './Projects.module.css'
 
 const defaultStages = [
@@ -140,12 +141,8 @@ export default function Projects() {
     if (!email) return
     const firstName = getFirstName(editForm.clientName)
     const subject = encodeURIComponent('Re: Your inquiry — Aurora Sonnet')
-    const body = editForm.notes
-      ? encodeURIComponent(
-          `Hi ${firstName},\n\nThank you for your inquiry.\n\nYou wrote:\n${editForm.notes}\n\nBest regards`
-        )
-      : encodeURIComponent(`Hi ${firstName},\n\nThank you for your inquiry.\n\nBest regards`)
-    window.location.href = `mailto:${encodeURIComponent(email)}?subject=${subject}&body=${body}`
+    const bodyText = getInquiryReplyBody(firstName, editForm.notes ?? undefined)
+    window.location.href = `mailto:${encodeURIComponent(email)}?subject=${subject}&body=${encodeURIComponent(bodyText)}`
   }
 
   const handleAddStage = async () => {
