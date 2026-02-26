@@ -46,7 +46,7 @@ export default function Layout() {
     if (refreshing) return
     setRefreshing(true)
     try {
-      await actions.refreshState()
+      await actions.syncInquiriesFromWebsite()
       setRefreshedAt(Date.now())
     } finally {
       setRefreshing(false)
@@ -137,9 +137,9 @@ export default function Layout() {
             className={styles.refreshBtn}
             onClick={handleRefresh}
             disabled={refreshing}
-            aria-label="Refresh data"
+            aria-label="Sync inquiries from website"
           >
-            {refreshing ? 'Refreshing…' : refreshedAt != null ? 'Refreshed' : 'Refresh'}
+            {refreshing ? 'Syncing…' : refreshedAt != null ? 'Synced' : 'Sync inquiries'}
           </button>
           <span className={styles.badge}>Pro</span>
         </div>

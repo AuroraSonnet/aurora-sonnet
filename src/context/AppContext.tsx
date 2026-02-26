@@ -229,10 +229,12 @@ export function AppProvider({ children }: { children: ReactNode }) {
   const stateRef = useRef(state)
   stateRef.current = state
 
-  // Try to load from API (Node + SQLite) on mount; never overwrite with empty to avoid data loss on refresh/update
+  // Try to load from API (Node + SQLite) on mount; never overwrite with empty to avoid data loss on refresh/update.
+  // If same-origin fetch fails or returns empty, also try the inquiry API URL so the URL app shows data when opened from another host or after cold start.
   useEffect(() => {
     let cancelled = false
-    fetchState().then(async (apiState) => {
+    async function loadInitialState() {
+      const apiState = await fetchState()
       if (cancelled) return
       if (apiState) {
         setUseApi(true)
@@ -245,10 +247,33 @@ export function AppProvider({ children }: { children: ReactNode }) {
           apiState.expenses.length > 0
         if (hasData) {
           setState((prev) => mergeStateFromApi(prev, apiState as AppState & { automations?: Automation[]; contractTemplates?: DocumentTemplate[]; invoiceTemplates?: DocumentTemplate[]; pipelineStages?: PipelineStage[] }))
+          return
         }
-        // If API returned empty, do NOT overwrite state or auto-seed — keep existing (e.g. localStorage) so user data isn't lost on refresh/update
       }
-    })
+      // Fallback: same-origin failed or returned empty — fetch from inquiry API URL so URL app shows inquiries (e.g. when opened from aurorasonnet.com or after cold start)
+      const base = getInquiryApiBaseUrl()
+      if (!base) return
+      try {
+        const res = await fetch(`${base}/api/state`)
+        if (cancelled || !res.ok) return
+        const fallbackState = (await res.json()) as AppState & { automations?: Automation[]; contractTemplates?: DocumentTemplate[]; invoiceTemplates?: DocumentTemplate[]; pipelineStages?: PipelineStage[] }
+        if (cancelled) return
+        const hasData =
+          (fallbackState.clients?.length ?? 0) > 0 ||
+          (fallbackState.projects?.length ?? 0) > 0 ||
+          (fallbackState.proposals?.length ?? 0) > 0 ||
+          (fallbackState.invoices?.length ?? 0) > 0 ||
+          (fallbackState.contracts?.length ?? 0) > 0 ||
+          (fallbackState.expenses?.length ?? 0) > 0
+        if (hasData) {
+          setUseApi(true)
+          setState((prev) => mergeStateFromApi(prev, fallbackState))
+        }
+      } catch {
+        // ignore
+      }
+    }
+    loadInitialState()
     return () => {
       cancelled = true
     }
@@ -404,9 +429,34 @@ export function AppProvider({ children }: { children: ReactNode }) {
   }, [])
 
   const refreshState = useCallback(async () => {
-    const apiState = await fetchState()
-    if (!apiState) return
-    // Use trusted merge so deletes and sync updates are applied (accepts empty lists)
+    function hasData(s: AppState | null): boolean {
+      if (!s) return false
+      return (
+        (s.clients?.length ?? 0) > 0 ||
+        (s.projects?.length ?? 0) > 0 ||
+        (s.proposals?.length ?? 0) > 0 ||
+        (s.invoices?.length ?? 0) > 0 ||
+        (s.contracts?.length ?? 0) > 0 ||
+        (s.expenses?.length ?? 0) > 0
+      )
+    }
+    let apiState = await fetchState()
+    // If same-origin returned empty or failed, try inquiry API URL so refresh doesn't wipe data or use wrong backend
+    if (!hasData(apiState)) {
+      const base = getInquiryApiBaseUrl()
+      if (base) {
+        try {
+          const res = await fetch(`${base}/api/state`)
+          if (res.ok) {
+            const fallback = (await res.json()) as AppState & { automations?: Automation[]; contractTemplates?: DocumentTemplate[]; invoiceTemplates?: DocumentTemplate[]; pipelineStages?: PipelineStage[] }
+            if (hasData(fallback)) apiState = fallback
+          }
+        } catch {
+          // ignore
+        }
+      }
+    }
+    if (!apiState || !hasData(apiState)) return // don't overwrite with empty
     setState((prev) => mergeStateFromApiTrusted(prev, apiState as AppState & { automations?: Automation[]; contractTemplates?: DocumentTemplate[]; invoiceTemplates?: DocumentTemplate[]; pipelineStages?: PipelineStage[] }))
   }, [])
 
