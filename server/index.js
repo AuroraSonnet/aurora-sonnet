@@ -82,6 +82,8 @@ if (SMTP_HOST && SMTP_PORT && SMTP_USER && SMTP_PASS) {
     host: SMTP_HOST,
     port: SMTP_PORT,
     secure: SMTP_PORT === 465,
+    // Force IPv4 so Render can reach providers that only expose working IPv4 endpoints
+    family: 4,
     auth: {
       user: SMTP_USER,
       pass: SMTP_PASS,
