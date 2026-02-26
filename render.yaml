@@ -3,8 +3,8 @@ services:
   - type: web
     name: aurora-sonnet
     runtime: node
-    # Pin Node 20 for better-sqlite3; extra memory avoids OOM during build
-    buildCommand: npm install && NODE_OPTIONS=--max-old-space-size=4096 npm run build
+    # Pin Node 20. Install without scripts (avoids native build during install), then rebuild better-sqlite3 once for this Node; extra memory for frontend build.
+    buildCommand: npm install --ignore-scripts && npm rebuild better-sqlite3 && NODE_OPTIONS=--max-old-space-size=4096 npm run build
     startCommand: npm start
     envVars:
       - key: NODE_VERSION
