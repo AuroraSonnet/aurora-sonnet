@@ -154,6 +154,31 @@
   padding: 0.5rem 1rem;
 }
 
+.editForm label {
+  display: block;
+  margin-bottom: 1rem;
+  font-size: 0.9rem;
+  color: var(--text-secondary);
+}
+
+.editForm .input {
+  display: block;
+  width: 100%;
+  margin-top: 0.35rem;
+  padding: 0.5rem 0.75rem;
+  font-size: 0.95rem;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  background: var(--bg);
+  box-sizing: border-box;
+}
+
+.editForm .error {
+  font-size: 0.9rem;
+  color: #b33;
+  margin-bottom: 0.75rem;
+}
+
 .grid {
   display: grid;
   grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));

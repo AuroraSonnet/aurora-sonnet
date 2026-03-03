@@ -28,6 +28,10 @@ export interface Project {
   createdAt?: string
   /** Inquiry message (e.g. from general contact form) */
   notes?: string
+  /** Server project id when synced from inquiry API (used to avoid re-adding same inquiry) */
+  cloudProjectId?: string
+  /** When set, booking is archived and hidden from pipeline; viewable via View Archive */
+  archivedAt?: string
 }
 
 export interface Proposal {
@@ -48,6 +52,12 @@ export interface Proposal {
   customPriceBreakdown?: string
 }
 
+export interface InvoiceLineItem {
+  description: string
+  quantity: number
+  unitPrice: number
+}
+
 export interface Invoice {
   id: string
   projectId?: string
@@ -60,6 +70,12 @@ export interface Invoice {
   paidAt?: string
   type?: 'deposit' | 'balance' | 'full' | 'other'
   templateId?: string
+  /** Human-readable number e.g. INV-001 */
+  invoiceNumber?: string
+  /** Optional itemized lines; when present, amount should equal sum of (quantity * unitPrice) */
+  lineItems?: InvoiceLineItem[]
+  /** When the last "please pay" reminder email was sent (ISO string). */
+  lastReminderSentAt?: string
 }
 
 export type ContractStatus = 'draft' | 'sent' | 'signed'

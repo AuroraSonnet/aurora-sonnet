@@ -33,9 +33,14 @@ import {
   apiCreateCalendarReminder,
   apiUpdateCalendarReminder,
   apiDeleteCalendarReminder,
+  apiCreateExperience,
+  apiUpdateExperience,
+  apiDeleteExperience,
+  type Experience,
 } from '../api/db'
-import { playNewInquirySound } from '../utils/sound'
+import { playNewInquirySound, prepareInquirySoundContext } from '../utils/sound'
 import { getInquiryApiBaseUrl } from '../utils/inquiryApiUrl'
+import { isTestEmail, getDeletedClientIds } from '../utils/syncFilters'
 
 const STORAGE_KEY = 'aurora_sonnet_data'
 
@@ -60,6 +65,17 @@ interface NewsletterTemplate {
   createdAt: string
 }
 
+export interface MusicSelection {
+  id: string
+  clientId?: string
+  submitterName: string
+  submitterEmail: string
+  label?: string
+  songIds: string[]
+  songsText?: string
+  createdAt: string
+}
+
 interface AppState {
   clients: Client[]
   projects: Project[]
@@ -72,7 +88,10 @@ interface AppState {
   contractTemplates: DocumentTemplate[]
   invoiceTemplates: DocumentTemplate[]
   pipelineStages: PipelineStage[]
+  experiences: Experience[]
   newsletterTemplates: NewsletterTemplate[]
+  musicSelections: MusicSelection[]
+  config?: { publicAppUrl?: string }
 }
 
 const defaultPipelineStages: PipelineStage[] = [
@@ -95,7 +114,9 @@ const defaultState: AppState = {
   contractTemplates: [],
   invoiceTemplates: [],
   pipelineStages: defaultPipelineStages,
+  experiences: [],
   newsletterTemplates: [],
+  musicSelections: [],
 }
 
 /** Never overwrite existing data with an empty list. If we have data and the API returns empty for that list, we keep ours. */
@@ -124,7 +145,10 @@ function mergeStateFromApi(
     contractTemplates: preferNonEmpty(prev.contractTemplates, apiState.contractTemplates),
     invoiceTemplates: preferNonEmpty(prev.invoiceTemplates, apiState.invoiceTemplates),
     pipelineStages: preferNonEmpty(prev.pipelineStages, apiState.pipelineStages),
+    experiences: preferNonEmpty(prev.experiences, (apiState as { experiences?: Experience[] }).experiences),
     newsletterTemplates: prev.newsletterTemplates,
+    musicSelections: preferNonEmpty(prev.musicSelections ?? [], (apiState as { musicSelections?: MusicSelection[] }).musicSelections),
+    config: (apiState as { config?: { publicAppUrl?: string } }).config ?? prev.config,
   } as AppState
 }
 
@@ -147,7 +171,10 @@ function mergeStateFromApiTrusted(
     contractTemplates: apiState.contractTemplates ?? prev.contractTemplates,
     invoiceTemplates: apiState.invoiceTemplates ?? prev.invoiceTemplates,
     pipelineStages: apiState.pipelineStages ?? prev.pipelineStages,
+    experiences: (apiState as { experiences?: Experience[] }).experiences ?? prev.experiences,
     newsletterTemplates: prev.newsletterTemplates,
+    musicSelections: (apiState as { musicSelections?: MusicSelection[] }).musicSelections ?? prev.musicSelections ?? [],
+    config: (apiState as { config?: { publicAppUrl?: string } }).config ?? prev.config,
   } as AppState
 }
 
@@ -168,7 +195,9 @@ function loadStateFromStorage(): AppState {
           contractTemplates: parsed.contractTemplates ?? defaultState.contractTemplates,
           invoiceTemplates: parsed.invoiceTemplates ?? defaultState.invoiceTemplates,
           pipelineStages: parsed.pipelineStages ?? defaultState.pipelineStages,
+          experiences: parsed.experiences ?? defaultState.experiences,
           newsletterTemplates: parsed.newsletterTemplates ?? defaultState.newsletterTemplates,
+          musicSelections: parsed.musicSelections ?? defaultState.musicSelections ?? [],
         }
     }
   } catch (_) {}
@@ -183,8 +212,8 @@ function saveState(state: AppState) {
 
 type AppActions = {
   updateProject: (id: string, updates: Partial<Project>) => void
-  updateClient: (id: string, updates: Partial<Client>) => void
-  addClient: (client: Omit<Client, 'id'>) => string
+  updateClient: (id: string, updates: Partial<Client>) => void | Promise<void>
+  addClient: (client: Omit<Client, 'id'>) => Promise<string>
   addProject: (project: Omit<Project, 'id'>) => string
   addProposal: (proposal: Omit<Proposal, 'id'>) => Promise<string>
   updateProposal: (id: string, updates: Partial<Proposal>) => Promise<boolean>
@@ -203,11 +232,14 @@ type AppActions = {
   removeClientLocally: (clientId: string) => void
   /** Add a client and their projects back to local state (for undo after delete). Keeps undo correct without relying on refreshState. */
   restoreClientLocally: (client: Client, projects: Project[]) => void
-  /** Pull new website inquiries from Inquiry API URL into the app (runs in background). */
-  syncInquiriesFromWebsite: () => Promise<void>
+  /** Pull new website inquiries from Inquiry API URL into the app. Uses proxy when possible to avoid CORS. */
+  syncInquiriesFromWebsite: () => Promise<{ ok: boolean; message: string; created?: number; serverClients?: number; serverProjects?: number }>
   addNewsletterTemplate: (template: Omit<NewsletterTemplate, 'id' | 'createdAt'>) => string
   updateNewsletterTemplate: (id: string, updates: Partial<Pick<NewsletterTemplate, 'name' | 'subject' | 'body'>>) => void
   deleteNewsletterTemplate: (id: string) => void
+  createExperience: (experience: { name: string; description: string; bullets: string[]; fromPrice: number; imageUrl?: string | null; sortOrder?: number }) => Promise<{ ok: true; experience: Experience } | { ok: false; error: string }>
+  updateExperience: (id: string, updates: Partial<Pick<Experience, 'name' | 'description' | 'bullets' | 'fromPrice' | 'imageUrl' | 'sortOrder'>>) => Promise<{ ok: true; experience: Experience } | { ok: false; error: string }>
+  deleteExperience: (id: string) => Promise<boolean>
 }
 
 const AppContext = createContext<{ state: AppState; actions: AppActions } | null>(null)
@@ -291,19 +323,23 @@ export function AppProvider({ children }: { children: ReactNode }) {
     })
   }, [useApi])
 
-  const updateClient = useCallback((id: string, updates: Partial<Client>) => {
-    setState((s) => {
-      const next = { ...s, clients: s.clients.map((c) => (c.id === id ? { ...c, ...updates } : c)) }
-      if (useApi) apiUpdateClient(id, updates)
-      return next
-    })
+  const updateClient = useCallback(async (id: string, updates: Partial<Client>) => {
+    if (useApi) {
+      const result = await apiUpdateClient(id, updates as Record<string, unknown>)
+      if (!result.ok) throw new Error(result.error)
+    }
+    setState((s) => ({ ...s, clients: s.clients.map((c) => (c.id === id ? { ...c, ...updates } : c)) }))
   }, [useApi])
 
-  const addClient = useCallback((client: Omit<Client, 'id'>): string => {
+  const addClient = useCallback(async (client: Omit<Client, 'id'>): Promise<string> => {
     const id = nextId('', state.clients)
-    const newClient = { ...client, id }
+    const createdAt = (client as Client).createdAt ?? new Date().toISOString().slice(0, 10)
+    const newClient = { ...client, id, createdAt } as Client
+    if (useApi) {
+      const result = await apiCreateClient({ ...newClient, createdAt })
+      if (!result.ok) throw new Error(result.error)
+    }
     setState((s) => ({ ...s, clients: [...s.clients, newClient] }))
-    if (useApi) apiCreateClient({ ...newClient, createdAt: newClient.createdAt })
     return id
   }, [state.clients, useApi])
 
@@ -396,6 +432,42 @@ export function AppProvider({ children }: { children: ReactNode }) {
     if (useApi) apiDeleteCalendarReminder(id)
   }, [useApi])
 
+  const createExperience = useCallback(
+    async (experience: { name: string; description: string; bullets: string[]; fromPrice: number; imageUrl?: string | null; sortOrder?: number }) => {
+      const result = await apiCreateExperience(experience)
+      if (result.ok && useApi) {
+        const s = await fetchState()
+        if (s) setState((prev) => mergeStateFromApiTrusted(prev, { ...defaultState, ...s } as AppState))
+      }
+      return result
+    },
+    [useApi]
+  )
+
+  const updateExperience = useCallback(
+    async (id: string, updates: Partial<Pick<Experience, 'name' | 'description' | 'bullets' | 'fromPrice' | 'imageUrl' | 'sortOrder'>>) => {
+      const result = await apiUpdateExperience(id, updates)
+      if (result.ok && useApi) {
+        const s = await fetchState()
+        if (s) setState((prev) => mergeStateFromApiTrusted(prev, { ...defaultState, ...s } as AppState))
+      }
+      return result
+    },
+    [useApi]
+  )
+
+  const deleteExperience = useCallback(
+    async (id: string) => {
+      const ok = await apiDeleteExperience(id)
+      if (ok && useApi) {
+        const s = await fetchState()
+        if (s) setState((prev) => mergeStateFromApiTrusted(prev, { ...defaultState, ...s } as AppState))
+      }
+      return ok
+    },
+    [useApi]
+  )
+
   const addNewsletterTemplate = useCallback(
     (template: Omit<NewsletterTemplate, 'id' | 'createdAt'>): string => {
       const id = nextId('nt', state.newsletterTemplates)
@@ -465,7 +537,12 @@ export function AppProvider({ children }: { children: ReactNode }) {
       }
     }
     if (!apiState || !hasData(apiState as MinimalState)) return // don't overwrite with empty
-    setState((prev) => mergeStateFromApiTrusted(prev, apiState as AppState & { automations?: Automation[]; contractTemplates?: DocumentTemplate[]; invoiceTemplates?: DocumentTemplate[]; pipelineStages?: PipelineStage[] }))
+    const merged = apiState as AppState & { automations?: Automation[]; contractTemplates?: DocumentTemplate[]; invoiceTemplates?: DocumentTemplate[]; pipelineStages?: PipelineStage[] }
+    setState((prev) => {
+      const next = mergeStateFromApiTrusted(prev, merged)
+      saveState(next) // persist so deleted bookings/clients stay gone after app restart
+      return next
+    })
   }, [])
 
   const removeClientLocally = useCallback((clientId: string) => {
@@ -487,66 +564,159 @@ export function AppProvider({ children }: { children: ReactNode }) {
     }))
   }, [])
 
-  const syncInquiriesFromWebsite = useCallback(async () => {
+  const syncInquiriesFromWebsite = useCallback(async (): Promise<{ ok: boolean; message: string; created?: number; serverClients?: number; serverProjects?: number }> => {
+    prepareInquirySoundContext() // unlock audio on this click so chime can play after sync
+    const base = getInquiryApiBaseUrl()
+    if (!base) return { ok: false, message: 'Set Inquiry API URL in Settings (e.g. https://aurora-sonnet-1.onrender.com) and save.' }
     try {
-      const base = getInquiryApiBaseUrl()
-      if (!base) return
-      const res = await fetch(`${base}/api/state`)
-      if (!res.ok) return
+      // Prefer proxy so the Mac app avoids CORS (request goes to local server, server fetches Render).
+      let res = await fetch(`/api/proxy-remote-state?base=${encodeURIComponent(base)}`)
+      if (!res.ok) {
+        // Fallback: direct fetch (works in browser when Render CORS allows; may fail in desktop app).
+        res = await fetch(`${base}/api/state`)
+      }
+      if (!res.ok) {
+        const text = await res.text().catch(() => '')
+        return { ok: false, message: `Sync failed: server returned ${res.status}${text ? ` — ${text.slice(0, 80)}` : ''}. Check that the Inquiry API URL is correct and the server is running.` }
+      }
       const apiState = (await res.json()) as {
         clients?: { id: string; name: string; email: string; phone?: string; partnerName?: string; createdAt: string }[]
         projects?: { id: string; clientId: string; clientName: string; title: string; stage: string; value: number; weddingDate: string; venue?: string; packageType?: string; dueDate: string; createdAt?: string; notes?: string }[]
       }
-      const cloudClients = apiState.clients ?? []
-      const cloudProjects = apiState.projects ?? []
+      const allCloudClients = apiState.clients ?? []
+      const allCloudProjects = apiState.projects ?? []
+      const deletedIds = getDeletedClientIds()
+      // Include all clients from server except deleted; only treat as test when email is non-empty and matches test pattern (so empty-email clients still sync)
+      const cloudClients = allCloudClients.filter((c) => {
+        if (deletedIds.has(c.id)) return false
+        const email = (c.email || '').trim()
+        return email === '' || !isTestEmail(email)
+      })
+      const testClientIds = new Set(allCloudClients.filter((c) => (c.email || '').trim() !== '' && isTestEmail(c.email)).map((c) => c.id))
+      const cloudProjects = allCloudProjects.filter((p) => !testClientIds.has(p.clientId))
       const current = stateRef.current
       let localClientsSnapshot = [...current.clients]
       let localProjectsSnapshot = [...current.projects]
+      const cloudToLocalClientId: Record<string, string> = {}
       let created = 0
-      let usedApiSuccess = false
       for (const c of cloudClients) {
         if (!localClientsSnapshot.some((x) => x.id === c.id)) {
           const clientData = { ...c, createdAt: c.createdAt ?? new Date().toISOString().slice(0, 10) }
-          const ok = await apiCreateClient(clientData)
-          if (ok) {
+          const result = await apiCreateClient(clientData)
+          if (result.ok) {
             localClientsSnapshot = [...localClientsSnapshot, clientData]
+            cloudToLocalClientId[c.id] = c.id
             created++
-            usedApiSuccess = true
-          } else {
             setState((prev) => {
               const next = { ...prev, clients: [...prev.clients, clientData] }
               saveState(next)
               return next
             })
+          } else if (result.error?.toLowerCase().includes('already exists')) {
+            const existing = localClientsSnapshot.find(
+              (x) => (x.email || '').toLowerCase() === (clientData.email || '').toLowerCase()
+            )
+            if (existing) {
+              cloudToLocalClientId[c.id] = existing.id
+              // Refresh existing client from cloud so name/email/phone are never stale or empty
+              setState((prev) => {
+                const next = {
+                  ...prev,
+                  clients: prev.clients.map((x) =>
+                    x.id === existing.id
+                      ? { ...x, name: clientData.name, email: clientData.email, phone: clientData.phone ?? x.phone, partnerName: clientData.partnerName ?? x.partnerName }
+                      : x
+                  ),
+                }
+                saveState(next)
+                return next
+              })
+              localClientsSnapshot = localClientsSnapshot.map((x) =>
+                x.id === existing.id ? { ...x, name: clientData.name, email: clientData.email, phone: clientData.phone ?? x.phone, partnerName: clientData.partnerName ?? x.partnerName } : x
+              )
+            } else {
+              // API says the contact already exists (likely created via /api/inquiry).
+              // Trust the server and add this client locally so state matches /api/state.
+              localClientsSnapshot = [...localClientsSnapshot, clientData]
+              cloudToLocalClientId[c.id] = c.id
+              created++
+              setState((prev) => {
+                const next = { ...prev, clients: [...prev.clients, clientData] }
+                saveState(next)
+                return next
+              })
+            }
+          } else {
+            // Create failed (e.g. network, 400) — still add to state so Contacts list shows all server clients
             localClientsSnapshot = [...localClientsSnapshot, clientData]
+            cloudToLocalClientId[c.id] = c.id
             created++
+            setState((prev) => {
+              const next = { ...prev, clients: [...prev.clients, clientData] }
+              saveState(next)
+              return next
+            })
           }
+        } else {
+          cloudToLocalClientId[c.id] = c.id
+          // We already have this client by id; refresh from cloud so email/name/phone stay correct
+          setState((prev) => {
+            const next = {
+              ...prev,
+              clients: prev.clients.map((x) =>
+                x.id === c.id ? { ...x, name: c.name, email: c.email, phone: c.phone ?? x.phone, partnerName: c.partnerName ?? x.partnerName } : x
+              ),
+            }
+            saveState(next)
+            return next
+          })
+          localClientsSnapshot = localClientsSnapshot.map((x) =>
+            x.id === c.id ? { ...x, name: c.name, email: c.email, phone: c.phone ?? x.phone, partnerName: c.partnerName ?? x.partnerName } : x
+          )
+        }
+      }
+      // Ensure every cloud client appears in state (safety net if any create was skipped)
+      const mergedClients = [...localClientsSnapshot]
+      for (const c of cloudClients) {
+        const hasById = mergedClients.some((x) => x.id === c.id)
+        const hasByEmail = (c.email || '').trim() && mergedClients.some((x) => (x.email || '').toLowerCase() === (c.email || '').toLowerCase())
+        if (!hasById && !hasByEmail) {
+          const clientData = { ...c, createdAt: c.createdAt ?? new Date().toISOString().slice(0, 10) }
+          mergedClients.push(clientData)
+          setState((prev) => {
+            const next = { ...prev, clients: [...prev.clients, clientData] }
+            saveState(next)
+            return next
+          })
         }
       }
       for (const p of cloudProjects) {
-        const alreadyExists = localProjectsSnapshot.some(
-          (x) =>
-            x.clientName === p.clientName &&
-            x.title === p.title &&
-            x.stage === p.stage &&
-            (x.notes || '') === (p.notes || '') &&
-            x.weddingDate === p.weddingDate
-        )
-        if (alreadyExists) continue
+        const localClientId = cloudToLocalClientId[p.clientId] ?? p.clientId
+        const clientExists = localClientsSnapshot.some((c) => c.id === localClientId)
+        if (!clientExists) continue
+        // Dedupe by cloud project id so the same inquiry is never added twice; new inquiries get new ids on the server. Fallback to content match for projects synced before cloudProjectId existed.
+        const alreadySynced =
+          localProjectsSnapshot.some((x) => x.cloudProjectId === p.id) ||
+          localProjectsSnapshot.some(
+            (x) =>
+              x.clientId === localClientId &&
+              x.title === p.title &&
+              x.stage === p.stage &&
+              x.weddingDate === p.weddingDate &&
+              (x.notes || '') === (p.notes || '') &&
+              (x.createdAt || '') === (p.createdAt ?? '')
+          )
+        if (alreadySynced) continue
         const newId = nextId('p', localProjectsSnapshot)
         const createdAt = p.createdAt ?? new Date().toISOString().slice(0, 10)
         const dueDate = p.dueDate ?? createdAt
-        const projectData = { ...p, id: newId, createdAt, dueDate }
+        const projectData = { ...p, id: newId, clientId: localClientId, createdAt, dueDate, cloudProjectId: p.id }
         const ok = await apiCreateProject(projectData as Record<string, unknown>)
         if (ok) {
-          localProjectsSnapshot = [...localProjectsSnapshot, { ...p, id: newId }]
-          created++
-          usedApiSuccess = true
-        } else {
           const newProject = {
             ...p,
             id: newId,
-            clientId: p.clientId,
+            clientId: localClientId,
             clientName: p.clientName,
             title: p.title,
             stage: p.stage,
@@ -557,6 +727,31 @@ export function AppProvider({ children }: { children: ReactNode }) {
             dueDate,
             createdAt,
             notes: p.notes,
+            cloudProjectId: p.id,
+          }
+          localProjectsSnapshot = [...localProjectsSnapshot, newProject]
+          created++
+          setState((prev) => {
+            const next = { ...prev, projects: [...prev.projects, newProject] }
+            saveState(next)
+            return next
+          })
+        } else {
+          const newProject = {
+            ...p,
+            id: newId,
+            clientId: localClientId,
+            clientName: p.clientName,
+            title: p.title,
+            stage: p.stage,
+            value: p.value,
+            weddingDate: p.weddingDate,
+            venue: p.venue,
+            packageType: p.packageType,
+            dueDate,
+            createdAt,
+            notes: p.notes,
+            cloudProjectId: p.id,
           }
           setState((prev) => {
             const next = { ...prev, projects: [...prev.projects, newProject] }
@@ -568,13 +763,26 @@ export function AppProvider({ children }: { children: ReactNode }) {
         }
       }
       if (created > 0) {
-        if (usedApiSuccess) await refreshState()
-        playNewInquirySound()
+        playNewInquirySound() // play immediately; list already updated via setState above
+        // Do not call refreshState() here — it fetches from local server and can overwrite
+        // the clients we just merged from Render (local DB may not have them yet).
       }
-    } catch {
-      // ignore (e.g. network, CORS, or URL not set)
+      const serverClients = allCloudClients.length
+      const serverProjects = allCloudProjects.length
+      let message: string
+      if (serverClients === 0 && serverProjects === 0) {
+        message = 'Server has 0 clients and 0 projects. (1) Confirm your form posts to ' + base + '/api/inquiry. (2) On Render, free tier uses ephemeral storage — data is lost when the service sleeps. Add a Persistent Disk in Render and set env var DATA_DIR to the disk path (e.g. /data) so inquiries persist.'
+      } else if (created > 0) {
+        message = `Synced. Server has ${serverClients} clients, ${serverProjects} projects. ${created} new item(s) added.`
+      } else {
+        message = `Synced. Server has ${serverClients} clients, ${serverProjects} projects. No new inquiries to add.`
+      }
+      return { ok: true, message, created, serverClients, serverProjects }
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : String(err)
+      return { ok: false, message: `Sync failed: ${msg}. Check your internet connection and that the Inquiry API URL is correct.` }
     }
-  }, [refreshState])
+  }, [])
 
   const value = useMemo(
     () => ({
@@ -603,6 +811,9 @@ export function AppProvider({ children }: { children: ReactNode }) {
         addNewsletterTemplate,
         updateNewsletterTemplate,
         deleteNewsletterTemplate,
+        createExperience,
+        updateExperience,
+        deleteExperience,
       },
     }),
     [
@@ -630,6 +841,9 @@ export function AppProvider({ children }: { children: ReactNode }) {
       addNewsletterTemplate,
       updateNewsletterTemplate,
       deleteNewsletterTemplate,
+      createExperience,
+      updateExperience,
+      deleteExperience,
     ]
   )
 

@@ -1,8 +1,6 @@
-import { useState } from 'react'
+import { useState, useEffect } from 'react'
 import { useParams, Link, useNavigate } from 'react-router-dom'
 import { useApp } from '../context/AppContext'
-import { useUndo } from '../context/UndoContext'
-import { apiDeleteClient, apiRestoreClient } from '../api/db'
 import { getPackageLabel } from '../data/packages'
 import { getInquiryReplyBody } from '../utils/emailSignature'
 import styles from './ClientDetail.module.css'
@@ -11,13 +9,40 @@ export default function ClientDetail() {
   const { id } = useParams<{ id: string }>()
   const navigate = useNavigate()
   const { state, actions } = useApp()
-  const { pushUndo } = useUndo()
-  const { clients, projects, invoices } = state
+  const { clients, projects, invoices, musicSelections } = state
   const client = clients.find((c) => c.id === id)
   const clientProjects = projects.filter((p) => p.clientId === id)
   const clientInvoices = invoices.filter((i) => client && i.clientName.includes(client.name))
-  const [deleting, setDeleting] = useState(false)
-  const [showDeleteConfirm, setShowDeleteConfirm] = useState(false)
+  const clientMusicSelections = (musicSelections ?? []).filter((m) => m.clientId === id)
+
+  const [showEdit, setShowEdit] = useState(false)
+  const [editForm, setEditForm] = useState({ name: '', email: '', phone: '', partnerName: '' })
+  const [editError, setEditError] = useState<string | null>(null)
+  const [saving, setSaving] = useState(false)
+
+  useEffect(() => {
+    if (client) setEditForm({ name: client.name, email: client.email || '', phone: client.phone || '', partnerName: client.partnerName || '' })
+  }, [client])
+
+  const handleSaveEdit = async (e: React.FormEvent) => {
+    e.preventDefault()
+    if (!id || !client) return
+    setEditError(null)
+    setSaving(true)
+    try {
+      await actions.updateClient(id, {
+        name: editForm.name.trim(),
+        email: editForm.email.trim(),
+        phone: editForm.phone.trim() || undefined,
+        partnerName: editForm.partnerName.trim() || undefined,
+      })
+      setShowEdit(false)
+    } catch (err) {
+      setEditError(err instanceof Error ? err.message : 'Could not save')
+    } finally {
+      setSaving(false)
+    }
+  }
 
   if (!client) {
     return (
@@ -40,32 +65,6 @@ export default function ClientDetail() {
     const subject = encodeURIComponent('Re: Your inquiry — Aurora Sonnet')
     const bodyText = getInquiryReplyBody(firstName)
     window.location.href = `mailto:${encodeURIComponent(client.email)}?subject=${subject}&body=${encodeURIComponent(bodyText)}`
-  }
-
-  const handleDelete = async () => {
-    if (!id || !client) return
-    const clientName = client.name
-    const deletedClient = { ...client }
-    const deletedProjects = clientProjects.map((p) => ({ ...p }))
-    setDeleting(true)
-    try {
-      const ok = await apiDeleteClient(id)
-      if (ok) {
-        setShowDeleteConfirm(false)
-        pushUndo({
-          id: `client-delete-${id}`,
-          label: `"${clientName}" deleted`,
-          undo: async () => {
-            await apiRestoreClient(id)
-            actions.restoreClientLocally(deletedClient, deletedProjects)
-          },
-        })
-        actions.removeClientLocally(id)
-        navigate('/clients')
-      }
-    } finally {
-      setDeleting(false)
-    }
   }
 
   return (
@@ -107,31 +106,66 @@ export default function ClientDetail() {
           >
             Add to calendar
           </button>
-          <button
-            type="button"
-            className={styles.dangerBtn}
-            onClick={() => setShowDeleteConfirm(true)}
-          >
-            Delete client
+          <button type="button" className={styles.secBtn} onClick={() => { setEditError(null); setShowEdit(true) }}>
+            Edit contact
           </button>
         </div>
       </header>
 
-      {showDeleteConfirm && (
-        <div className={styles.confirmOverlay} role="dialog" aria-modal="true" aria-labelledby="delete-confirm-title">
+      {showEdit && (
+        <div className={styles.confirmOverlay} role="dialog" aria-modal="true" aria-labelledby="edit-contact-title">
           <div className={styles.confirmModal}>
-            <h2 id="delete-confirm-title" className={styles.confirmTitle}>Delete client?</h2>
-            <p className={styles.confirmMessage}>
-              {client.name} and their bookings will be removed from the list. You can undo this from the bar below if you change your mind.
-            </p>
-            <div className={styles.confirmActions}>
-              <button type="button" className={styles.cancelBtn} onClick={() => setShowDeleteConfirm(false)} disabled={deleting}>
-                Cancel
-              </button>
-              <button type="button" className={styles.dangerBtn} onClick={handleDelete} disabled={deleting}>
-                {deleting ? 'Deleting…' : 'Delete'}
-              </button>
-            </div>
+            <h2 id="edit-contact-title" className={styles.confirmTitle}>Edit contact</h2>
+            <form onSubmit={handleSaveEdit} className={styles.editForm}>
+              <label>
+                Name *
+                <input
+                  type="text"
+                  value={editForm.name}
+                  onChange={(e) => setEditForm((f) => ({ ...f, name: e.target.value }))}
+                  className={styles.input}
+                  required
+                />
+              </label>
+              <label>
+                Email *
+                <input
+                  type="email"
+                  value={editForm.email}
+                  onChange={(e) => setEditForm((f) => ({ ...f, email: e.target.value }))}
+                  className={styles.input}
+                  required
+                />
+              </label>
+              <label>
+                Phone
+                <input
+                  type="tel"
+                  value={editForm.phone}
+                  onChange={(e) => setEditForm((f) => ({ ...f, phone: e.target.value }))}
+                  className={styles.input}
+                />
+              </label>
+              <label>
+                Partner name
+                <input
+                  type="text"
+                  value={editForm.partnerName}
+                  onChange={(e) => setEditForm((f) => ({ ...f, partnerName: e.target.value }))}
+                  className={styles.input}
+                  placeholder="e.g. James Walsh"
+                />
+              </label>
+              {editError && <p className={styles.error} role="alert">{editError}</p>}
+              <div className={styles.confirmActions}>
+                <button type="button" className={styles.cancelBtn} onClick={() => setShowEdit(false)} disabled={saving}>
+                  Cancel
+                </button>
+                <button type="submit" className={styles.primBtn} disabled={saving}>
+                  {saving ? 'Saving…' : 'Save'}
+                </button>
+              </div>
+            </form>
           </div>
         </div>
       )}
@@ -155,6 +189,25 @@ export default function ClientDetail() {
                     </span>
                   </Link>
                   <span className={styles.amount}>${p.value.toLocaleString()}</span>
+                </li>
+              ))}
+            </ul>
+          )}
+        </section>
+
+        <section className={styles.card}>
+          <h2>Music selections</h2>
+          {clientMusicSelections.length === 0 ? (
+            <p className={styles.empty}>No music selections yet.</p>
+          ) : (
+            <ul className={styles.list}>
+              {clientMusicSelections.map((m) => (
+                <li key={m.id}>
+                  <span>
+                    <strong>{m.label || 'Wedding music'}</strong>
+                    {m.songsText && <span className={styles.meta}> — {m.songsText}</span>}
+                  </span>
+                  <span className={styles.meta}>{new Date(m.createdAt).toLocaleDateString()}</span>
                 </li>
               ))}
             </ul>

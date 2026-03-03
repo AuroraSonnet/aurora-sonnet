@@ -94,8 +94,9 @@ Then run `npm run dev:app` or `npm run dev:electron` again.
 
 ### Render notes
 
-- **Disk:** The server uses SQLite and a `payments.json` file. On Render, the filesystem is **ephemeral** (resets on redeploy). For a permanent database you’d need a separate DB or a host with persistent disk (e.g. Railway with a volume). Fine for trying things out.
+- **Disk:** On Render without `DATA_DIR`, the app uses `/tmp/aurora-sonnet-data` for DB, payments, templates, and contracts (ephemeral; resets on redeploy). For persistence use a host with a volume and set `DATA_DIR` (e.g. Railway with `DATA_DIR=/data`).
 - **Free tier:** Render’s free web service tier may no longer be available; the lowest tier is paid. Check [Render pricing](https://render.com/pricing).
+- **Free persistence without paying Render:** See **FREE_PERSISTENCE_OPTIONS.md** (Railway free credit + volume, or external DB).
 
 ---
 

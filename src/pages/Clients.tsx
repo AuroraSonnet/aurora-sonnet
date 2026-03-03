@@ -1,15 +1,15 @@
-import { useState } from 'react'
+import { useState, useMemo } from 'react'
 import { Link, useNavigate } from 'react-router-dom'
 import { useApp } from '../context/AppContext'
 import { useUndo } from '../context/UndoContext'
-import { apiDeleteClient, apiRestoreClient } from '../api/db'
+import { apiDeleteClient } from '../api/db'
 import styles from './Clients.module.css'
 
 export default function Clients() {
   const navigate = useNavigate()
   const { state, actions } = useApp()
   const { pushUndo } = useUndo()
-  const { clients, projects } = state
+  const { clients } = state
   const [showAdd, setShowAdd] = useState(false)
   const [form, setForm] = useState({
     name: '',
@@ -17,44 +17,53 @@ export default function Clients() {
     phone: '',
     partnerName: '',
   })
+  const [addError, setAddError] = useState<string | null>(null)
+  const [search, setSearch] = useState('')
+  const [sortBy, setSortBy] = useState<'name-az' | 'name-za' | 'recent'>('name-az')
 
-  const handleDeleteClient = async (clientId: string, clientName: string) => {
-    if (!window.confirm(`Delete ${clientName}? Their bookings will be hidden and can be restored with Undo.`)) return
-    const deletedClient = clients.find((c) => c.id === clientId)
-    const deletedProjects = projects.filter((p) => p.clientId === clientId)
-    const ok = await apiDeleteClient(clientId)
-    if (ok && deletedClient) {
+  const filteredClients = useMemo(() => {
+    const q = search.trim().toLowerCase()
+    const list = q
+      ? clients.filter(
+          (c) =>
+            (c.name || '').toLowerCase().includes(q) ||
+            (c.email || '').toLowerCase().includes(q) ||
+            (c.partnerName || '').toLowerCase().includes(q)
+        )
+      : clients.slice()
+    const byId = (a: { id: string }, b: { id: string }) => a.id.localeCompare(b.id)
+    if (sortBy === 'name-az') list.sort((a, b) => (a.name || '').localeCompare(b.name || '', undefined, { sensitivity: 'base' }) || byId(a, b))
+    else if (sortBy === 'name-za') list.sort((a, b) => (b.name || '').localeCompare(a.name || '', undefined, { sensitivity: 'base' }) || byId(a, b))
+    else if (sortBy === 'recent') list.sort((a, b) => (b.createdAt || '').localeCompare(a.createdAt || '') || byId(a, b))
+    return list
+  }, [clients, search, sortBy])
+
+  const handleAddClient = async (e: React.FormEvent) => {
+    e.preventDefault()
+    setAddError(null)
+    try {
+      const clientId = await actions.addClient({
+        name: form.name.trim(),
+        email: form.email.trim(),
+        phone: form.phone.trim() || undefined,
+        partnerName: form.partnerName.trim() || undefined,
+        createdAt: new Date().toISOString().slice(0, 10),
+      })
       pushUndo({
-        id: `client-delete-${clientId}`,
-        label: `"${clientName}" deleted`,
+        id: `client-${clientId}`,
+        label: `Client "${form.name.trim()}" added`,
         undo: async () => {
-          await apiRestoreClient(clientId)
-          actions.restoreClientLocally(deletedClient, deletedProjects)
+          const ok = await apiDeleteClient(clientId)
+          if (ok) {
+            actions.removeClientLocally(clientId)
+          }
         },
       })
-      actions.removeClientLocally(clientId)
+      setShowAdd(false)
+      setForm({ name: '', email: '', phone: '', partnerName: '' })
+    } catch (err) {
+      setAddError(err instanceof Error ? err.message : 'Could not add client')
     }
-  }
-
-  const handleAddClient = (e: React.FormEvent) => {
-    e.preventDefault()
-    const clientId = actions.addClient({
-      name: form.name.trim(),
-      email: form.email.trim(),
-      phone: form.phone.trim() || undefined,
-      partnerName: form.partnerName.trim() || undefined,
-      createdAt: new Date().toISOString().slice(0, 10),
-    })
-    pushUndo({
-      id: `client-${clientId}`,
-      label: `Client "${form.name.trim()}" added`,
-      undo: async () => {
-        const ok = await apiDeleteClient(clientId)
-        if (ok) actions.removeClientLocally(clientId)
-      },
-    })
-    setShowAdd(false)
-    setForm({ name: '', email: '', phone: '', partnerName: '' })
   }
 
   const handleExportEmails = () => {
@@ -91,7 +100,7 @@ export default function Clients() {
         <button
           type="button"
           className={styles.addBtn}
-          onClick={() => setShowAdd(true)}
+          onClick={() => { setAddError(null); setShowAdd(true) }}
         >
           Add client
         </button>
@@ -101,6 +110,7 @@ export default function Clients() {
         <section className={styles.modal}>
           <form onSubmit={handleAddClient} className={styles.form}>
             <h2>Add client</h2>
+            {addError && <p className={styles.error} role="alert">{addError}</p>}
             <div className={styles.formGrid}>
               <label>
                 Name *
@@ -162,11 +172,19 @@ export default function Clients() {
           type="search"
           placeholder="Search clients..."
           className={styles.search}
+          value={search}
+          onChange={(e) => setSearch(e.target.value)}
+          aria-label="Search clients"
         />
-        <select className={styles.select} aria-label="Sort">
-          <option>Name A–Z</option>
-          <option>Name Z–A</option>
-          <option>Recently added</option>
+        <select
+          className={styles.select}
+          aria-label="Sort"
+          value={sortBy}
+          onChange={(e) => setSortBy(e.target.value as 'name-az' | 'name-za' | 'recent')}
+        >
+          <option value="name-az">Name A–Z</option>
+          <option value="name-za">Name Z–A</option>
+          <option value="recent">Recently added</option>
         </select>
         <button type="button" className={styles.exportBtn} onClick={handleExportEmails}>
           Download emails
@@ -174,10 +192,10 @@ export default function Clients() {
       </div>
 
       <ul className={styles.list}>
-        {clients.map((c) => (
+        {filteredClients.map((c) => (
           <li key={c.id} className={styles.row}>
             <Link to={`/clients/${c.id}`} className={styles.rowLink}>
-              <span className={styles.avatar}>{c.name.slice(0, 1)}</span>
+              <span className={styles.avatar}>{(c.name || '?').slice(0, 1)}</span>
               <div className={styles.info}>
                 <strong>{c.name}</strong>
                 <span>{c.partnerName ? `${c.name} & ${c.partnerName}` : c.email}</span>
@@ -185,14 +203,6 @@ export default function Clients() {
             </Link>
             <span className={styles.email}>{c.email}</span>
             <div className={styles.rowActions}>
-              <button
-                type="button"
-                className={styles.deleteBtn}
-                aria-label={`Delete ${c.name}`}
-                onClick={(e) => { e.preventDefault(); e.stopPropagation(); handleDeleteClient(c.id, c.name); }}
-              >
-                Delete
-              </button>
               <button
                 type="button"
                 className={styles.menuBtn}

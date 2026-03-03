@@ -1,0 +1,287 @@
+/* Wedding Music Selection — elegant, high-end; pink #f5ebe0, text dark espresso */
+.page {
+  min-height: 100vh;
+  background: #f5ebe0;
+  padding: 2rem 1.5rem 3rem;
+  font-family: 'Inter', system-ui, sans-serif;
+}
+
+.container {
+  max-width: 640px;
+  margin: 0 auto;
+  background: #fdfaf7;
+  border-radius: 12px;
+  box-shadow: 0 4px 24px rgba(36, 26, 20, 0.08);
+  border: 1px solid #e8dfd6;
+  overflow: hidden;
+}
+
+/* Sticky time summary */
+.timeSummary {
+  position: sticky;
+  top: 0;
+  z-index: 10;
+  background: #fdfaf7;
+  padding: 1.5rem 2rem;
+  text-align: center;
+  border-bottom: 1px solid #e8dfd6;
+}
+
+.timeSummaryTitle {
+  font-family: 'Playfair Display', Georgia, serif;
+  font-size: 0.875rem;
+  font-weight: 500;
+  color: #241a14;
+  letter-spacing: 0.06em;
+  margin: 0 0 0.25rem 0;
+}
+
+.timeSummaryRange {
+  font-family: 'Playfair Display', Georgia, serif;
+  font-size: 1.75rem;
+  font-weight: 600;
+  color: #241a14;
+  margin: 0 0 0.25rem 0;
+}
+
+.timeSummarySub {
+  font-size: 0.8125rem;
+  color: #241a14;
+  margin: 0;
+  opacity: 0.85;
+}
+
+/* Section divider with ornament */
+.sectionDivider {
+  display: flex;
+  align-items: center;
+  gap: 1rem;
+  padding: 0 2rem;
+  margin: 1.25rem 0 0.75rem 0;
+}
+
+.sectionDivider::before,
+.sectionDivider::after {
+  content: '';
+  flex: 1;
+  height: 1px;
+  background: #e0d6ce;
+}
+
+.sectionTitle {
+  font-family: 'Playfair Display', Georgia, serif;
+  font-size: 0.75rem;
+  font-weight: 500;
+  color: #241a14;
+  letter-spacing: 0.2em;
+  text-transform: uppercase;
+  margin: 0;
+}
+
+/* Collapsible playlist */
+.playlistSection {
+  border-bottom: 1px solid #e8dfd6;
+}
+
+.playlistSection:last-of-type {
+  border-bottom: none;
+}
+
+.playlistHeader {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  width: 100%;
+  padding: 0.875rem 2rem;
+  background: transparent;
+  border: none;
+  cursor: pointer;
+  font-family: inherit;
+  font-size: 0.9375rem;
+  color: #241a14;
+  text-align: left;
+}
+
+.playlistHeader:hover {
+  background: rgba(36, 26, 20, 0.04);
+}
+
+.playlistHeaderLabel {
+  font-weight: 400;
+}
+
+.chevron {
+  flex-shrink: 0;
+  width: 20px;
+  height: 20px;
+  color: #241a14;
+  transition: transform 0.2s ease;
+}
+
+.chevronOpen {
+  transform: rotate(180deg);
+}
+
+.playlistTracks {
+  padding: 0 2rem 0.75rem 2rem;
+}
+
+.trackRow {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+  padding: 0.5rem 0;
+  border-bottom: 1px solid #ebe2da;
+}
+
+.trackRow:last-child {
+  border-bottom: none;
+}
+
+.trackCheckbox {
+  width: 18px;
+  height: 18px;
+  flex-shrink: 0;
+  accent-color: #241a14;
+  cursor: pointer;
+}
+
+.trackLabel {
+  flex: 1;
+  min-width: 0;
+  font-size: 0.9375rem;
+  color: #241a14;
+  cursor: pointer;
+}
+
+.trackPlayBtn {
+  flex-shrink: 0;
+  width: 32px;
+  height: 32px;
+  border-radius: 50%;
+  border: 1px solid #c4b8ac;
+  background: #fff;
+  color: #241a14;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0;
+}
+
+.trackPlayBtn:hover {
+  background: #f5ebe0;
+  border-color: #241a14;
+}
+
+.trackPlayBtn:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.trackPlayBtn svg {
+  width: 12px;
+  height: 12px;
+  margin-left: 2px;
+}
+
+/* Your Selected Songs */
+.selectedSection {
+  padding: 1.5rem 2rem 2rem 2rem;
+}
+
+.selectedCard {
+  background: #fff;
+  border-radius: 8px;
+  padding: 1.25rem 1.5rem;
+  margin-top: 0.75rem;
+  box-shadow: 0 2px 12px rgba(36, 26, 20, 0.06);
+  border: 1px solid #e8dfd6;
+}
+
+.selectedCategoryTitle {
+  font-size: 0.8125rem;
+  font-weight: 600;
+  color: #241a14;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  margin: 0 0 0.75rem 0;
+}
+
+.selectedCategoryTitle:not(:first-child) {
+  margin-top: 1.25rem;
+}
+
+.selectedTrackItem {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  padding: 0.4rem 0;
+  font-size: 0.9375rem;
+  color: #241a14;
+}
+
+.selectedTrackItem::before {
+  content: '';
+  width: 16px;
+  height: 16px;
+  flex-shrink: 0;
+  background: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%23241a14' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M20 6L9 17l-5-5'/%3E%3C/svg%3E") center/contain no-repeat;
+}
+
+.footerNote {
+  text-align: center;
+  font-size: 0.8125rem;
+  color: #241a14;
+  margin: 1.5rem 0 1.25rem 0;
+  padding: 0 1rem;
+  line-height: 1.5;
+  opacity: 0.9;
+}
+
+.submitBtn {
+  display: block;
+  margin: 0 auto;
+  padding: 0.75rem 2.5rem;
+  font-family: 'Playfair Display', Georgia, serif;
+  font-size: 0.9375rem;
+  font-weight: 500;
+  color: #241a14;
+  background: linear-gradient(180deg, #ebe2da 0%, #e0d6ce 100%);
+  border: 1px solid #c4b8ac;
+  border-radius: 999px;
+  cursor: pointer;
+  box-shadow: 0 1px 2px rgba(36, 26, 20, 0.08);
+}
+
+.submitBtn:hover {
+  background: linear-gradient(180deg, #e0d6ce 0%, #d4c8be 100%);
+}
+
+.submitBtn:active {
+  transform: scale(0.99);
+}
+
+.emptySelected {
+  color: #241a14;
+  font-size: 0.875rem;
+  margin: 0.5rem 0 0 0;
+  opacity: 0.8;
+}
+
+@media (max-width: 640px) {
+  .page {
+    padding: 1rem 1rem 2rem;
+  }
+  .timeSummary,
+  .playlistHeader,
+  .playlistTracks,
+  .selectedSection {
+    padding-left: 1.25rem;
+    padding-right: 1.25rem;
+  }
+  .sectionDivider {
+    padding-left: 1.25rem;
+    padding-right: 1.25rem;
+  }
+}

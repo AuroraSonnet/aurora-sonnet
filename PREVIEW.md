@@ -28,7 +28,7 @@ No browser, no copying links — just the app window.
 
 - **Right-click** **Start App.command** → **Open** (first time; macOS may block it otherwise).
 - Or in Terminal:  
-  `cd "/Volumes/G-Video ArmorATD/Aurora Sonnet Cursor/Website" && npm install && npm run build && npm run electron`
+  `cd /Volumes/G-Video/AuroraSonnet/Website && npm install && npm run build && npm run electron`
 
 ---
 

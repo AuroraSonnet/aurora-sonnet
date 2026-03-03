@@ -1,0 +1,249 @@
+.page {
+  padding: 1.5rem;
+  font-family: 'Inter', system-ui, sans-serif;
+  background: #f3ede6;
+  min-height: 100%;
+}
+
+.header {
+  margin-bottom: 1.5rem;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: 1rem;
+}
+
+.title {
+  font-family: 'Playfair Display', Georgia, serif;
+  font-size: 1.5rem;
+  font-weight: 500;
+  color: #241a14;
+  margin: 0;
+}
+
+.createBtn {
+  font-weight: 500;
+  font-size: 0.875rem;
+  padding: 0.5rem 1rem;
+  background: #241a14;
+  color: #fdfcfa;
+  border: none;
+  cursor: pointer;
+  letter-spacing: 0.04em;
+}
+
+.createBtn:hover {
+  background: #382e27;
+}
+
+.grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(300px, 1fr));
+  gap: 1.5rem;
+}
+
+.card {
+  background: #fdfcfa;
+  border: 1px solid #e5dfd8;
+  border-radius: 2px;
+  box-shadow: 0 8px 40px rgba(44, 24, 16, 0.06);
+  overflow: hidden;
+  display: flex;
+  flex-direction: column;
+}
+
+.cardBody {
+  padding: 1.25rem;
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+}
+
+.cardTitle {
+  font-family: 'Playfair Display', Georgia, serif;
+  font-size: 1.125rem;
+  font-weight: 500;
+  color: #241a14;
+  margin: 0 0 0.5rem 0;
+}
+
+.cardDescription {
+  font-size: 0.875rem;
+  color: #5c5349;
+  line-height: 1.45;
+  margin: 0 0 0.75rem 0;
+}
+
+.cardBullets {
+  list-style: none;
+  padding: 0;
+  margin: 0 0 1rem 0;
+  font-size: 0.8125rem;
+  color: #382e27;
+  line-height: 1.5;
+}
+
+.cardBullets li {
+  padding-left: 1rem;
+  position: relative;
+  margin-bottom: 0.25rem;
+}
+
+.cardBullets li::before {
+  content: '·';
+  position: absolute;
+  left: 0;
+  color: #7a7269;
+}
+
+.cardPrice {
+  font-size: 0.8125rem;
+  color: #5c5349;
+  letter-spacing: 0.02em;
+  margin-top: auto;
+}
+
+.cardPrice strong {
+  font-family: 'Playfair Display', Georgia, serif;
+  font-weight: 500;
+  color: #241a14;
+}
+
+.cardActions {
+  padding: 0.75rem 1.25rem;
+  border-top: 1px solid #ebe7e2;
+  display: flex;
+  gap: 0.5rem;
+  flex-wrap: wrap;
+}
+
+.cardBtn {
+  font-size: 0.75rem;
+  padding: 0.35rem 0.6rem;
+  background: transparent;
+  border: 1px solid #c4bcb2;
+  color: #5c5349;
+  cursor: pointer;
+}
+
+.cardBtn:hover {
+  background: #f0ebe5;
+  color: #241a14;
+}
+
+.cardBtn.danger:hover {
+  border-color: #b85450;
+  color: #b85450;
+}
+
+/* Modal */
+.overlay {
+  position: fixed;
+  inset: 0;
+  background: rgba(36, 26, 20, 0.4);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 1000;
+  padding: 1rem;
+}
+
+.modal {
+  background: #fdfcfa;
+  border: 1px solid #e5dfd8;
+  box-shadow: 0 16px 48px rgba(44, 24, 16, 0.12);
+  max-width: 480px;
+  width: 100%;
+  max-height: 90vh;
+  overflow-y: auto;
+}
+
+.modalHeader {
+  padding: 1.25rem 1.5rem;
+  border-bottom: 1px solid #ebe7e2;
+  font-family: 'Playfair Display', Georgia, serif;
+  font-size: 1.25rem;
+  font-weight: 500;
+  color: #241a14;
+}
+
+.modalBody {
+  padding: 1.5rem;
+}
+
+.field {
+  margin-bottom: 1rem;
+}
+
+.field label {
+  display: block;
+  font-size: 0.8125rem;
+  font-weight: 500;
+  color: #5c5349;
+  margin-bottom: 0.35rem;
+}
+
+.field input,
+.field textarea {
+  width: 100%;
+  padding: 0.5rem 0.6rem;
+  border: 1px solid #c4bcb2;
+  background: #fff;
+  font-size: 0.9375rem;
+  font-family: inherit;
+}
+
+.field textarea {
+  min-height: 80px;
+  resize: vertical;
+}
+
+.field input:focus,
+.field textarea:focus {
+  outline: none;
+  border-color: #241a14;
+}
+
+.hint {
+  font-size: 0.75rem;
+  color: #7a7269;
+  margin-top: 0.25rem;
+}
+
+.modalFooter {
+  padding: 1rem 1.5rem;
+  border-top: 1px solid #ebe7e2;
+  display: flex;
+  gap: 0.5rem;
+  justify-content: flex-end;
+}
+
+.modalBtn {
+  padding: 0.5rem 1rem;
+  font-size: 0.875rem;
+  border: none;
+  cursor: pointer;
+  background: #241a14;
+  color: #fdfcfa;
+}
+
+.modalBtn.secondary {
+  background: transparent;
+  border: 1px solid #c4bcb2;
+  color: #5c5349;
+}
+
+.modalBtn:hover {
+  opacity: 0.9;
+}
+
+.modalBtn.secondary:hover {
+  background: #f0ebe5;
+}
+
+.error {
+  font-size: 0.8125rem;
+  color: #b85450;
+  margin-bottom: 0.5rem;
+}

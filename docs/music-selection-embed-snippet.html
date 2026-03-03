@@ -1,0 +1,231 @@
+<!-- AURORA SONNET — Wedding Music Selection: paste this entire block into Hostinger (Custom HTML / Code block) -->
+<div id="aurora-music-embed">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&family=Playfair+Display:wght@500;600&display=swap" rel="stylesheet">
+  <style>
+  #aurora-music-embed * { box-sizing: border-box; }
+    #aurora-music-embed .as-page { background: #f5ebe0; padding: 2rem 1.5rem 3rem; font-family: 'Inter', system-ui, sans-serif; }
+    #aurora-music-embed .as-container { max-width: 720px; margin: 0 auto; background: #fdfaf7; border-radius: 12px; box-shadow: 0 4px 24px rgba(36,26,20,0.08); border: 1px solid #e8dfd6; overflow: hidden; }
+    #aurora-music-embed .as-timeSummary { position: sticky; top: 0; z-index: 10; background: #fdfaf7; padding: 1.5rem 2rem; text-align: center; border-bottom: 1px solid #e8dfd6; }
+    #aurora-music-embed .as-timeSummaryTitle { font-family: 'Playfair Display', Georgia, serif; font-size: 0.875rem; font-weight: 500; color: #241a14; letter-spacing: 0.06em; margin: 0 0 0.25rem 0; }
+    #aurora-music-embed .as-timeSummaryRange { font-family: 'Playfair Display', Georgia, serif; font-size: 1.75rem; font-weight: 600; color: #241a14; margin: 0 0 0.25rem 0; }
+    #aurora-music-embed .as-timeSummarySub { font-size: 0.8125rem; color: #241a14; margin: 0; opacity: 0.85; }
+    #aurora-music-embed .as-sectionDivider { display: flex; align-items: center; gap: 1rem; padding: 0 2rem; margin: 1.25rem 0 0.75rem 0; }
+    #aurora-music-embed .as-sectionDivider::before, #aurora-music-embed .as-sectionDivider::after { content: ''; flex: 1; height: 1px; background: #e0d6ce; }
+    #aurora-music-embed .as-sectionTitle { font-family: 'Playfair Display', Georgia, serif; font-size: 0.75rem; font-weight: 500; color: #241a14; letter-spacing: 0.2em; text-transform: uppercase; margin: 0; }
+    #aurora-music-embed .as-playlistSection { border-bottom: 1px solid #e8dfd6; }
+    #aurora-music-embed .as-playlistSection:last-of-type { border-bottom: none; }
+    #aurora-music-embed .as-playlistHeader { display: flex; align-items: center; justify-content: space-between; width: 100%; padding: 0.875rem 2rem; background: transparent; border: none; cursor: pointer; font-family: inherit; font-size: 0.9375rem; color: #241a14; text-align: left; }
+    #aurora-music-embed .as-playlistHeader:hover { background: rgba(36,26,20,0.04); }
+    #aurora-music-embed .as-chevron { flex-shrink: 0; width: 20px; height: 20px; color: #241a14; transition: transform 0.2s ease; }
+    #aurora-music-embed .as-chevronOpen { transform: rotate(180deg); }
+    #aurora-music-embed .as-playlistTracks { padding: 0 2rem 0.75rem 2rem; }
+    #aurora-music-embed .as-trackRow { display: flex; align-items: center; gap: 0.75rem; padding: 0.5rem 0; border-bottom: 1px solid #ebe2da; }
+    #aurora-music-embed .as-trackRow:last-child { border-bottom: none; }
+    #aurora-music-embed .as-trackCheckbox { width: 18px; height: 18px; accent-color: #241a14; cursor: pointer; }
+    #aurora-music-embed .as-trackLabel { flex: 1; min-width: 0; font-size: 0.9375rem; color: #241a14; cursor: pointer; }
+    #aurora-music-embed .as-trackPlayBtn { flex-shrink: 0; width: 32px; height: 32px; border-radius: 50%; border: 1px solid #c4b8ac; background: #fff; color: #241a14; cursor: pointer; display: flex; align-items: center; justify-content: center; padding: 0; }
+    #aurora-music-embed .as-trackPlayBtn:hover { background: #f5ebe0; border-color: #241a14; }
+    #aurora-music-embed .as-trackPlayBtn:disabled { opacity: 0.5; cursor: not-allowed; }
+    #aurora-music-embed .as-trackPlayBtn svg { width: 12px; height: 12px; margin-left: 2px; }
+    #aurora-music-embed .as-selectedSection { padding: 1.5rem 2rem 2rem; }
+    #aurora-music-embed .as-selectedCard { background: #fff; border-radius: 8px; padding: 1.25rem 1.5rem; margin-top: 0.75rem; box-shadow: 0 2px 12px rgba(36,26,20,0.06); border: 1px solid #e8dfd6; }
+    #aurora-music-embed .as-selectedCategoryTitle { font-size: 0.8125rem; font-weight: 600; color: #241a14; text-transform: uppercase; letter-spacing: 0.05em; margin: 0 0 0.75rem 0; }
+    #aurora-music-embed .as-selectedCategoryTitle:not(:first-child) { margin-top: 1.25rem; }
+    #aurora-music-embed .as-selectedTrackItem { display: flex; align-items: center; gap: 0.5rem; padding: 0.4rem 0; font-size: 0.9375rem; color: #241a14; }
+    #aurora-music-embed .as-selectedTrackItem::before { content: ''; width: 16px; height: 16px; flex-shrink: 0; background: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%23241a14' stroke-width='2'%3E%3Cpath d='M20 6L9 17l-5-5'/%3E%3C/svg%3E") center/contain no-repeat; }
+    #aurora-music-embed .as-footerNote { text-align: center; font-size: 0.8125rem; color: #241a14; margin: 1.5rem 0 1.25rem 0; padding: 0 1rem; line-height: 1.5; opacity: 0.9; }
+    #aurora-music-embed .as-submitBtn { display: block; margin: 0 auto; padding: 0.75rem 2.5rem; font-family: 'Playfair Display', Georgia, serif; font-size: 0.9375rem; font-weight: 500; color: #241a14; background: linear-gradient(180deg,#ebe2da 0%,#e0d6ce 100%); border: 1px solid #c4b8ac; border-radius: 999px; cursor: pointer; box-shadow: 0 1px 2px rgba(36,26,20,0.08); }
+    #aurora-music-embed .as-submitBtn:hover { background: linear-gradient(180deg,#e0d6ce 0%,#d4c8be 100%); }
+    #aurora-music-embed .as-submitBtn:active { transform: scale(0.99); }
+    #aurora-music-embed .as-emptySelected { color: #241a14; font-size: 0.875rem; margin: 0.5rem 0 0 0; opacity: 0.8; }
+    #aurora-music-embed .as-inlineEmbed{margin:0.25rem 0 0.5rem 2.25rem;padding:0.5rem 0.75rem;background:#fdfaf7;border-radius:12px;border:1px solid #e8dfd6;box-shadow:0 2px 12px rgba(36,26,20,0.06);}
+    #aurora-music-embed .as-inlineEmbedHeader{font-size:0.75rem;color:#5b4a3c;margin-bottom:0.25rem;}
+    #aurora-music-embed .as-inlineEmbedFrame{border-radius:8px;border:none;width:100%;height:80px;display:block;background:#0000;}
+    @media (max-width:640px) { #aurora-music-embed .as-page { padding: 0.75rem; } #aurora-music-embed .as-timeSummary, #aurora-music-embed .as-playlistHeader, #aurora-music-embed .as-playlistTracks, #aurora-music-embed .as-selectedSection { padding-left: 0.9rem; padding-right: 0.9rem; } #aurora-music-embed .as-sectionDivider { padding-left: 0.9rem; padding-right: 0.9rem; } #aurora-music-embed .as-inlineEmbed{margin-left:0;} #aurora-music-embed .as-inlineEmbedFrame{height:170px;transform:scale(0.9);transform-origin:0 0;} }
+  </style>
+  <div class="as-page">
+    <div class="as-container">
+      <header class="as-timeSummary">
+        <h1 class="as-timeSummaryTitle">Estimated Live Performance Time</h1>
+        <p class="as-timeSummaryRange" id="as-timeRange">0 min</p>
+        <p class="as-timeSummarySub" id="as-timeSub">0 songs selected</p>
+      </header>
+      <div class="as-sectionDivider"><h2 class="as-sectionTitle">Ceremony</h2></div>
+      <div id="as-ceremony"></div>
+      <div class="as-sectionDivider"><h2 class="as-sectionTitle">Reception</h2></div>
+      <div id="as-reception"></div>
+      <div class="as-sectionDivider"><h2 class="as-sectionTitle">Your Selected Songs</h2></div>
+      <div class="as-selectedSection">
+        <div class="as-selectedCard" id="as-selectedCard"></div>
+        <p class="as-footerNote">Final selections are kindly requested 21 days prior to your event to allow time for thoughtful preparation.</p>
+        <button type="button" class="as-submitBtn" id="as-submitBtn">Submit Selections</button>
+      </div>
+    </div>
+  </div>
+  <script>
+  (function(){
+    function sEmbed(u){if(!u)return null;var m=u.match(/open\.spotify\.com\/(track|episode)\/([A-Za-z0-9]+)/);if(!m)return null;return'https://open.spotify.com/embed/'+m[1]+'/'+m[2]+'?utm_source=generator&theme=0';}
+    var P=[
+      {
+        id:'guest-arrival',
+        title:'Guest Arrival',
+        cat:'ceremony',
+        t:[
+          {id:'ga-1',n:'Turning Page',a:'Sleeping At Last',p:'https://open.spotify.com/track/2kfGoV9a5dbSKCNmUWH2ZF?si=88a8c714394c4a3d'},
+          {id:'ga-2',n:'River Flows In You',a:'Yiruma',p:'https://open.spotify.com/track/2agBDIr9MYDUducQPC1sFU?si=7b7eebba9b574318'},
+          {id:'ga-3',n:'La Vie en rose',a:'Édith Piaf',p:'https://open.spotify.com/track/3lAun9V0YdTlCSIEXPvfsY?si=72f3dee4e9e54ee7'},
+          {id:'ga-4',n:'Here Comes The Sun - Remastered 2009',a:'The Beatles',p:'https://open.spotify.com/track/6dGnYIeXmHdcikdzNNDMm2?si=aeb1159bd4154465'},
+          {id:'ga-5',n:'The Luckiest',a:'Ben Folds',p:'https://open.spotify.com/track/1fujSajijBpJlr5mRGKHJN?si=3065340e1e2b423f'},
+          {id:'ga-6',n:'Ave Maria',a:'Céline Dion',p:'https://open.spotify.com/track/7v6DvsyQHmsQQhmVDmrnZg?si=5d35b664b9c44732'},
+          {id:'ga-7',n:'In My Life - Remastered 2009',a:'The Beatles',p:'https://open.spotify.com/track/3KfbEIOC7YIv90FIfNSZpo?si=99b27afbc7b3474a'},
+          {id:'ga-8',n:'God Only Knows',a:'The Beach Boys',p:'https://open.spotify.com/track/1Umw3vhysHBodpBFpFsVgK?si=a6333ca620c941cb'}
+        ]
+      },
+      {
+        id:'processional',
+        title:'Processional',
+        cat:'ceremony',
+        t:[
+          {id:'pr-1',n:'Can\'t Help Falling in Love',a:'Haley Reinhart',p:'https://open.spotify.com/track/3dqUv6E7L24BDImpGJWYGL?si=fcb238d7377c4c66'},
+          {id:'pr-2',n:'a thousand years',a:'Christina Perri',p:'https://open.spotify.com/track/6lanRgr6wXibZr8KgzXxBl?si=832183d875204254'},
+          {id:'pr-3',n:'Perfect',a:'Ed Sheeran',p:'https://open.spotify.com/track/0tgVpDi06FyKpA1z0VMD4v?si=ed0cfd847ca94443'},
+          {id:'pr-4',n:'At Last',a:'Etta James',p:'https://open.spotify.com/track/4Hhv2vrOTy89HFRcjU3QOx?si=e6b5b6f8e4d741c2'},
+          {id:'pr-5',n:'Until I Found You',a:'Stephen Sanchez',p:'https://open.spotify.com/track/0T5iIrXA4p5GsubkhuBIKV?si=a20cbe5a575b46f8'},
+          {id:'pr-6',n:'How Long Will I Love You',a:'Ellie Goulding',p:'https://open.spotify.com/track/3fA8bXrZL4mYhHbkkMgFH5?si=eb0ef9aa030a4960'}
+        ]
+      },
+      {
+        id:'interlude',
+        title:'Interlude',
+        cat:'ceremony',
+        t:[
+          {id:'in-1',n:'All of Me',a:'John Legend',p:'https://open.spotify.com/track/0Q7Jp3aCwfYnSnbMDoXWyR?si=a3b71256656749c2'},
+          {id:'in-2',n:'From This Moment On',a:'Shania Twain, Bryan White',p:'https://open.spotify.com/track/25U7raB3ZSszayTYClh4hF?si=226c952abd044e30'},
+          {id:'in-3',n:'Somewhere Over The Rainbow/What A Wonderful World',a:'Israel Kamakawiwo\'ole',p:'https://open.spotify.com/track/5FgPwJ7Nh2FVmIXviKl2VF?si=9a893c07e0444489'},
+          {id:'in-4',n:'Make You Feel My Love',a:'Adele',p:'https://open.spotify.com/track/6zlY4xmlgqvn4LxjzoS2mz?si=c55960a8622943d7'},
+          {id:'in-5',n:'The Prayer',a:'Céline Dion, Andrea Bocelli',p:'https://open.spotify.com/track/3U4isOIWM3VvDubwSI3y7a?si=cce98ff8acaa47a3'}
+        ]
+      },
+      {
+        id:'recessional',
+        title:'Recessional',
+        cat:'ceremony',
+        t:[
+          {id:'rc-1',n:'Signed, Sealed, Delivered (I\'m Yours)',a:'Stevie Wonder',p:'https://open.spotify.com/track/2C5SI38AMmqckQGnD1H2FO?si=37eeee58475348ff'},
+          {id:'rc-2',n:'This Will Be (An Everlasting Love)',a:'Natalie Cole',p:'https://open.spotify.com/track/0PDCewmZCp0P5s00bptcdd?si=528ab61818754f10'},
+          {id:'rc-3',n:'You Make My Dreams (Come True)',a:'Daryl Hall & John Oates',p:'https://open.spotify.com/track/4o6BgsqLIBViaGVbx5rbRk?si=a8177d0c42114da7'},
+          {id:'rc-4',n:'Marry You',a:'Bruno Mars',p:'https://open.spotify.com/track/22PMfvdz35fFKYnJyMn077?si=c98ed556569c4e0a'},
+          {id:'rc-5',n:'I\'m Yours',a:'Jason Mraz',p:'https://open.spotify.com/track/1EzrEOXmMH3G43AXT1y7pA?si=a154774895ce41ef'}
+        ]
+      },
+      {
+        id:'cocktail-hour',
+        title:'Cocktail Hour',
+        cat:'reception',
+        t:[
+          {id:'ch-1',n:'The Way You Look Tonight',a:'Michael Bublé',p:'https://open.spotify.com/track/4YGlRLe6TeBRiXFByBqldf?si=8739d7b154994167'},
+          {id:'ch-2',n:'So Easy (To Fall In Love)',a:'Olivia Dean',p:'https://open.spotify.com/track/6sGIMrtIzQjdzNndVxe397?si=7e96f33b683c4cf8'},
+          {id:'ch-3',n:'L-O-V-E',a:'Nat King Cole',p:'https://open.spotify.com/track/4QxDOjgpYtQDxxbWPuEJOy?si=ef0fd02a20874f8b'},
+          {id:'ch-4',n:'Cheek To Cheek',a:'Ella Fitzgerald, Louis Armstrong',p:'https://open.spotify.com/track/33jt3kYWjQzqn3xyYQ5ZEh?si=8208476a18d542e9'},
+          {id:'ch-5',n:'Come Away With Me',a:'Norah Jones',p:'https://open.spotify.com/track/6jGnykaS6TkWp15utXSAeI?si=719faaf2ac9e4e79'},
+          {id:'ch-6',n:'Fly Me To The Moon',a:'Frank Sinatra',p:'https://open.spotify.com/track/1PVTvvxpSkyJWemW1CwVVk?si=4cba860df9684af8'},
+          {id:'ch-7',n:'The Girl From Ipanema',a:'Astrud Gilberto',p:'https://open.spotify.com/track/4uC7IrfS1oQuRCVzqj1EJV?si=fed071e82f6d401a'},
+          {id:'ch-8',n:'Unforgettable',a:'Nat King Cole',p:'https://open.spotify.com/track/648TTtYB0bH0P8Hfy0FmkL?si=fc0a7fcf1c92451d'}
+        ]
+      },
+      {
+        id:'first-dance',
+        title:'First Dance',
+        cat:'reception',
+        t:[
+          {id:'fd-1',n:'At Last',a:'Etta James',p:'https://open.spotify.com/track/4Hhv2vrOTy89HFRcjU3QOx?si=e3db5b528e904501'},
+          {id:'fd-2',n:'Can\'t Help Falling in Love',a:'Haley Reinhart',p:'https://open.spotify.com/track/3dqUv6E7L24BDImpGJWYGL?si=7bfd1e22823e43e1'},
+          {id:'fd-3',n:'I Will Always Love You',a:'Whitney Houston',p:'https://open.spotify.com/track/4eHbdreAnSOrDDsFfc4Fpm?si=f033b38d106d47df'},
+          {id:'fd-4',n:'Make You Feel My Love',a:'Adele',p:'https://open.spotify.com/track/5FgPwJ7Nh2FVmIXviKl2VF?si=db44b04e54ee4ba7'},
+          {id:'fd-5',n:'Beyond',a:'Leon Bridges',p:'https://open.spotify.com/track/1Omt5bfz1tZUCqd26HxbS0?si=120bc9be332147ae'},
+          {id:'fd-6',n:'Best Part (feat. H.E.R.)',a:'Daniel Caesar, H.E.R.',p:'https://open.spotify.com/track/1Q7EgiMOuwDcB0PJC6AzON?si=9cabc62f60834b87'},
+          {id:'fd-7',n:'a thousand years',a:'Christina Perri',p:'https://open.spotify.com/track/6lanRgr6wXibZr8KgzXxBl?si=9f3c0a60f7274a3b'},
+          {id:'fd-8',n:'Perfect',a:'Ed Sheeran',p:'https://open.spotify.com/track/0tgVpDi06FyKpA1z0VMD4v?si=81319c8038a24062'}
+        ]
+      },
+      {
+        id:'parent-dance',
+        title:'Parent Dance',
+        cat:'reception',
+        t:[
+          {id:'pd-1',n:'My Girl',a:'The Temptations',p:'https://open.spotify.com/track/745H5CctFr12Mo7cqa1BMH?si=aacbfa8197684c0e'},
+          {id:'pd-2',n:'What A Wonderful World',a:'Louis Armstrong',p:'https://open.spotify.com/track/29U7stRjqHU6rMiS8BfaI9?si=30a90247c36e4ae5'},
+          {id:'pd-3',n:'The Way You Look Tonight',a:'Michael Bublé',p:'https://open.spotify.com/track/4YGlRLe6TeBRiXFByBqldf?si=b621041d4235450f'},
+          {id:'pd-4',n:'Stand By Me',a:'Ben E. King',p:'https://open.spotify.com/track/3SdTKo2uVsxFblQjpScoHy?si=6853bb5a68c34361'},
+          {id:'pd-5',n:'Unforgettable',a:'Nat King Cole',p:'https://open.spotify.com/track/648TTtYB0bH0P8Hfy0FmkL?si=7f9d4ef95f0145d8'},
+          {id:'pd-6',n:'You\'ll Be In My Heart',a:'Phil Collins',p:'https://open.spotify.com/track/4Y8vb1uy9IjM2V1hqvrAid?si=be46dab7fcbd4d24'},
+          {id:'pd-7',n:'God Only Knows',a:'The Beach Boys',p:'https://open.spotify.com/track/1Umw3vhysHBodpBFpFsVgK?si=14019b470877486a'}
+        ]
+      },
+      {
+        id:'highlights',
+        title:'Highlights',
+        cat:'reception',
+        t:[
+          {id:'hl-1',n:'Love Me Like You Do - From \"Fifty Shades Of Grey\"',a:'Ellie Goulding',p:'https://open.spotify.com/track/3zHq9ouUJQFQRf3cm1rRLu?si=d4567b09715448a3'},
+          {id:'hl-2',n:'September',a:'Earth, Wind & Fire',p:'https://open.spotify.com/track/2grjqo0Frpf2okIBiifQKs?si=47c22bfaa0634c9f'},
+          {id:'hl-3',n:'Crazy In Love (feat. JAY-Z)',a:'Beyoncé, JAY-Z',p:'https://open.spotify.com/track/5IVuqXILoxVWvWEPm82Jxr?si=35eca123b3a64421'},
+          {id:'hl-4',n:'Valerie - Amy Winehouse',a:'Amy Winehouse',p:'https://open.spotify.com/episode/36uvKErfVOtOrDSk6sYsVX?si=dd2c35992d4f4c05'},
+          {id:'hl-5',n:'Crazy Little Thing Called Love - Remastered',a:'Queen',p:'https://open.spotify.com/track/35ItUJlMtjOQW3SSiTCrrw?si=4089587c1c114cfe'},
+          {id:'hl-6',n:'I Wanna Dance with Somebody (Who Loves Me)',a:'Whitney Houston',p:'https://open.spotify.com/track/2tUBqZG2AbRi7Q0BIrVrEj?si=0d94a17154b6463a'},
+          {id:'hl-7',n:'Dancing in the Moonlight',a:'Toploader',p:'https://open.spotify.com/track/3Fzlg5r1IjhLk2qRw667od?si=ca6f617e0b644c5c'}
+        ]
+      }
+    ];
+    var sel={}, open={'guest-arrival':true}, audio=null;
+    function esc(s){var d=document.createElement('div');d.textContent=s;return d.innerHTML;}
+    function upTime(){var c=Object.keys(sel).length,r=document.getElementById('as-timeRange'),s=document.getElementById('as-timeSub');if(!c){r.textContent='0 min';s.textContent='0 songs selected';}else{r.textContent=(c*3)+'–'+(c*4)+' min';s.textContent=c+' song'+(c===1?'':'s')+' selected · ~3–4 min each';}}
+    function toggle(id){if(sel[id])delete sel[id];else sel[id]=1;renderSel();upTime();}
+    function togglePl(id){open[id]=!open[id];render();}
+    function play(t,btn){
+      var e=sEmbed(t.p);
+      if(e){
+        document.querySelectorAll('#aurora-music-embed .as-inlineEmbed').forEach(function(x){x.parentNode.removeChild(x);});
+        var row=btn.closest('.as-trackRow');
+        if(!row){window.open(e,'_blank','noopener,noreferrer');return;}
+        var d=document.createElement('div');
+        d.className='as-inlineEmbed';
+        d.innerHTML='<div class="as-inlineEmbedHeader">Preview · '+esc(t.n)+' — '+esc(t.a)+'</div><iframe class="as-inlineEmbedFrame" src="'+e+'" loading="lazy" allow="autoplay; clipboard-write; encrypted-media; fullscreen; picture-in-picture" allowfullscreen></iframe>';
+        row.parentNode.insertBefore(d,row.nextSibling);
+        return;
+      }
+      var url=t.p||('https://open.spotify.com/search/'+encodeURIComponent(t.n+' '+t.a));
+      window.open(url,'_blank','noopener,noreferrer');
+    }
+    function render(){
+      var cer=document.getElementById('as-ceremony'),rec=document.getElementById('as-reception');
+      cer.innerHTML='';rec.innerHTML='';
+      P.forEach(function(pl){
+        var wrap=document.createElement('section');wrap.className='as-playlistSection';
+        var lab=pl.title.toUpperCase()+(pl.cat==='ceremony'?' – Ceremony':' – Reception');
+        var isOp=open[pl.id];
+        wrap.innerHTML='<button type="button" class="as-playlistHeader" data-id="'+esc(pl.id)+'" aria-expanded="'+isOp+'"><span class="as-playlistHeaderLabel">'+esc(lab)+'</span><svg class="as-chevron'+(isOp?' as-chevronOpen':'')+'" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M6 9l6 6 6-6"/></svg></button>'+(isOp?'<div class="as-playlistTracks">'+pl.t.map(function(t){var ch=sel[t.id]?' checked':'';return'<div class="as-trackRow"><input type="checkbox" class="as-trackCheckbox" id="cb-'+esc(t.id)+'" data-id="'+esc(t.id)+'"'+ch+'><label class="as-trackLabel" for="cb-'+esc(t.id)+'">'+esc(t.n)+' — '+esc(t.a)+'</label><button type="button" class="as-trackPlayBtn" data-tid="'+esc(t.id)+'" title="Open in Spotify"><svg viewBox="0 0 24 24" fill="currentColor"><path d="M8 5v14l11-7z"/></svg></button></div>';}).join('')+'</div>':'');
+        (pl.cat==='ceremony'?cer:rec).appendChild(wrap);
+      });
+      cer.querySelectorAll('.as-playlistHeader').forEach(function(b){b.onclick=function(){togglePl(b.getAttribute('data-id'));};});
+      rec.querySelectorAll('.as-playlistHeader').forEach(function(b){b.onclick=function(){togglePl(b.getAttribute('data-id'));};});
+      document.querySelectorAll('#aurora-music-embed .as-trackCheckbox').forEach(function(cb){cb.onchange=function(){toggle(cb.getAttribute('data-id'));};});
+      document.querySelectorAll('#aurora-music-embed .as-trackPlayBtn:not([disabled])').forEach(function(btn){
+        var tid=btn.getAttribute('data-tid'),tr=null;
+        P.some(function(pl){return pl.t.some(function(t){if(t.id===tid){tr=t;return true;}return false;});});
+        if(tr)btn.onclick=function(){play(tr,btn);};
+      });
+    }
+    function renderSel(){
+      var card=document.getElementById('as-selectedCard'),out=[];
+      P.forEach(function(pl){var ts=pl.t.filter(function(t){return sel[t.id];});if(ts.length)out.push({cat:pl.cat,title:pl.title,ts:ts});});
+      if(!out.length){card.innerHTML='<p class="as-emptySelected">No songs selected yet. Choose from the playlists above.</p>';return;}
+      card.innerHTML=out.map(function(g){return'<h3 class="as-selectedCategoryTitle">'+esc(g.cat.toUpperCase()+' – '+g.title)+'</h3>'+g.ts.map(function(t){return'<div class="as-selectedTrackItem">'+esc(t.n)+' — '+esc(t.a)+'</div>';}).join('');}).join('');
+    }
+    document.getElementById('as-submitBtn').onclick=function(){var c=Object.keys(sel).length;alert('Selections submitted ('+c+' song'+(c===1?'':'s')+'). Connect this to Formspree or your backend. Selected: '+Object.keys(sel).join(', '));};
+    render();renderSel();upTime();
+  })();
+  </script>
+</div>

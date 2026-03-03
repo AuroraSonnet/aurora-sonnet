@@ -8,6 +8,8 @@ import { dirname, join } from 'path'
 import dotenv from 'dotenv'
 import {
   getState,
+  getClientByEmail,
+  getClientById,
   createClient,
   updateClient,
   deleteClient,
@@ -38,6 +40,10 @@ import {
   createPipelineStage,
   updatePipelineStage,
   deletePipelineStage,
+  createExperience,
+  updateExperience,
+  deleteExperience,
+  createMusicSelection,
   seedDb,
   getNextClientId,
 } from './db.js'
@@ -92,9 +98,16 @@ if (SMTP_HOST && SMTP_PORT && SMTP_USER && SMTP_PASS) {
   })
 }
 
+// Tagged logging so we can grep for [DB], [SMTP], [Stripe], [API]
+function logError(tag, message, err) {
+  const detail = err && (err.message || String(err))
+  console.error(`[${tag}] ${message}${detail ? ': ' + detail : ''}`)
+  if (err && err.stack) console.error(err.stack)
+}
+
 function logSmtpStatus() {
   if (reminderTransporter && (REMINDER_EMAIL_TO || SMTP_USER)) {
-    console.log('SMTP: configured — inquiry and reminder emails enabled')
+    console.log('[SMTP] configured — inquiry and reminder emails enabled')
   } else {
     const where = process.env.DATA_DIR
       ? `For the Mac app, put a .env file in: ${process.env.DATA_DIR}`
@@ -103,7 +116,8 @@ function logSmtpStatus() {
   }
 }
 
-const dataDir = process.env.DATA_DIR || __dirname
+// Match db.js: Mac app uses DATA_DIR; Render uses /tmp; local dev uses server dir
+const dataDir = process.env.DATA_DIR || (process.env.RENDER ? '/tmp/aurora-sonnet-data' : __dirname)
 const PAYMENTS_FILE = join(dataDir, 'payments.json')
 const TEMPLATES_CONTRACTS_DIR = join(dataDir, 'templates', 'contracts')
 const TEMPLATES_INVOICES_DIR = join(dataDir, 'templates', 'invoices')
@@ -156,7 +170,7 @@ async function sendDueCalendarReminders() {
       updateCalendarReminder(r.id, { sentAt })
       sentCount += 1
     } catch (err) {
-      console.error('Failed to send reminder email', err)
+      logError('SMTP', 'Failed to send reminder email', err)
     }
   }
   return { sent: sentCount }
@@ -175,6 +189,11 @@ function writePayment(invoiceId, paidAt) {
   const payments = readPayments()
   payments[invoiceId] = paidAt
   writeFileSync(PAYMENTS_FILE, JSON.stringify(payments, null, 2))
+  try {
+    updateInvoice(invoiceId, { status: 'paid', paidAt })
+  } catch (e) {
+    logError('API', 'Failed to update invoice after payment', e)
+  }
 }
 
 // Security headers (help prevent XSS, clickjacking, MIME sniffing)
@@ -186,23 +205,29 @@ app.use((req, res, next) => {
   next()
 })
 
-// CORS: allow Vite dev, optional frontend origin, aurorasonnet.com (embed form), and public API endpoints (/api/state, /api/inquiry) from any HTTPS origin
+// CORS: allow Vite dev, optional frontend origin, aurorasonnet.com (embed form), and public API endpoints from any HTTPS origin
 const frontendOrigin = process.env.FRONTEND_ORIGIN
 const allowedOrigins = [
   frontendOrigin,
   'https://aurorasonnet.com',
   'https://www.aurorasonnet.com',
 ].filter(Boolean)
+const publicEndpoints = ['/api/state', '/api/inquiry', '/api/music-selection']
 app.use((req, res, next) => {
   const origin = req.headers.origin
   const isStateGet = req.method === 'GET' && req.path === '/api/state'
-  const isInquiry = req.path === '/api/inquiry'
+  const isPublicEndpoint = publicEndpoints.some((p) => req.path === p || req.path.startsWith(p + '?'))
   const allow =
     (origin && (origin.includes('localhost') || origin.includes('127.0.0.1'))) ||
     (origin && allowedOrigins.includes(origin)) ||
     // Allow any HTTPS origin for public endpoints so the form can live on any site
-    (origin && origin.startsWith('https://') && (isStateGet || isInquiry))
-  if (allow) res.setHeader('Access-Control-Allow-Origin', origin)
+    (origin && origin.startsWith('https://') && (isStateGet || isPublicEndpoint))
+  if (allow) {
+    res.setHeader('Access-Control-Allow-Origin', origin)
+  } else if (isStateGet && (!origin || origin === 'null' || origin === 'file://' || !origin.startsWith('https://'))) {
+    // Desktop app (Electron) often sends no origin, "null", or file://; allow so sync can fetch /api/state
+    res.setHeader('Access-Control-Allow-Origin', '*')
+  }
   res.setHeader('Access-Control-Allow-Methods', 'GET, POST, PATCH, DELETE, OPTIONS')
   res.setHeader('Access-Control-Allow-Headers', 'Content-Type, Accept')
   if (req.method === 'OPTIONS') return res.sendStatus(200)
@@ -262,17 +287,23 @@ app.post(
     try {
       event = stripe.webhooks.constructEvent(req.body, sig, webhookSecret)
     } catch (err) {
+      logError('Stripe', 'Webhook signature verification failed', err)
       return res.status(400).send(`Webhook signature verification failed: ${err.message}`)
     }
-    if (event.type === 'checkout.session.completed') {
-      const session = event.data.object
-      const invoiceId = session.metadata?.invoiceId
-      if (invoiceId) {
-        const paidAt = new Date().toISOString().slice(0, 10)
-        writePayment(invoiceId, paidAt)
+    try {
+      if (event.type === 'checkout.session.completed') {
+        const session = event.data.object
+        const invoiceId = session.metadata?.invoiceId
+        if (invoiceId) {
+          const paidAt = new Date().toISOString().slice(0, 10)
+          writePayment(invoiceId, paidAt)
+        }
       }
+      res.json({ received: true })
+    } catch (err) {
+      logError('Stripe', 'Webhook handler error', err)
+      res.status(500).json({ error: err.message || 'Webhook processing failed' })
     }
-    res.json({ received: true })
   }
 )
 
@@ -361,7 +392,7 @@ async function sendInquiryNotification(payload) {
     console.log('Inquiry notification email sent to', INQUIRY_NOTIFY_EMAIL)
   } catch (err) {
     const msg = err.response ? `${err.message} ${err.response}` : (err.message || String(err))
-    console.error('Failed to send inquiry notification email:', msg)
+    logError('SMTP', 'Failed to send inquiry notification email', err)
   }
 }
 
@@ -434,7 +465,7 @@ app.post('/api/inquiry', async (req, res) => {
       message: inquiryMessage,
       requestedArtist,
     }).catch((err) => {
-      console.error('Inquiry notification error (non-blocking):', err?.message || String(err))
+      logError('SMTP', 'Inquiry notification (non-blocking)', err)
     })
 
     if (nextUrl) {
@@ -442,7 +473,7 @@ app.post('/api/inquiry', async (req, res) => {
     }
     return res.status(201).json({ clientId, projectId })
   } catch (err) {
-    console.error(err)
+    logError('DB', 'Failed to create inquiry', err)
     const body = req.body || {}
     const rawNext = (body._next != null && body._next !== '') ? String(body._next).trim() : null
     const nextUrl = isAllowedRedirectUrl(rawNext) ? rawNext : null
@@ -453,54 +484,156 @@ app.post('/api/inquiry', async (req, res) => {
   }
 })
 
+// --- Music selection (from Hostinger embed) ---
+app.post('/api/music-selection', (req, res) => {
+  try {
+    const body = req.body || {}
+    const name = String(body.name ?? '').trim()
+    const email = String(body.email ?? '').trim()
+    const label = String(body.label ?? '').trim() || undefined
+    let songIds = body.songIds
+    if (!Array.isArray(songIds)) songIds = []
+    const songsText = Array.isArray(body.songsText) ? body.songsText.join(', ') : (body.songsText && typeof body.songsText === 'string' ? body.songsText : undefined)
+
+    if (!name || !email) {
+      return res.status(400).json({ error: 'Name and email required' })
+    }
+    const state = getState()
+    const emailLower = email.toLowerCase()
+    const existingClient = state.clients.find((c) => (c.email || '').toLowerCase() === emailLower)
+    let clientId = existingClient ? existingClient.id : null
+    if (!existingClient) {
+      clientId = getNextClientId()
+      createClient({
+        id: clientId,
+        name,
+        email,
+        phone: undefined,
+        partnerName: undefined,
+        createdAt: new Date().toISOString().slice(0, 10),
+      })
+    }
+    const id = `ms${Date.now()}`
+    createMusicSelection({
+      id,
+      clientId,
+      submitterName: name,
+      submitterEmail: email,
+      label,
+      songIds,
+      songsText,
+      createdAt: new Date().toISOString(),
+    })
+    return res.status(201).json({ id, clientId })
+  } catch (err) {
+    logError('DB', 'Failed to create music selection', err)
+    return res.status(500).json({ error: 'Failed to save selection' })
+  }
+})
+
 // --- SQLite API (full state + CRUD) ---
 app.get('/api/state', (req, res) => {
   try {
-    res.json(getState())
+    const state = getState()
+    res.json({
+      ...state,
+      config: { publicAppUrl: process.env.APP_URL || '' },
+    })
   } catch (err) {
-    console.error(err)
+    logError('DB', 'Failed to load state', err)
     res.status(500).json({ error: 'Failed to load state' })
+  }
+})
+
+// Proxy remote /api/state so the desktop app can sync without CORS (fetch goes to local server, server fetches Render).
+// Timeout 30s so Render cold start has time to wake.
+const PROXY_STATE_TIMEOUT_MS = 30000
+app.get('/api/proxy-remote-state', async (req, res) => {
+  try {
+    const base = (req.query.base || '').toString().trim().replace(/\/$/, '')
+    if (!base || !base.startsWith('https://')) {
+      return res.status(400).json({ error: 'Missing or invalid base URL (use ?base=https://...)' })
+    }
+    const url = `${base}/api/state`
+    const controller = new AbortController()
+    const timeoutId = setTimeout(() => controller.abort(), PROXY_STATE_TIMEOUT_MS)
+    const response = await fetch(url, {
+      headers: { Accept: 'application/json' },
+      signal: controller.signal,
+    }).finally(() => clearTimeout(timeoutId))
+    const data = await response.json().catch(() => ({}))
+    if (!response.ok) {
+      return res.status(response.status).json(data && typeof data === 'object' ? data : { error: 'Remote server error' })
+    }
+    if (!Array.isArray(data.clients) || !Array.isArray(data.projects)) {
+      return res.status(502).json({ error: 'Remote server did not return valid state (missing clients or projects). It may be starting up — try again in a minute.' })
+    }
+    res.json(data)
+  } catch (err) {
+    if (err.name === 'AbortError') {
+      return res.status(504).json({ error: 'Request timed out. The remote server may be waking up — try again in 1–2 minutes.' })
+    }
+    logError('API', 'Proxy remote state failed', err)
+    res.status(502).json({ error: err.message || 'Could not reach remote server' })
   }
 })
 
 app.post('/api/clients', (req, res) => {
   try {
-    const { id, name, email, phone, partnerName, createdAt } = req.body
-    if (!id || !name || !email || !createdAt) return res.status(400).json({ error: 'Missing fields' })
+    const { id, name, phone, partnerName, createdAt } = req.body
+    const email = (req.body.email != null && req.body.email !== '') ? String(req.body.email).trim() : ''
+    if (!id || !name || !createdAt) return res.status(400).json({ error: 'Missing fields (id, name, createdAt required)' })
+    if (email) {
+      const existing = getClientByEmail(email)
+      if (existing) return res.status(409).json({ error: 'A contact with this email already exists.' })
+    }
     createClient({ id, name, email, phone, partnerName, createdAt })
     res.json({ id })
   } catch (err) {
-    console.error(err)
+    logError('DB', 'Failed to create client', err)
     res.status(500).json({ error: 'Failed to create client' })
   }
 })
 
 app.patch('/api/clients/:id', (req, res) => {
   try {
+    const { email } = req.body
+    if (email !== undefined && email !== null) {
+      const existing = getClientByEmail(email)
+      if (existing && existing.id !== req.params.id) return res.status(409).json({ error: 'A contact with this email already exists.' })
+    }
     updateClient(req.params.id, req.body)
     res.json({ ok: true })
   } catch (err) {
-    console.error(err)
+    logError('DB', 'Failed to update client', err)
     res.status(500).json({ error: 'Failed to update client' })
   }
 })
 
 app.delete('/api/clients/:id', (req, res) => {
   try {
-    deleteClient(req.params.id)
+    const id = req.params.id
+    const client = getClientById(id)
+    if (!client) return res.status(404).json({ error: 'Client not found' })
+    if (client.deletedAt) return res.status(400).json({ error: 'Client already deleted' })
+    deleteClient(id)
     res.json({ ok: true })
   } catch (err) {
-    console.error(err)
+    logError('DB', 'Failed to delete client', err)
     res.status(500).json({ error: 'Failed to delete client' })
   }
 })
 
 app.post('/api/clients/:id/restore', (req, res) => {
   try {
-    restoreClient(req.params.id)
+    const id = req.params.id
+    const client = getClientById(id)
+    if (!client) return res.status(404).json({ error: 'Client not found' })
+    if (!client.deletedAt) return res.status(400).json({ error: 'Client is not deleted' })
+    restoreClient(id)
     res.json({ ok: true })
   } catch (err) {
-    console.error(err)
+    logError('DB', 'Failed to restore client', err)
     res.status(500).json({ error: 'Failed to restore client' })
   }
 })
@@ -513,17 +646,23 @@ app.post('/api/projects', (req, res) => {
     createProject(p)
     res.json({ id: p.id })
   } catch (err) {
-    console.error(err)
+    logError('DB', 'Failed to create project', err)
     res.status(500).json({ error: 'Failed to create project' })
   }
 })
 
 app.patch('/api/projects/:id', (req, res) => {
   try {
+    if (req.body.stage != null) {
+      const validStageIds = new Set(getState().pipelineStages.map((s) => s.id))
+      if (!validStageIds.has(req.body.stage)) {
+        return res.status(400).json({ error: 'Invalid stage' })
+      }
+    }
     updateProject(req.params.id, req.body)
     res.json({ ok: true })
   } catch (err) {
-    console.error(err)
+    logError('DB', 'Failed to update project', err)
     res.status(500).json({ error: 'Failed to update project' })
   }
 })
@@ -533,7 +672,7 @@ app.delete('/api/projects/:id', (req, res) => {
     deleteProject(req.params.id)
     res.json({ ok: true })
   } catch (err) {
-    console.error(err)
+    logError('DB', 'Failed to delete project', err)
     res.status(500).json({ error: 'Failed to delete project' })
   }
 })
@@ -546,7 +685,7 @@ app.post('/api/proposals', (req, res) => {
     createProposal(p)
     res.json({ id: p.id })
   } catch (err) {
-    console.error(err)
+    logError('DB', 'Failed to create proposal', err)
     res.status(500).json({ error: 'Failed to create proposal' })
   }
 })
@@ -556,7 +695,7 @@ app.patch('/api/proposals/:id', (req, res) => {
     updateProposal(req.params.id, req.body)
     res.json({ ok: true })
   } catch (err) {
-    console.error(err)
+    logError('DB', 'Failed to update proposal', err)
     res.status(500).json({ error: 'Failed to update proposal' })
   }
 })
@@ -566,7 +705,7 @@ app.delete('/api/proposals/:id', (req, res) => {
     deleteProposal(req.params.id)
     res.json({ ok: true })
   } catch (err) {
-    console.error(err)
+    logError('DB', 'Failed to delete proposal', err)
     res.status(500).json({ error: 'Failed to delete proposal' })
   }
 })
@@ -579,7 +718,7 @@ app.post('/api/contracts', (req, res) => {
     createContract(c)
     res.json({ id: c.id })
   } catch (err) {
-    console.error(err)
+    logError('DB', 'Failed to create contract', err)
     res.status(500).json({ error: 'Failed to create contract' })
   }
 })
@@ -589,7 +728,7 @@ app.patch('/api/contracts/:id', (req, res) => {
     updateContract(req.params.id, req.body)
     res.json({ ok: true })
   } catch (err) {
-    console.error(err)
+    logError('DB', 'Failed to update contract', err)
     res.status(500).json({ error: 'Failed to update contract' })
   }
 })
@@ -635,7 +774,7 @@ app.get('/api/contracts/:id/file', (req, res) => {
     res.setHeader('Content-Type', 'application/pdf')
     res.send(buf)
   } catch (err) {
-    console.error(err)
+    logError('API', 'Failed to read contract file', err)
     res.status(500).json({ error: err.message || 'Failed to read contract' })
   }
 })
@@ -653,7 +792,7 @@ app.put('/api/contracts/:id/file', (req, res) => {
     writeFileSync(filePath, buf)
     res.json({ ok: true })
   } catch (err) {
-    console.error(err)
+    logError('API', 'Failed to save contract file', err)
     res.status(500).json({ error: err.message || 'Failed to save contract file' })
   }
 })
@@ -672,7 +811,7 @@ app.get('/api/contracts/:id/sign-info', (req, res) => {
     }
     res.json({ ...contract, awaiting: 'client', message: 'Please sign below.' })
   } catch (err) {
-    console.error(err)
+    logError('DB', 'Failed to load signing info', err)
     res.status(500).json({ error: err.message || 'Failed to load signing info' })
   }
 })
@@ -697,7 +836,7 @@ app.post('/api/contracts/:id/sign-client', async (req, res) => {
     updateContract(contract.id, { clientSignedAt })
     res.json({ ok: true, clientSignedAt })
   } catch (err) {
-    console.error(err)
+    logError('API', 'Failed to sign (client)', err)
     res.status(500).json({ error: err.message || 'Failed to sign' })
   }
 })
@@ -719,17 +858,20 @@ app.post('/api/contracts/:id/sign-vendor', async (req, res) => {
     updateContract(contract.id, { status: 'signed', signedAt })
     res.json({ ok: true, signedAt })
   } catch (err) {
-    console.error(err)
+    logError('API', 'Failed to sign (vendor)', err)
     res.status(500).json({ error: err.message || 'Failed to sign' })
   }
 })
 
 app.delete('/api/contracts/:id', (req, res) => {
   try {
-    deleteContract(req.params.id)
+    const id = req.params.id
+    const filePath = join(CONTRACTS_DIR, `${id}.pdf`)
+    if (existsSync(filePath)) unlinkSync(filePath)
+    deleteContract(id)
     res.json({ ok: true })
   } catch (err) {
-    console.error(err)
+    logError('DB', 'Failed to delete contract', err)
     res.status(500).json({ error: 'Failed to delete contract' })
   }
 })
@@ -739,20 +881,52 @@ app.post('/api/invoices', (req, res) => {
     const i = req.body
     if (!i.id || !i.clientName || !i.projectTitle || i.amount == null || !i.status || !i.dueDate)
       return res.status(400).json({ error: 'Missing fields' })
-    createInvoice(i)
-    res.json({ id: i.id })
+    const amount = Number(i.amount)
+    if (Number.isNaN(amount) || amount < 0)
+      return res.status(400).json({ error: 'Amount must be a non-negative number' })
+    if (Array.isArray(i.lineItems) && i.lineItems.length > 0) {
+      for (let idx = 0; idx < i.lineItems.length; idx++) {
+        const li = i.lineItems[idx]
+        if (!li || typeof li.description !== 'string' || String(li.description).trim() === '')
+          return res.status(400).json({ error: `Line item ${idx + 1}: description required` })
+        const qty = Number(li.quantity)
+        const price = Number(li.unitPrice)
+        if (Number.isNaN(qty) || qty < 0 || Number.isNaN(price) || price < 0)
+          return res.status(400).json({ error: `Line item ${idx + 1}: quantity and unit price must be non-negative numbers` })
+      }
+    }
+    const result = createInvoice({ ...i, amount })
+    res.json({ id: result.id, invoiceNumber: result.invoiceNumber })
   } catch (err) {
-    console.error(err)
+    logError('DB', 'Failed to create invoice', err)
     res.status(500).json({ error: 'Failed to create invoice' })
   }
 })
 
 app.patch('/api/invoices/:id', (req, res) => {
   try {
-    updateInvoice(req.params.id, req.body)
+    const updates = { ...req.body }
+    if (updates.amount != null) {
+      const amount = Number(updates.amount)
+      if (Number.isNaN(amount) || amount < 0)
+        return res.status(400).json({ error: 'Amount must be a non-negative number' })
+      updates.amount = amount
+    }
+    if (Array.isArray(updates.lineItems) && updates.lineItems.length > 0) {
+      for (let idx = 0; idx < updates.lineItems.length; idx++) {
+        const li = updates.lineItems[idx]
+        if (!li || typeof li.description !== 'string' || String(li.description).trim() === '')
+          return res.status(400).json({ error: `Line item ${idx + 1}: description required` })
+        const qty = Number(li.quantity)
+        const price = Number(li.unitPrice)
+        if (Number.isNaN(qty) || qty < 0 || Number.isNaN(price) || price < 0)
+          return res.status(400).json({ error: `Line item ${idx + 1}: quantity and unit price must be non-negative numbers` })
+      }
+    }
+    updateInvoice(req.params.id, updates)
     res.json({ ok: true })
   } catch (err) {
-    console.error(err)
+    logError('DB', 'Failed to update invoice', err)
     res.status(500).json({ error: 'Failed to update invoice' })
   }
 })
@@ -762,8 +936,81 @@ app.delete('/api/invoices/:id', (req, res) => {
     deleteInvoice(req.params.id)
     res.json({ ok: true })
   } catch (err) {
-    console.error(err)
+    logError('DB', 'Failed to delete invoice', err)
     res.status(500).json({ error: 'Failed to delete invoice' })
+  }
+})
+
+// Send overdue "please pay" reminder email to client (uses SMTP)
+const REMINDER_THROTTLE_DAYS = 5
+function isOverdue(inv) {
+  if (!inv || inv.status === 'paid') return false
+  if (inv.status !== 'sent') return false
+  const today = new Date().toISOString().slice(0, 10)
+  return inv.dueDate && inv.dueDate < today
+}
+async function sendInvoiceReminderEmail(invoiceId, baseUrl = '') {
+  if (!reminderTransporter) return { sent: false, error: 'SMTP not configured' }
+  const state = getState()
+  const inv = state.invoices.find((i) => i.id === invoiceId)
+  if (!inv) return { sent: false, error: 'Invoice not found' }
+  if (inv.status === 'paid') return { sent: false, error: 'Invoice already paid' }
+  const toEmail = (inv.clientEmail || '').trim()
+  if (!toEmail) return { sent: false, error: 'No client email on invoice' }
+  const viewUrl = baseUrl ? `${baseUrl.replace(/\/$/, '')}/invoices/view/${inv.id}` : ''
+  const firstName = (inv.clientName || '').split(/\s+/)[0] || 'there'
+  const subject = `Friendly reminder: Invoice for ${inv.projectTitle} is past due`
+  const text =
+    `Hi ${firstName},\n\nThis is a friendly reminder that the following invoice is past due:\n\n` +
+    `Invoice: ${inv.projectTitle}\nAmount: $${Number(inv.amount).toLocaleString()}\nDue date: ${inv.dueDate}\n\n` +
+    (viewUrl ? `Pay with card (view invoice and pay securely): ${viewUrl}\n\n` : '') +
+    `If you've already paid, please disregard this message. Thank you!\n\nBest,\nAurora Sonnet`
+  await reminderTransporter.sendMail({
+    from: SMTP_FROM,
+    to: toEmail,
+    subject,
+    text,
+  })
+  const sentAt = new Date().toISOString()
+  updateInvoice(invoiceId, { lastReminderSentAt: sentAt })
+  return { sent: true, sentAt }
+}
+
+async function sendOverdueInvoiceReminders() {
+  if (!reminderTransporter) return { sent: 0 }
+  const baseUrl = process.env.APP_URL || ''
+  const state = getState()
+  const today = new Date().toISOString().slice(0, 10)
+  const cutoff = new Date()
+  cutoff.setDate(cutoff.getDate() - REMINDER_THROTTLE_DAYS)
+  const cutoffIso = cutoff.toISOString().slice(0, 10)
+  const overdue = (state.invoices || []).filter((inv) => {
+    if (!isOverdue(inv)) return false
+    if (!(inv.clientEmail || '').trim()) return false
+    const last = inv.lastReminderSentAt || ''
+    return !last || last.slice(0, 10) < cutoffIso
+  })
+  let sent = 0
+  for (const inv of overdue) {
+    const result = await sendInvoiceReminderEmail(inv.id, baseUrl)
+    if (result.sent) sent += 1
+  }
+  return { sent }
+}
+
+app.post('/api/invoices/:id/send-reminder', async (req, res) => {
+  try {
+    const { id } = req.params
+    const baseUrl = (req.body && req.body.baseUrl) || process.env.APP_URL || ''
+    const result = await sendInvoiceReminderEmail(id, baseUrl)
+    if (!result.sent) {
+      const status = result.error === 'SMTP not configured' ? 503 : 400
+      return res.status(status).json({ ok: false, error: result.error })
+    }
+    res.json({ ok: true, sentAt: result.sentAt })
+  } catch (err) {
+    logError('SMTP', 'Failed to send invoice reminder', err)
+    res.status(500).json({ error: 'Failed to send reminder email' })
   }
 })
 
@@ -775,7 +1022,7 @@ app.post('/api/expenses', (req, res) => {
     createExpense(e)
     res.json({ id: e.id })
   } catch (err) {
-    console.error(err)
+    logError('DB', 'Failed to create expense', err)
     res.status(500).json({ error: 'Failed to create expense' })
   }
 })
@@ -785,7 +1032,7 @@ app.delete('/api/expenses/:id', (req, res) => {
     deleteExpense(req.params.id)
     res.json({ ok: true })
   } catch (err) {
-    console.error(err)
+    logError('DB', 'Failed to delete expense', err)
     res.status(500).json({ error: 'Failed to delete expense' })
   }
 })
@@ -808,7 +1055,7 @@ app.post('/api/calendar-reminders', (req, res) => {
     })
     res.status(201).json(getState().calendarReminders.find((x) => x.id === r.id))
   } catch (err) {
-    console.error(err)
+    logError('DB', 'Failed to create calendar reminder', err)
     res.status(500).json({ error: 'Failed to create calendar reminder' })
   }
 })
@@ -820,7 +1067,7 @@ app.patch('/api/calendar-reminders/:id', (req, res) => {
     if (updated) res.json(updated)
     else res.status(404).json({ error: 'Calendar reminder not found' })
   } catch (err) {
-    console.error(err)
+    logError('DB', 'Failed to update calendar reminder', err)
     res.status(500).json({ error: 'Failed to update calendar reminder' })
   }
 })
@@ -830,8 +1077,60 @@ app.delete('/api/calendar-reminders/:id', (req, res) => {
     deleteCalendarReminder(req.params.id)
     res.json({ ok: true })
   } catch (err) {
-    console.error(err)
+    logError('DB', 'Failed to delete calendar reminder', err)
     res.status(500).json({ error: 'Failed to delete calendar reminder' })
+  }
+})
+
+app.post('/api/experiences', (req, res) => {
+  try {
+    const r = req.body
+    if (!r.name || typeof r.name !== 'string' || !r.name.trim()) {
+      return res.status(400).json({ error: 'Name is required' })
+    }
+    const id = createExperience({
+      name: String(r.name).trim(),
+      description: r.description != null ? String(r.description).trim() : '',
+      bullets: Array.isArray(r.bullets) ? r.bullets : [],
+      fromPrice: typeof r.fromPrice === 'number' ? r.fromPrice : parseInt(r.fromPrice, 10) || 0,
+      imageUrl: r.imageUrl != null ? String(r.imageUrl).trim() || null : null,
+      sortOrder: typeof r.sortOrder === 'number' ? r.sortOrder : parseInt(r.sortOrder, 10) || 0,
+    })
+    const created = getState().experiences.find((e) => e.id === id)
+    res.status(201).json(created)
+  } catch (err) {
+    logError('DB', 'Failed to create experience', err)
+    res.status(500).json({ error: 'Failed to create experience' })
+  }
+})
+
+app.patch('/api/experiences/:id', (req, res) => {
+  try {
+    const r = req.body
+    const updates = {}
+    if (r.name !== undefined) updates.name = String(r.name).trim()
+    if (r.description !== undefined) updates.description = String(r.description).trim()
+    if (r.bullets !== undefined) updates.bullets = Array.isArray(r.bullets) ? r.bullets : []
+    if (r.fromPrice !== undefined) updates.fromPrice = typeof r.fromPrice === 'number' ? r.fromPrice : parseInt(r.fromPrice, 10) || 0
+    if (r.imageUrl !== undefined) updates.imageUrl = r.imageUrl == null || r.imageUrl === '' ? null : String(r.imageUrl).trim()
+    if (r.sortOrder !== undefined) updates.sortOrder = typeof r.sortOrder === 'number' ? r.sortOrder : parseInt(r.sortOrder, 10) || 0
+    updateExperience(req.params.id, updates)
+    const updated = getState().experiences.find((e) => e.id === req.params.id)
+    if (updated) res.json(updated)
+    else res.status(404).json({ error: 'Experience not found' })
+  } catch (err) {
+    logError('DB', 'Failed to update experience', err)
+    res.status(500).json({ error: 'Failed to update experience' })
+  }
+})
+
+app.delete('/api/experiences/:id', (req, res) => {
+  try {
+    deleteExperience(req.params.id)
+    res.json({ ok: true })
+  } catch (err) {
+    logError('DB', 'Failed to delete experience', err)
+    res.status(500).json({ error: 'Failed to delete experience' })
   }
 })
 
@@ -840,7 +1139,7 @@ app.post('/api/calendar-reminders/send-due', async (req, res) => {
     const result = await sendDueCalendarReminders()
     res.json(result)
   } catch (err) {
-    console.error(err)
+    logError('SMTP', 'Failed to send due calendar reminders', err)
     res.status(500).json({ error: 'Failed to send due calendar reminders' })
   }
 })
@@ -869,6 +1168,7 @@ app.get('/api/test-email', async (req, res) => {
     if (wantsJson) return res.json({ ok: true, message })
     return res.set('Content-Type', 'text/html; charset=utf-8').send(htmlPage('Test email sent', message))
   } catch (err) {
+    logError('SMTP', 'Test email failed', err)
     const msg = err.response ? `${err.message} ${err.response}` : (err.message || String(err))
     if (wantsJson) return res.status(500).json({ ok: false, error: msg })
     return res.status(500).set('Content-Type', 'text/html; charset=utf-8').send(htmlPage('SMTP error', msg))
@@ -896,7 +1196,7 @@ app.post('/api/seed', (req, res) => {
     })
     res.json(getState())
   } catch (err) {
-    console.error(err)
+    logError('DB', 'Failed to seed', err)
     res.status(500).json({ error: 'Failed to seed' })
   }
 })
@@ -907,6 +1207,7 @@ app.get('/api/payment-status', (req, res) => {
     const payments = readPayments()
     res.json(payments)
   } catch (err) {
+    logError('API', 'Failed to read payment status', err)
     res.status(500).json({ error: 'Failed to read payment status' })
   }
 })
@@ -921,20 +1222,65 @@ app.post('/api/settings/stripe', (req, res) => {
     if (!stripeSecretKey || typeof stripeSecretKey !== 'string') {
       return res.status(400).json({ error: 'Stripe Secret Key is required' })
     }
+    const key = stripeSecretKey.trim()
+    if (key.startsWith('pk_')) {
+      return res.status(400).json({
+        error: 'That looks like a Publishable key (pk_...). Use your Secret key (sk_...) instead. Find it at dashboard.stripe.com/apikeys',
+      })
+    }
+    if (!key.startsWith('sk_')) {
+      return res.status(400).json({
+        error: 'Stripe Secret Key should start with sk_ (e.g. sk_test_... or sk_live_...). Check dashboard.stripe.com/apikeys',
+      })
+    }
     const envPath = join(dataDir, '.env')
-    const lines = [
+    const existing = readEnvLines()
+    const stripeLines = [
       `STRIPE_SECRET_KEY=${stripeSecretKey.trim()}`,
       stripeWebhookSecret && typeof stripeWebhookSecret === 'string'
         ? `STRIPE_WEBHOOK_SECRET=${stripeWebhookSecret.trim()}`
         : '',
     ].filter(Boolean)
-    writeFileSync(envPath, lines.join('\n') + '\n')
-    stripeSecret = stripeSecretKey.trim()
+    const other = existing.filter((line) => !line.startsWith('STRIPE_SECRET_KEY=') && !line.startsWith('STRIPE_WEBHOOK_SECRET='))
+    writeFileSync(envPath, [...other, ...stripeLines].join('\n') + '\n')
+    stripeSecret = key
     stripe = new Stripe(stripeSecret)
     res.json({ ok: true })
   } catch (err) {
-    console.error(err)
+    logError('API', 'Failed to save Stripe settings', err)
     res.status(500).json({ error: err.message || 'Failed to save Stripe settings' })
+  }
+})
+
+function readEnvLines() {
+  const envPath = join(dataDir, '.env')
+  if (!existsSync(envPath)) return []
+  return readFileSync(envPath, 'utf8').split(/\r?\n/).filter(Boolean)
+}
+function writeEnvWithAppUrl(publicAppUrl) {
+  const envPath = join(dataDir, '.env')
+  const lines = readEnvLines()
+  const key = 'APP_URL'
+  const newLine = `${key}=${String(publicAppUrl).trim()}`
+  const rest = lines.filter((line) => !line.startsWith(key + '='))
+  const out = [...rest, newLine].join('\n') + '\n'
+  writeFileSync(envPath, out)
+  process.env.APP_URL = String(publicAppUrl).trim()
+}
+
+app.get('/api/settings/public-url', (req, res) => {
+  res.json({ publicAppUrl: process.env.APP_URL || '' })
+})
+
+app.post('/api/settings/public-url', (req, res) => {
+  try {
+    const { publicAppUrl } = req.body
+    const url = typeof publicAppUrl === 'string' ? publicAppUrl.trim() : ''
+    writeEnvWithAppUrl(url)
+    res.json({ ok: true, publicAppUrl: url })
+  } catch (err) {
+    logError('API', 'Failed to save public URL', err)
+    res.status(500).json({ error: err.message || 'Failed to save' })
   }
 })
 
@@ -950,7 +1296,7 @@ app.post('/api/confirm-payment', async (req, res) => {
     }
     res.json({ ok: true })
   } catch (err) {
-    console.error(err)
+    logError('Stripe', 'Failed to confirm payment', err)
     res.status(500).json({ error: err.message || 'Failed to confirm payment' })
   }
 })
@@ -997,7 +1343,7 @@ app.post('/api/templates/contracts', (req, res) => {
     }
     res.json({ id })
   } catch (err) {
-    console.error(err)
+    logError('API', 'Failed to save contract template', err)
     res.status(500).json({ error: err.message || 'Failed to save template' })
   }
 })
@@ -1013,7 +1359,7 @@ app.get('/api/templates/contracts/:id/file', (req, res) => {
     res.setHeader('Content-Type', 'application/pdf')
     res.send(readFileSync(filePath))
   } catch (err) {
-    console.error(err)
+    logError('API', 'Failed to read contract template file', err)
     res.status(500).json({ error: 'Failed to read file' })
   }
 })
@@ -1026,7 +1372,7 @@ app.patch('/api/templates/contracts/:id', (req, res) => {
     updateContractTemplate(req.params.id, { name, contentHtml })
     res.json({ ok: true })
   } catch (err) {
-    console.error(err)
+    logError('DB', 'Failed to update contract template', err)
     res.status(500).json({ error: err.message || 'Failed to update' })
   }
 })
@@ -1044,7 +1390,7 @@ app.put('/api/templates/contracts/:id/file', (req, res) => {
     writeFileSync(filePath, buf)
     res.json({ ok: true })
   } catch (err) {
-    console.error(err)
+    logError('API', 'Failed to replace contract template file', err)
     res.status(500).json({ error: err.message || 'Failed to replace file' })
   }
 })
@@ -1060,7 +1406,7 @@ app.delete('/api/templates/contracts/:id', (req, res) => {
     deleteContractTemplate(req.params.id)
     res.json({ ok: true })
   } catch (err) {
-    console.error(err)
+    logError('API', 'Failed to delete contract template', err)
     res.status(500).json({ error: err.message || 'Failed to delete' })
   }
 })
@@ -1086,7 +1432,7 @@ app.post('/api/templates/invoices', (req, res) => {
     })
     res.json({ id })
   } catch (err) {
-    console.error(err)
+    logError('API', 'Failed to save invoice template', err)
     res.status(500).json({ error: err.message || 'Failed to save template' })
   }
 })
@@ -1101,7 +1447,7 @@ app.get('/api/templates/invoices/:id/file', (req, res) => {
     res.setHeader('Content-Type', 'application/pdf')
     res.send(readFileSync(filePath))
   } catch (err) {
-    console.error(err)
+    logError('API', 'Failed to read invoice template file', err)
     res.status(500).json({ error: 'Failed to read file' })
   }
 })
@@ -1110,10 +1456,11 @@ app.patch('/api/templates/invoices/:id', (req, res) => {
   try {
     const { name } = req.body
     if (name !== undefined && typeof name !== 'string') return res.status(400).json({ error: 'Invalid name' })
+    if (name !== undefined && !String(name).trim()) return res.status(400).json({ error: 'Template name cannot be empty' })
     updateInvoiceTemplate(req.params.id, { name })
     res.json({ ok: true })
   } catch (err) {
-    console.error(err)
+    logError('DB', 'Failed to update invoice template', err)
     res.status(500).json({ error: err.message || 'Failed to update' })
   }
 })
@@ -1131,7 +1478,7 @@ app.put('/api/templates/invoices/:id/file', (req, res) => {
     writeFileSync(filePath, buf)
     res.json({ ok: true })
   } catch (err) {
-    console.error(err)
+    logError('API', 'Failed to replace invoice template file', err)
     res.status(500).json({ error: err.message || 'Failed to replace file' })
   }
 })
@@ -1147,7 +1494,7 @@ app.delete('/api/templates/invoices/:id', (req, res) => {
     deleteInvoiceTemplate(req.params.id)
     res.json({ ok: true })
   } catch (err) {
-    console.error(err)
+    logError('API', 'Failed to delete invoice template', err)
     res.status(500).json({ error: err.message || 'Failed to delete' })
   }
 })
@@ -1167,7 +1514,7 @@ app.post('/api/pipeline-stages', (req, res) => {
     createPipelineStage({ id, label: label.trim(), sortOrder: maxOrder + 1 })
     res.status(201).json(getState().pipelineStages.find((s) => s.id === id))
   } catch (err) {
-    console.error(err)
+    logError('DB', 'Failed to create pipeline stage', err)
     res.status(500).json({ error: err.message || 'Failed to create pipeline stage' })
   }
 })
@@ -1185,7 +1532,7 @@ app.patch('/api/pipeline-stages/:id', (req, res) => {
     const updated = getState().pipelineStages.find((s) => s.id === req.params.id)
     res.json(updated)
   } catch (err) {
-    console.error(err)
+    logError('DB', 'Failed to update pipeline stage', err)
     res.status(500).json({ error: err.message || 'Failed to update pipeline stage' })
   }
 })
@@ -1201,7 +1548,7 @@ app.delete('/api/pipeline-stages/:id', (req, res) => {
     deletePipelineStage(req.params.id)
     res.json({ ok: true })
   } catch (err) {
-    console.error(err)
+    logError('DB', 'Failed to delete pipeline stage', err)
     res.status(500).json({ error: err.message || 'Failed to delete pipeline stage' })
   }
 })
@@ -1210,6 +1557,11 @@ app.post('/api/create-checkout-session', async (req, res) => {
   if (!stripe) {
     return res.status(503).json({
       error: 'Stripe is not configured. Go to Settings to add your Stripe keys.',
+    })
+  }
+  if (stripeSecret && stripeSecret.startsWith('pk_')) {
+    return res.status(503).json({
+      error: 'Wrong key type: the app is using a Publishable key (pk_...). In Settings → Stripe, paste your Secret key (sk_...) from dashboard.stripe.com/apikeys',
     })
   }
   const { invoiceId, amount, clientEmail, description } = req.body
@@ -1248,7 +1600,7 @@ app.post('/api/create-checkout-session', async (req, res) => {
     })
     res.json({ url: session.url })
   } catch (err) {
-    console.error('Stripe error:', err.message)
+    logError('Stripe', 'Failed to create checkout session', err)
     res.status(500).json({ error: err.message || 'Failed to create checkout session' })
   }
 })
@@ -1274,5 +1626,13 @@ app.listen(PORT, () => {
       })
     }, REMINDER_INTERVAL_MS)
     console.log('Calendar reminder emails: will check every 15 minutes')
+    // Automated overdue invoice "please pay" reminders once per day (throttled: max once per 5 days per invoice)
+    const OVERDUE_INTERVAL_MS = 24 * 60 * 60 * 1000
+    setInterval(() => {
+      sendOverdueInvoiceReminders().then(({ sent }) => {
+        if (sent > 0) console.log(`Sent ${sent} overdue invoice reminder(s)`)
+      })
+    }, OVERDUE_INTERVAL_MS)
+    console.log('Overdue invoice reminders: will check every 24 hours')
   }
 })

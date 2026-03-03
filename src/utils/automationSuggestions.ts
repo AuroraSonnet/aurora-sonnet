@@ -70,11 +70,11 @@ export function getAutomationSuggestions(
     })
   }
 
-  // Overdue invoices (sent but past due)
+  // Overdue invoices (status sent, due date in the past)
   const todayStr = today()
   for (const inv of invoices) {
-    if (inv.status !== 'sent' && inv.status !== 'overdue') continue
-    if (inv.dueDate >= todayStr && inv.status !== 'overdue') continue
+    if (inv.status !== 'sent') continue
+    if (!inv.dueDate || inv.dueDate >= todayStr) continue
     suggestions.push({
       type: 'payment_reminder',
       label: inv.projectTitle,

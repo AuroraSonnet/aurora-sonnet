@@ -17,17 +17,20 @@ const leadForms = [
 
 const nav = [
   { to: '/', label: 'Dashboard', icon: '◉' },
-  { to: '/clients', label: 'Clients', icon: '◇' },
-  { to: '/newsletter', label: 'Newsletter', icon: '✉' },
   { to: '/bookings', label: 'Bookings', icon: '▷' },
+  { to: '/clients', label: 'Clients', icon: '◇' },
   { to: '/proposals', label: 'Proposals', icon: '◆' },
   { to: '/contracts', label: 'Contracts', icon: '▣' },
   { to: '/invoices', label: 'Invoices', icon: '◎' },
-  { to: '/bookkeeping', label: 'Bookkeeping', icon: '◈' },
   { to: '/calendar', label: 'Calendar', icon: '📅' },
+  { to: '/experiences', label: 'Experiences', icon: '✦' },
+  { to: '/music-selection', label: 'Music selection', icon: '♪' },
+  { to: '/newsletter', label: 'Newsletter', icon: '✉' },
+  { to: '/bookkeeping', label: 'Bookkeeping', icon: '◈' },
   { to: '/automations', label: 'Automations', icon: '⚡' },
   { to: '/settings', label: 'Settings', icon: '⚙' },
 ]
+const navBeforeLeadForms = 9 // Dashboard through Music selection, then Lead forms
 
 export default function Layout() {
   const location = useLocation()
@@ -71,6 +74,35 @@ export default function Layout() {
     return () => clearTimeout(t)
   }, [actions])
 
+  // Daily backup from server to Mac (Electron only): once per 24h, fetch state and save to Application Support/backups
+  useEffect(() => {
+    const api = (window as unknown as { electronAPI?: { saveBackup: (data: string) => Promise<{ ok?: boolean; error?: string }> } }).electronAPI
+    if (!api?.saveBackup) return
+    const key = 'aurora_last_backup_ts'
+    const raw = localStorage.getItem(key)
+    const last = raw ? parseInt(raw, 10) : 0
+    if (Number.isNaN(last)) return
+    const dayMs = 24 * 60 * 60 * 1000
+    if (last > 0 && Date.now() - last < dayMs) return
+    const base = getInquiryApiBaseUrl()
+    if (!base || !base.startsWith('http')) return
+    const t = setTimeout(async () => {
+      try {
+        let res = await fetch(`/api/proxy-remote-state?base=${encodeURIComponent(base)}`)
+        if (!res.ok) res = await fetch(`${base}/api/state`)
+        if (!res.ok) return
+        const data = await res.json().catch(() => null)
+        if (!data || !Array.isArray(data.clients)) return
+        const result = await api.saveBackup(JSON.stringify(data, null, 2))
+        if (result?.ok !== true) return
+        localStorage.setItem(key, String(Date.now()))
+      } catch {
+        // ignore; will retry next app open
+      }
+    }, 5000)
+    return () => clearTimeout(t)
+  }, [])
+
   return (
     <div className={styles.layout}>
       <aside className={styles.sidebar}>
@@ -78,7 +110,7 @@ export default function Layout() {
           <span className={styles.logoIcon}>Aurora Sonnet</span>
         </div>
         <nav className={styles.nav}>
-          {nav.slice(0, 2).map(({ to, label, icon }) => (
+          {nav.slice(0, navBeforeLeadForms).map(({ to, label, icon }) => (
             <NavLink
               key={to}
               to={to}
@@ -117,7 +149,7 @@ export default function Layout() {
               </div>
             )}
           </div>
-          {nav.slice(2).map(({ to, label, icon }) => (
+          {nav.slice(navBeforeLeadForms).map(({ to, label, icon }) => (
             <NavLink
               key={to}
               to={to}

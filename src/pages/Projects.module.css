@@ -132,6 +132,27 @@
   max-width: 220px;
 }
 
+.toolbar {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+  margin-bottom: 1rem;
+}
+
+.sortLabel {
+  font-size: 0.9rem;
+  color: var(--text-secondary);
+}
+
+.sortSelect {
+  padding: 0.55rem 0.85rem;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  background: var(--bg-card);
+  font-size: 0.9rem;
+  color: var(--text-primary);
+}
+
 .pipeline {
   display: flex;
   gap: 1rem;
@@ -206,6 +227,15 @@
 .client {
   font-size: 0.8rem;
   color: var(--text-muted);
+}
+
+.cardClientLink {
+  color: var(--accent);
+  text-decoration: none;
+}
+
+.cardClientLink:hover {
+  text-decoration: underline;
 }
 
 .value {
@@ -381,6 +411,25 @@
   min-height: 80px;
 }
 
+.editLinks {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.75rem;
+  margin-top: 1rem;
+  padding-top: 1rem;
+  border-top: 1px solid var(--border);
+}
+
+.editLink {
+  font-size: 0.9rem;
+  color: var(--accent);
+  text-decoration: none;
+}
+
+.editLink:hover {
+  text-decoration: underline;
+}
+
 .inquiryMessage {
   background: var(--accent-subtle);
   border-radius: var(--radius-sm);
@@ -423,4 +472,46 @@
 .replyBtn:disabled {
   opacity: 0.6;
   cursor: not-allowed;
+}
+
+.archiveSection {
+  margin-top: 0.5rem;
+}
+
+.archiveHint {
+  color: var(--text-secondary);
+  font-size: 0.9rem;
+  margin: 0 0 1rem 0;
+}
+
+.archiveList {
+  list-style: none;
+  padding: 0;
+  margin: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+}
+
+.archiveCard {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 1rem;
+  background: var(--bg-card);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  padding: 1rem;
+  box-shadow: var(--shadow);
+}
+
+.archiveCardMain {
+  display: flex;
+  flex-direction: column;
+  gap: 0.25rem;
+  min-width: 0;
+}
+
+.archiveCardMain strong {
+  font-size: 0.9rem;
 }

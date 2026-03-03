@@ -435,10 +435,12 @@ export default function TemplatesSection() {
 
   const saveEdit = async () => {
     if (!editingId) return
+    const name = editingName.trim()
+    if (!name) return
     const ok =
       editingId.type === 'contract'
-        ? await apiUpdateContractTemplateName(editingId.id, editingName.trim())
-        : await apiUpdateInvoiceTemplateName(editingId.id, editingName.trim())
+        ? await apiUpdateContractTemplateName(editingId.id, name)
+        : await apiUpdateInvoiceTemplateName(editingId.id, name)
     if (ok) await actions.refreshState()
     setEditingId(null)
   }

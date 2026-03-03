@@ -1,0 +1,47 @@
+.page {
+  min-height: 100vh;
+  background: #f3ede6;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 2rem;
+  font-family: 'Inter', system-ui, sans-serif;
+}
+
+.card {
+  max-width: 420px;
+  background: #fdfcfa;
+  padding: 2rem;
+  border-radius: 2px;
+  border: 1px solid #e5dfd8;
+  box-shadow: 0 8px 40px rgba(44, 24, 16, 0.06);
+  text-align: center;
+}
+
+.title {
+  font-family: 'Playfair Display', Georgia, serif;
+  font-size: 1.5rem;
+  font-weight: 500;
+  color: #241a14;
+  margin: 0 0 1rem 0;
+}
+
+.text {
+  color: #382e27;
+  font-size: 0.9375rem;
+  line-height: 1.5;
+  margin: 0 0 1rem 0;
+}
+
+.muted {
+  font-size: 0.8125rem;
+  color: #7a7269;
+  margin: 0;
+}
+
+.muted code {
+  background: #ebe7e2;
+  padding: 0.15rem 0.4rem;
+  border-radius: 2px;
+  font-size: 0.75rem;
+}

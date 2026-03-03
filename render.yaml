@@ -1,4 +1,5 @@
 # Render Blueprint — connect repo at https://dashboard.render.com and deploy
+# Persistent disk: so SQLite DB (clients, bookings, invoices) survives restarts. Requires a paid plan.
 services:
   - type: web
     name: aurora-sonnet
@@ -6,9 +7,15 @@ services:
     # Pin Node 20. Use prebuilds for SQLite (no native compile on Render); extra memory for frontend build.
     buildCommand: npm install && NODE_OPTIONS=--max-old-space-size=4096 npm run build
     startCommand: npm start
+    disk:
+      name: aurora-sonnet-data
+      mountPath: /data
+      sizeGB: 1
     envVars:
       - key: NODE_VERSION
         value: "18"
+      - key: DATA_DIR
+        value: /data
       - key: STRIPE_SECRET_KEY
         sync: false
       - key: STRIPE_WEBHOOK_SECRET

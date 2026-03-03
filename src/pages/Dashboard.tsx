@@ -106,9 +106,16 @@ export default function Dashboard() {
               <li key={`${s.type}-${s.projectId ?? s.invoiceId ?? i}`} className={styles.suggestionItem}>
                 <span className={styles.suggestionLabel}>{s.label}</span>
                 {s.sublabel && <span className={styles.suggestionSub}>{s.sublabel}</span>}
-                <Link to={s.link} className={styles.suggestionLink}>
-                  {s.linkLabel} →
-                </Link>
+                <span className={styles.suggestionLinks}>
+                  <Link to={s.link} className={styles.suggestionLink}>
+                    {s.linkLabel} →
+                  </Link>
+                  {s.type === 'payment_reminder' && s.invoiceId && (
+                    <Link to={`/invoices?remind=${encodeURIComponent(s.invoiceId)}`} className={styles.suggestionLink}>
+                      Send reminder →
+                    </Link>
+                  )}
+                </span>
               </li>
             ))}
           </ul>

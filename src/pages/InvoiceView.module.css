@@ -1,0 +1,247 @@
+/* Aurora Sonnet invoice — high-end luxury: blush nude, espresso, subtle brass */
+.page {
+  min-height: 100vh;
+  background: #f3ede6;
+  padding: 2.5rem 1.5rem;
+  font-family: 'Inter', system-ui, sans-serif;
+}
+
+.card {
+  max-width: 560px;
+  margin: 0 auto;
+  background: #fdfcfa;
+  border-radius: 2px;
+  box-shadow: 0 8px 40px rgba(44, 24, 16, 0.06);
+  overflow: hidden;
+  border: 1px solid #e5dfd8;
+}
+
+.header {
+  background: #241a14;
+  color: #faf8f6;
+  padding: 2.75rem 2.5rem;
+  text-align: center;
+  position: relative;
+}
+
+.header::after {
+  content: '';
+  position: absolute;
+  bottom: 0;
+  left: 50%;
+  transform: translateX(-50%);
+  width: 48px;
+  height: 1px;
+  background: rgba(180, 158, 130, 0.6);
+}
+
+.brand {
+  font-family: 'Playfair Display', Georgia, serif;
+  font-size: 1.875rem;
+  font-weight: 500;
+  letter-spacing: 0.2em;
+  margin: 0;
+  text-transform: none;
+}
+
+.invoiceTitle {
+  font-family: 'Playfair Display', Georgia, serif;
+  font-size: 0.8125rem;
+  font-weight: 500;
+  color: #5c5349;
+  letter-spacing: 0.18em;
+  text-transform: uppercase;
+  margin: 0 0 2rem 0;
+  padding: 2.25rem 2.5rem 0;
+}
+
+.body {
+  padding: 0 2.5rem 2.75rem;
+  color: #382e27;
+}
+
+.row {
+  display: flex;
+  justify-content: space-between;
+  align-items: baseline;
+  gap: 1rem;
+  padding: 0.75rem 0;
+  border-bottom: 1px solid #ebe7e2;
+  font-size: 0.9375rem;
+}
+
+.row:last-of-type {
+  border-bottom: none;
+}
+
+.label {
+  color: #7a7269;
+  font-weight: 400;
+  font-size: 0.8125rem;
+  letter-spacing: 0.02em;
+}
+
+.value {
+  font-weight: 500;
+  color: #2c1810;
+}
+
+.amountRow {
+  margin-top: 1.5rem;
+  padding-top: 1.5rem;
+  border-top: 1px solid #e5dfd8;
+  font-size: 1rem;
+}
+
+.amountRow .label {
+  font-size: 0.8125rem;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  color: #5c5349;
+}
+
+.amountRow .value {
+  font-family: 'Playfair Display', Georgia, serif;
+  font-size: 1.75rem;
+  font-weight: 500;
+  color: #241a14;
+  letter-spacing: 0.02em;
+}
+
+.itemsTable {
+  width: 100%;
+  border-collapse: collapse;
+  margin: 1.25rem 0;
+  font-size: 0.9375rem;
+}
+
+.itemsTable th,
+.itemsTable td {
+  padding: 0.625rem 0.5rem 0.625rem 0;
+  border-bottom: 1px solid #ebe7e2;
+  text-align: left;
+}
+
+.itemsTable th {
+  color: #7a7269;
+  font-weight: 400;
+  font-size: 0.75rem;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+}
+
+.itemsDesc { min-width: 0; }
+.itemsQty { width: 3rem; text-align: right; }
+.itemsPrice { width: 6rem; text-align: right; }
+.itemsTotal { width: 5rem; text-align: right; font-weight: 500; color: #241a14; }
+
+.paySection {
+  margin-top: 2.25rem;
+  padding: 1.75rem;
+  background: #f8f6f3;
+  border-radius: 0;
+  border: none;
+  border-top: 1px solid #e5dfd8;
+  text-align: center;
+}
+
+.payTitle {
+  font-family: 'Playfair Display', Georgia, serif;
+  font-size: 0.8125rem;
+  font-weight: 500;
+  color: #241a14;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  margin: 0 0 0.5rem 0;
+}
+
+.payHint {
+  font-size: 0.8125rem;
+  color: #7a7269;
+  margin: 0 0 1.25rem 0;
+  letter-spacing: 0.01em;
+}
+
+.payBtn {
+  display: inline-block;
+  background: #241a14;
+  color: #faf8f6;
+  font-family: 'Inter', system-ui, sans-serif;
+  font-weight: 500;
+  font-size: 0.8125rem;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  padding: 0.875rem 2.25rem;
+  border: none;
+  border-radius: 0;
+  cursor: pointer;
+  transition: background 0.2s, color 0.2s;
+}
+
+.payBtn:hover {
+  background: #382e27;
+}
+
+.payBtn:disabled {
+  opacity: 0.65;
+  cursor: wait;
+}
+
+.downloadBtn {
+  display: inline-block;
+  background: transparent;
+  color: #241a14;
+  border: 1px solid #c4b8ab;
+  font-family: 'Inter', system-ui, sans-serif;
+  font-weight: 500;
+  font-size: 0.8125rem;
+  letter-spacing: 0.08em;
+  padding: 0.625rem 1.5rem;
+  border-radius: 0;
+  cursor: pointer;
+  transition: background 0.2s, color 0.2s, border-color 0.2s;
+}
+
+.downloadBtn:hover {
+  background: #241a14;
+  color: #faf8f6;
+  border-color: #241a14;
+}
+
+.downloadBtn:disabled {
+  opacity: 0.5;
+  cursor: wait;
+}
+
+.footer {
+  margin-top: 0;
+  padding: 1.25rem 2.5rem;
+  border-top: 1px solid #ebe7e2;
+  font-size: 0.6875rem;
+  color: #9c948b;
+  letter-spacing: 0.06em;
+  text-align: center;
+}
+
+.backLink {
+  display: inline-block;
+  margin-bottom: 1rem;
+  font-size: 0.9rem;
+  color: #5c5349;
+}
+
+.backLink:hover {
+  color: #2c1810;
+}
+
+.notFound {
+  text-align: center;
+  padding: 3rem 2rem;
+  color: #5c5349;
+}
+
+.notFound h1 {
+  font-family: 'Playfair Display', Georgia, serif;
+  color: #2c1810;
+  margin-bottom: 0.5rem;
+}

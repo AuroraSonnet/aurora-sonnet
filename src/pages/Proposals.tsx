@@ -13,6 +13,8 @@ const DEFAULT_EMAIL_BODY = `Dear [Client],
 
 It is our pleasure to present your curated proposal for {{title}}.
 
+All details are outlined in the proposal for your review at your convenience. If any questions come to mind, we would be pleased to connect by phone, WhatsApp, or email.
+
 We have attached an invoice with the full details and amount. Please review and reply to this email to confirm your booking.
 
 We have crafted this offering with your celebration in mind and look forward to the honour of being part of your day.`
@@ -161,7 +163,11 @@ export default function Proposals() {
     if (email) {
       const pair = getClientForProposal(p)
       if (pair?.client && email !== pair.client.email) {
-        actions.updateClient(pair.client.id, { email })
+        try {
+          await actions.updateClient(pair.client.id, { email })
+        } catch {
+          showToast('That email is already used by another contact.')
+        }
       }
       window.location.href = `mailto:${encodeURIComponent(email)}?subject=${encodeURIComponent(subject)}&body=${encodeURIComponent(finalBody)}`
       showToast('Opening your email app…')
@@ -253,6 +259,9 @@ export default function Proposals() {
       status: 'draft',
       value: duplicateSource.value,
       emailBody: duplicateSource.emailBody,
+      customPackageName: duplicateSource.customPackageName,
+      customPackageDetails: duplicateSource.customPackageDetails,
+      customPriceBreakdown: duplicateSource.customPriceBreakdown,
     })
     pushUndo({
       id: `proposal-${proposalId}`,

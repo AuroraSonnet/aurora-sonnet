@@ -144,3 +144,15 @@ export function getPackageOrDuoPrice(id: string | undefined): number | undefined
 
 /** All packages (solo + duo) for dropdowns that need both. */
 export const ALL_PACKAGES = [...PERFORMANCE_PACKAGES, ...DUO_PACKAGES] as (PerformancePackage | DuoPackage)[]
+
+/** Default line items for "create invoice from scratch" — all 6 experiences with names and prices. */
+export interface InvoiceLineItemLike {
+  description: string
+  quantity: number
+  unitPrice: number
+}
+
+export const DEFAULT_INVOICE_EXPERIENCES: InvoiceLineItemLike[] = [
+  ...PERFORMANCE_PACKAGES.map((p) => ({ description: p.name, quantity: 1, unitPrice: p.fromPrice })),
+  ...DUO_PACKAGES.map((p) => ({ description: p.name, quantity: 1, unitPrice: p.fromPrice })),
+]

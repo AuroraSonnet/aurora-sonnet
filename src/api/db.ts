@@ -14,17 +14,30 @@ export interface PipelineStage {
   sortOrder: number
 }
 
+export interface Experience {
+  id: string
+  name: string
+  description: string
+  bullets: string[]
+  fromPrice: number
+  imageUrl: string | null
+  sortOrder: number
+  createdAt: string
+}
+
 export interface AppState {
   clients: { id: string; name: string; email: string; phone?: string; partnerName?: string; createdAt: string }[]
-  projects: { id: string; clientId: string; clientName: string; title: string; stage: string; value: number; weddingDate: string; venue?: string; packageType?: string; dueDate: string; createdAt?: string }[]
+  projects: { id: string; clientId: string; clientName: string; title: string; stage: string; value: number; weddingDate: string; venue?: string; packageType?: string; dueDate: string; createdAt?: string; archivedAt?: string }[]
   proposals: { id: string; projectId: string; clientName: string; title: string; status: string; value: number; sentAt?: string }[]
-  invoices: { id: string; projectId?: string; clientName: string; clientEmail?: string; projectTitle: string; amount: number; status: string; dueDate: string; paidAt?: string; type?: string; templateId?: string }[]
+  invoices: { id: string; projectId?: string; clientName: string; clientEmail?: string; projectTitle: string; amount: number; status: string; dueDate: string; paidAt?: string; type?: string; templateId?: string; invoiceNumber?: string; lineItems?: { description: string; quantity: number; unitPrice: number }[]; lastReminderSentAt?: string }[]
   contracts: { id: string; projectId: string; clientName: string; title: string; status: string; value: number; weddingDate: string; venue?: string; packageType?: string; signedAt?: string; createdAt: string; templateId?: string; signToken?: string; clientSignedAt?: string }[]
   expenses: { id: string; date: string; description: string; amount: number; category: string }[]
   calendarReminders?: { id: string; date: string; title: string; notes?: string; clientId?: string; projectId?: string; reminderAt?: string; sentAt?: string; createdAt: string }[]
   contractTemplates?: DocumentTemplate[]
   invoiceTemplates?: DocumentTemplate[]
   pipelineStages?: PipelineStage[]
+  experiences?: Experience[]
+  config?: { publicAppUrl?: string }
 }
 
 export async function fetchState(): Promise<AppState | null> {
@@ -34,6 +47,30 @@ export async function fetchState(): Promise<AppState | null> {
     return res.json()
   } catch {
     return null
+  }
+}
+
+export async function getPublicAppUrl(): Promise<string> {
+  try {
+    const res = await fetch(`${API}/settings/public-url`)
+    if (!res.ok) return ''
+    const data = await res.json().catch(() => ({}))
+    return typeof data.publicAppUrl === 'string' ? data.publicAppUrl : ''
+  } catch {
+    return ''
+  }
+}
+
+export async function savePublicAppUrl(publicAppUrl: string): Promise<boolean> {
+  try {
+    const res = await fetch(`${API}/settings/public-url`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ publicAppUrl: publicAppUrl.trim() }),
+    })
+    return res.ok
+  } catch {
+    return false
   }
 }
 
@@ -48,21 +85,27 @@ export async function seedDatabase(): Promise<AppState | null> {
   }
 }
 
-export async function apiCreateClient(client: { id: string; name: string; email: string; phone?: string; partnerName?: string; createdAt: string }): Promise<boolean> {
+export async function apiCreateClient(client: { id: string; name: string; email: string; phone?: string; partnerName?: string; createdAt: string }): Promise<{ ok: true } | { ok: false; error: string }> {
   try {
     const res = await fetch(`${API}/clients`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(client) })
-    return res.ok
+    const body = await res.json().catch(() => ({}))
+    const msg = (body && typeof body.error === 'string') ? body.error : 'Failed to create client'
+    if (res.ok) return { ok: true }
+    return { ok: false, error: res.status === 409 ? msg : msg }
   } catch {
-    return false
+    return { ok: false, error: 'Network error' }
   }
 }
 
-export async function apiUpdateClient(id: string, updates: Record<string, unknown>): Promise<boolean> {
+export async function apiUpdateClient(id: string, updates: Record<string, unknown>): Promise<{ ok: true } | { ok: false; error: string }> {
   try {
     const res = await fetch(`${API}/clients/${id}`, { method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(updates) })
-    return res.ok
+    const body = await res.json().catch(() => ({}))
+    const msg = (body && typeof body.error === 'string') ? body.error : 'Failed to update client'
+    if (res.ok) return { ok: true }
+    return { ok: false, error: res.status === 409 ? msg : msg }
   } catch {
-    return false
+    return { ok: false, error: 'Network error' }
   }
 }
 
@@ -127,12 +170,14 @@ export async function apiUpdateContract(id: string, updates: Record<string, unkn
   }
 }
 
-export async function apiCreateInvoice(invoice: Record<string, unknown>): Promise<boolean> {
+export async function apiCreateInvoice(invoice: Record<string, unknown>): Promise<{ ok: true; invoiceNumber: string } | { ok: false }> {
   try {
     const res = await fetch(`${API}/invoices`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(invoice) })
-    return res.ok
+    if (!res.ok) return { ok: false }
+    const data = await res.json().catch(() => ({}))
+    return { ok: true, invoiceNumber: data.invoiceNumber ?? '' }
   } catch {
-    return false
+    return { ok: false }
   }
 }
 
@@ -142,6 +187,23 @@ export async function apiUpdateInvoice(id: string, updates: Record<string, unkno
     return res.ok
   } catch {
     return false
+  }
+}
+
+/** Send overdue "please pay" reminder email to client (requires SMTP). */
+export async function apiSendInvoiceReminder(invoiceId: string, baseUrl?: string): Promise<{ ok: true; sentAt: string } | { ok: false; error: string }> {
+  try {
+    const res = await fetch(`${API}/invoices/${invoiceId}/send-reminder`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ baseUrl: baseUrl || (typeof window !== 'undefined' ? window.location.origin : '') }),
+    })
+    const data = await res.json().catch(() => ({}))
+    if (res.ok && data.sentAt) return { ok: true, sentAt: data.sentAt }
+    const msg = typeof data.error === 'string' ? data.error : res.status === 503 ? 'Email not configured' : 'Failed to send reminder'
+    return { ok: false, error: msg }
+  } catch {
+    return { ok: false, error: 'Network error' }
   }
 }
 
@@ -157,7 +219,10 @@ export async function apiCreateExpense(expense: Record<string, unknown>): Promis
 export async function apiDeleteClient(id: string): Promise<boolean> {
   try {
     const res = await fetch(`${API}/clients/${id}`, { method: 'DELETE' })
-    return res.ok
+    // Treat 404 (not found) as success so local deletes can still proceed even if the
+    // record was already removed on the server.
+    if (res.ok || res.status === 404) return true
+    return false
   } catch {
     return false
   }
@@ -298,6 +363,62 @@ export async function apiUpdateCalendarReminder(id: string, updates: Record<stri
 export async function apiDeleteCalendarReminder(id: string): Promise<boolean> {
   try {
     const res = await fetch(`${API}/calendar-reminders/${id}`, { method: 'DELETE' })
+    return res.ok
+  } catch {
+    return false
+  }
+}
+
+export async function apiCreateExperience(experience: {
+  name: string
+  description: string
+  bullets: string[]
+  fromPrice: number
+  imageUrl?: string | null
+  sortOrder?: number
+}): Promise<{ ok: true; experience: Experience } | { ok: false; error: string }> {
+  try {
+    const res = await fetch(`${API}/experiences`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        name: experience.name.trim(),
+        description: experience.description?.trim() ?? '',
+        bullets: experience.bullets ?? [],
+        fromPrice: experience.fromPrice ?? 0,
+        imageUrl: experience.imageUrl ?? null,
+        sortOrder: experience.sortOrder ?? 0,
+      }),
+    })
+    const data = await res.json().catch(() => ({}))
+    if (res.ok && data.id) return { ok: true, experience: data as Experience }
+    return { ok: false, error: (data && data.error) || 'Failed to create experience' }
+  } catch {
+    return { ok: false, error: 'Network error' }
+  }
+}
+
+export async function apiUpdateExperience(
+  id: string,
+  updates: { name?: string; description?: string; bullets?: string[]; fromPrice?: number; imageUrl?: string | null; sortOrder?: number }
+): Promise<{ ok: true; experience: Experience } | { ok: false; error: string }> {
+  try {
+    const res = await fetch(`${API}/experiences/${id}`, {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(updates),
+    })
+    const data = await res.json().catch(() => ({}))
+    if (res.ok && data.id) return { ok: true, experience: data as Experience }
+    return { ok: false, error: (data && data.error) || 'Failed to update experience' }
+  } catch {
+    return { ok: false, error: 'Network error' }
+  }
+}
+
+export async function apiDeleteExperience(id: string): Promise<boolean> {
+  try {
+    const res = await fetch(`${API}/experiences/${id}`, { method: 'DELETE' })
     return res.ok
   } catch {
     return false

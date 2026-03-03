@@ -18,13 +18,19 @@ export async function createCheckoutSession(params: {
   })
   const data = await res.json()
   if (!res.ok) throw new Error(data.error || 'Failed to create payment session')
+  if (!data.url) throw new Error('No payment URL returned')
   return data
 }
 
 export async function getPaymentStatus(): Promise<Record<string, string>> {
-  const res = await fetch(`${API_BASE}/payment-status`)
-  if (!res.ok) return {}
-  return res.json()
+  try {
+    const res = await fetch(`${API_BASE}/payment-status`)
+    if (!res.ok) return {}
+    const data = await res.json().catch(() => ({}))
+    return typeof data === 'object' && data !== null ? data : {}
+  } catch {
+    return {}
+  }
 }
 
 export async function getStripeSettings(): Promise<{ configured: boolean }> {

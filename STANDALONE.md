@@ -11,7 +11,7 @@ It will install dependencies (first time), build the app, then open **Aurora Son
 
 **Or in Terminal:**
 ```bash
-cd "/Volumes/G-Video ArmorATD/Aurora Sonnet Cursor/Website"
+cd /Volumes/G-Video/AuroraSonnet/Website
 npm install
 npm run build
 npm run electron

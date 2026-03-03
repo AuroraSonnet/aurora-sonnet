@@ -1,5 +1,5 @@
-import { useState, useEffect } from 'react'
-import { useLocation, useNavigate } from 'react-router-dom'
+import { useState, useEffect, useMemo } from 'react'
+import { Link, useLocation, useNavigate } from 'react-router-dom'
 import { useApp } from '../context/AppContext'
 import { useUndo } from '../context/UndoContext'
 import {
@@ -23,6 +23,28 @@ const defaultStages = [
   { id: 'lost', label: 'Lost', sortOrder: 5 },
 ]
 
+type SortBy = 'recent' | 'name-az' | 'name-za' | 'date-asc' | 'date-desc' | 'value-asc' | 'value-desc'
+
+function compareProjects(sortBy: SortBy, a: Project, b: Project): number {
+  const byId = a.id.localeCompare(b.id)
+  switch (sortBy) {
+    case 'name-az':
+      return (a.clientName || '').localeCompare(b.clientName || '', undefined, { sensitivity: 'base' }) || byId
+    case 'name-za':
+      return (b.clientName || '').localeCompare(a.clientName || '', undefined, { sensitivity: 'base' }) || byId
+    case 'date-asc':
+      return (a.weddingDate || '').localeCompare(b.weddingDate || '') || byId
+    case 'date-desc':
+      return (b.weddingDate || '').localeCompare(a.weddingDate || '') || byId
+    case 'value-asc':
+      return a.value - b.value || byId
+    case 'value-desc':
+      return b.value - a.value || byId
+    default:
+      return (b.createdAt || '').localeCompare(a.createdAt || '') || byId
+  }
+}
+
 export default function Projects() {
   const location = useLocation()
   const navigate = useNavigate()
@@ -31,6 +53,9 @@ export default function Projects() {
   const { projects, clients, pipelineStages: stateStages } = state
   const stages = (stateStages && stateStages.length > 0 ? stateStages : defaultStages).slice().sort((a, b) => a.sortOrder - b.sortOrder)
   const firstStageId = stages[0]?.id ?? 'inquiry'
+  const lastStageId = stages.length > 0 ? stages[stages.length - 1].id : undefined
+  const activeProjects = useMemo(() => projects.filter((p) => !p.archivedAt), [projects])
+  const archivedProjects = useMemo(() => projects.filter((p) => p.archivedAt).sort((a, b) => (b.archivedAt || '').localeCompare(a.archivedAt || '')), [projects])
 
   const [showNewInquiry, setShowNewInquiry] = useState(false)
   const [showManagePipelines, setShowManagePipelines] = useState(false)
@@ -58,6 +83,9 @@ export default function Projects() {
     venue: '',
     title: '',
   })
+
+  const [sortBy, setSortBy] = useState<SortBy>('recent')
+  const [showArchiveView, setShowArchiveView] = useState(false)
 
   const clientIdFromState = (location.state as { openNewInquiryForClientId?: string } | null)?.openNewInquiryForClientId
   useEffect(() => {
@@ -111,7 +139,24 @@ export default function Projects() {
     })
   }
 
-  const byStage = (stageId: string) => projects.filter((p) => p.stage === stageId)
+  const sortedByStage = useMemo(() => {
+    const grouped: Record<string, Project[]> = {}
+    for (const p of activeProjects) {
+      const key = p.stage
+      if (!grouped[key]) grouped[key] = []
+      grouped[key].push(p)
+    }
+    const out: Record<string, Project[]> = {}
+    const cmp = (a: Project, b: Project) => compareProjects(sortBy, a, b)
+    for (const stage of stages) {
+      const list = grouped[stage.id] ?? []
+      list.sort(cmp)
+      out[stage.id] = list
+    }
+    return out
+  }, [activeProjects, sortBy, stages])
+
+  const byStage = (stageId: string) => sortedByStage[stageId] ?? []
 
   const openEdit = (p: Project) => {
     const client = clients.find((c) => c.id === p.clientId)
@@ -187,13 +232,17 @@ export default function Projects() {
     try {
       const client = clients.find((c) => c.id === editingProject.clientId)
       if (client) {
-        await apiUpdateClient(editingProject.clientId, {
+        const clientResult = await apiUpdateClient(editingProject.clientId, {
           name: editForm.clientName.trim(),
           email: editForm.clientEmail.trim(),
           phone: editForm.clientPhone.trim() || undefined,
         })
+        if (!clientResult.ok) {
+          window.alert(clientResult.error)
+          return
+        }
       }
-      await apiUpdateProject(editingProject.id, {
+      const ok = await apiUpdateProject(editingProject.id, {
         clientName: editForm.clientName.trim(),
         title: editForm.title.trim(),
         venue: editForm.venue.trim() || undefined,
@@ -203,6 +252,10 @@ export default function Projects() {
         value: editForm.value,
         notes: editForm.notes.trim() || undefined,
       })
+      if (!ok) {
+        window.alert('Could not save. The stage may have been removed—try choosing another stage and save again.')
+        return
+      }
       await actions.refreshState()
       setEditingProject(null)
     } finally {
@@ -225,25 +278,58 @@ export default function Projects() {
     }
   }
 
+  const handleArchive = async () => {
+    if (!editingProject) return
+    if (!confirm(`Archive "${editingProject.title}"? It will be hidden from the pipeline but you can restore it from View Archive.`)) return
+    setSaving(true)
+    try {
+      actions.updateProject(editingProject.id, { archivedAt: new Date().toISOString() })
+      await actions.refreshState()
+      setEditingProject(null)
+    } finally {
+      setSaving(false)
+    }
+  }
+
+  const handleRestore = async (p: Project) => {
+    actions.updateProject(p.id, { archivedAt: null } as unknown as Partial<Project>)
+    await actions.refreshState()
+  }
+
   return (
     <div className={styles.page}>
       <header className={styles.header}>
         <h1>Bookings</h1>
-        <p className={styles.subtitle}>Pipeline of weddings and events.</p>
-        <button
-          type="button"
-          className={styles.secondaryBtn}
-          onClick={() => setShowManagePipelines((v) => !v)}
-        >
-          {showManagePipelines ? 'Hide pipelines' : 'Manage pipelines'}
-        </button>
-        <button
-          type="button"
-          className={styles.addBtn}
-          onClick={() => setShowNewInquiry(true)}
-        >
-          New inquiry
-        </button>
+        <p className={styles.subtitle}>{showArchiveView ? 'Archived bookings' : 'Pipeline of weddings and events.'}</p>
+        {showArchiveView ? (
+          <button type="button" className={styles.secondaryBtn} onClick={() => setShowArchiveView(false)}>
+            Back to pipeline
+          </button>
+        ) : (
+          <>
+            <button
+              type="button"
+              className={styles.secondaryBtn}
+              onClick={() => { setShowArchiveView(true); setShowManagePipelines(false); setShowNewInquiry(false) }}
+            >
+              View Archive
+            </button>
+            <button
+              type="button"
+              className={styles.secondaryBtn}
+              onClick={() => setShowManagePipelines((v) => !v)}
+            >
+              {showManagePipelines ? 'Hide pipelines' : 'Manage pipelines'}
+            </button>
+            <button
+              type="button"
+              className={styles.addBtn}
+              onClick={() => setShowNewInquiry(true)}
+            >
+              New inquiry
+            </button>
+          </>
+        )}
       </header>
 
       {showManagePipelines && (
@@ -390,6 +476,57 @@ export default function Projects() {
         </section>
       )}
 
+      {showArchiveView ? (
+        <section className={styles.archiveSection}>
+          <p className={styles.archiveHint}>
+            {archivedProjects.length === 0
+              ? 'No archived bookings. Archive a booking from the pipeline when it’s in the final stage (e.g. Completed).'
+              : `${archivedProjects.length} archived booking${archivedProjects.length === 1 ? '' : 's'}. Restore to bring back to the pipeline.`}
+          </p>
+          <ul className={styles.archiveList}>
+            {archivedProjects.map((p) => (
+              <li key={p.id} className={styles.archiveCard}>
+                <div className={styles.archiveCardMain}>
+                  <strong>{p.title}</strong>
+                  {p.venue && <span className={styles.venue}>{p.venue}</span>}
+                  <span className={styles.client}>
+                    <Link to={`/clients/${p.clientId}`} className={styles.cardClientLink} onClick={(e) => e.stopPropagation()}>
+                      {p.clientName}
+                    </Link>
+                  </span>
+                  <span className={styles.weddingDate}>{p.title === 'General inquiry' ? 'Inquiry date: ' : 'Wedding: '}{p.weddingDate}</span>
+                  <span className={styles.value}>${p.value.toLocaleString()}</span>
+                </div>
+                <button type="button" className={styles.smallBtn} onClick={() => handleRestore(p)}>
+                  Restore
+                </button>
+              </li>
+            ))}
+          </ul>
+        </section>
+      ) : (
+        <>
+      <div className={styles.toolbar}>
+        <label className={styles.sortLabel} htmlFor="bookings-sort">
+          Sort by
+        </label>
+        <select
+          id="bookings-sort"
+          className={styles.sortSelect}
+          aria-label="Sort bookings"
+          value={sortBy}
+          onChange={(e) => setSortBy(e.target.value as SortBy)}
+        >
+          <option value="recent">Most recent first</option>
+          <option value="name-az">Name A–Z</option>
+          <option value="name-za">Name Z–A</option>
+          <option value="date-asc">Wedding date (earliest)</option>
+          <option value="date-desc">Wedding date (latest)</option>
+          <option value="value-asc">Value (low → high)</option>
+          <option value="value-desc">Value (high → low)</option>
+        </select>
+      </div>
+
       <div className={styles.pipeline}>
         {stages.map((stage) => (
           <div key={stage.id} className={styles.column}>
@@ -409,7 +546,11 @@ export default function Projects() {
                 >
                   <strong>{p.title}</strong>
                   {p.venue && <span className={styles.venue}>{p.venue}</span>}
-                  <span className={styles.client}>{p.clientName}</span>
+                  <span className={styles.client}>
+                    <Link to={`/clients/${p.clientId}`} className={styles.cardClientLink} onClick={(e) => e.stopPropagation()}>
+                      {p.clientName}
+                    </Link>
+                  </span>
                   <span className={styles.weddingDate}>{p.title === 'General inquiry' ? 'Inquiry date: ' : 'Wedding: '}{p.weddingDate}</span>
                   <span className={styles.value}>${p.value.toLocaleString()}</span>
                 </li>
@@ -418,6 +559,8 @@ export default function Projects() {
           </div>
         ))}
       </div>
+        </>
+      )}
 
       {editingProject && (
         <div className={styles.editOverlay} onClick={() => setEditingProject(null)} role="dialog" aria-modal="true" aria-label="Edit booking">
@@ -537,6 +680,20 @@ export default function Projects() {
                   />
                 </label>
               </div>
+            <nav className={styles.editLinks} aria-label="Related pages">
+              <Link to={`/clients/${editingProject.clientId}`} className={styles.editLink} onClick={() => setEditingProject(null)}>
+                View client
+              </Link>
+              <Link to="/proposals" className={styles.editLink} onClick={() => setEditingProject(null)}>
+                Proposals
+              </Link>
+              <Link to="/invoices" className={styles.editLink} onClick={() => setEditingProject(null)}>
+                Invoices
+              </Link>
+              <Link to="/contracts" className={styles.editLink} onClick={() => setEditingProject(null)}>
+                Contracts
+              </Link>
+            </nav>
             {!editForm.notes && editForm.clientEmail && (
               <div className={styles.replyRow}>
                 <button type="button" className={styles.replyBtn} onClick={handleReply}>
@@ -548,6 +705,17 @@ export default function Projects() {
               <button type="button" className={styles.cancelBtn} onClick={() => setEditingProject(null)}>
                 Close
               </button>
+              {lastStageId && editingProject.stage === lastStageId && !editingProject.archivedAt && (
+                <button
+                  type="button"
+                  className={styles.secondaryBtn}
+                  onClick={handleArchive}
+                  disabled={saving}
+                  title="Archive this booking (hide from pipeline; restore from View Archive)"
+                >
+                  {saving ? '…' : 'Archive'}
+                </button>
+              )}
               <button
                 type="button"
                 className={styles.deleteBtn}

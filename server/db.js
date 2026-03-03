@@ -1,4 +1,4 @@
-import Database from 'better-sqlite3-with-prebuilds'
+import Database from 'better-sqlite3'
 import { existsSync, mkdirSync } from 'fs'
 import { fileURLToPath } from 'url'
 import { dirname, join } from 'path'
@@ -101,6 +101,26 @@ db.exec(`
     sentAt TEXT,
     createdAt TEXT NOT NULL
   );
+  CREATE TABLE IF NOT EXISTS experiences (
+    id TEXT PRIMARY KEY,
+    name TEXT NOT NULL,
+    description TEXT NOT NULL,
+    bullets TEXT NOT NULL,
+    fromPrice INTEGER NOT NULL,
+    imageUrl TEXT,
+    sortOrder INTEGER NOT NULL DEFAULT 0,
+    createdAt TEXT NOT NULL
+  );
+  CREATE TABLE IF NOT EXISTS music_selections (
+    id TEXT PRIMARY KEY,
+    clientId TEXT,
+    submitterName TEXT NOT NULL,
+    submitterEmail TEXT NOT NULL,
+    label TEXT,
+    songIds TEXT NOT NULL,
+    songsText TEXT,
+    createdAt TEXT NOT NULL
+  );
 `)
 
 // Optional templateId for "create from template" (migrate existing DBs)
@@ -126,6 +146,31 @@ try {
   if (!/duplicate column/i.test(e.message)) throw e
 }
 try {
+  db.exec('ALTER TABLE invoices ADD COLUMN invoiceNumber TEXT')
+} catch (e) {
+  if (!/duplicate column/i.test(e.message)) throw e
+}
+try {
+  db.exec('ALTER TABLE invoices ADD COLUMN lineItems TEXT')
+} catch (e) {
+  if (!/duplicate column/i.test(e.message)) throw e
+}
+try {
+  db.exec('ALTER TABLE invoices ADD COLUMN lastReminderSentAt TEXT')
+} catch (e) {
+  if (!/duplicate column/i.test(e.message)) throw e
+}
+// Backfill invoiceNumber for existing rows that don't have one (INV-001, INV-002, ...)
+try {
+  const withNumber = db.prepare("SELECT MAX(CAST(SUBSTR(invoiceNumber, 5) AS INTEGER)) AS n FROM invoices WHERE invoiceNumber GLOB 'INV-[0-9]*'").get()
+  let nextNum = (withNumber?.n != null && !Number.isNaN(Number(withNumber.n))) ? Number(withNumber.n) + 1 : 1
+  const rows = db.prepare('SELECT id FROM invoices WHERE invoiceNumber IS NULL OR invoiceNumber = "" ORDER BY rowid ASC').all()
+  rows.forEach((row) => {
+    db.prepare('UPDATE invoices SET invoiceNumber = ? WHERE id = ?').run(`INV-${String(nextNum).padStart(3, '0')}`, row.id)
+    nextNum += 1
+  })
+} catch (_) {}
+try {
   db.exec('ALTER TABLE contract_templates ADD COLUMN contentHtml TEXT')
 } catch (e) {
   if (!/duplicate column/i.test(e.message)) throw e
@@ -141,12 +186,22 @@ try {
   if (!/duplicate column/i.test(e.message)) throw e
 }
 try {
+  db.exec('ALTER TABLE projects ADD COLUMN cloudProjectId TEXT')
+} catch (e) {
+  if (!/duplicate column/i.test(e.message)) throw e
+}
+try {
   db.exec('ALTER TABLE clients ADD COLUMN deletedAt TEXT')
 } catch (e) {
   if (!/duplicate column/i.test(e.message)) throw e
 }
 try {
   db.exec('ALTER TABLE projects ADD COLUMN deletedAt TEXT')
+} catch (e) {
+  if (!/duplicate column/i.test(e.message)) throw e
+}
+try {
+  db.exec('ALTER TABLE projects ADD COLUMN archivedAt TEXT')
 } catch (e) {
   if (!/duplicate column/i.test(e.message)) throw e
 }
@@ -215,6 +270,8 @@ function rowToProject(r) {
     createdAt: r.createdAt || undefined,
     notes: r.notes || undefined,
     requestedArtist: r.requestedArtist || undefined,
+    cloudProjectId: r.cloudProjectId || undefined,
+    archivedAt: r.archivedAt || undefined,
   }
 }
 
@@ -234,6 +291,23 @@ function rowToProposal(r) {
   }
 }
 
+function parseLineItems(val) {
+  if (val == null || val === '') return []
+  try {
+    const a = JSON.parse(val)
+    if (!Array.isArray(a)) return []
+    return a
+      .filter((x) => x && x != null && typeof x.description === 'string')
+      .map((x) => ({
+        description: String(x.description).trim(),
+        quantity: Number(x.quantity) || 0,
+        unitPrice: Number(x.unitPrice) || 0,
+      }))
+  } catch {
+    return []
+  }
+}
+
 function rowToInvoice(r) {
   return {
     id: r.id,
@@ -247,6 +321,9 @@ function rowToInvoice(r) {
     paidAt: r.paidAt || undefined,
     type: r.type || undefined,
     templateId: r.templateId || undefined,
+    invoiceNumber: r.invoiceNumber || undefined,
+    lineItems: parseLineItems(r.lineItems),
+    lastReminderSentAt: r.lastReminderSentAt || undefined,
   }
 }
 
@@ -297,6 +374,41 @@ function rowToCalendarReminder(r) {
   }
 }
 
+function rowToExperience(row) {
+  let bullets = []
+  try {
+    bullets = row.bullets ? JSON.parse(row.bullets) : []
+  } catch (_) {}
+  return {
+    id: row.id,
+    name: row.name,
+    description: row.description,
+    bullets: Array.isArray(bullets) ? bullets : [],
+    fromPrice: row.fromPrice ?? 0,
+    imageUrl: row.imageUrl || null,
+    sortOrder: row.sortOrder ?? 0,
+    createdAt: row.createdAt,
+  }
+}
+
+function rowToMusicSelection(r) {
+  let songIds = []
+  try {
+    if (r.songIds) songIds = JSON.parse(r.songIds)
+    if (!Array.isArray(songIds)) songIds = []
+  } catch (_) {}
+  return {
+    id: r.id,
+    clientId: r.clientId || undefined,
+    submitterName: r.submitterName,
+    submitterEmail: r.submitterEmail,
+    label: r.label || undefined,
+    songIds,
+    songsText: r.songsText || undefined,
+    createdAt: r.createdAt,
+  }
+}
+
 export function getState() {
   const pipelineStages = db.prepare('SELECT * FROM pipeline_stages ORDER BY sortOrder ASC').all().map(rowToPipelineStage)
   return {
@@ -310,7 +422,85 @@ export function getState() {
     invoiceTemplates: db.prepare('SELECT * FROM invoice_templates ORDER BY createdAt DESC').all(),
     pipelineStages: pipelineStages.length ? pipelineStages : defaultPipelineStages.map((s) => ({ id: s.id, label: s.label, sortOrder: s.sortOrder })),
     calendarReminders: db.prepare('SELECT * FROM calendar_reminders ORDER BY date ASC, createdAt ASC').all().map(rowToCalendarReminder),
+    experiences: db.prepare('SELECT * FROM experiences ORDER BY sortOrder ASC, createdAt ASC').all().map(rowToExperience),
+    musicSelections: db.prepare('SELECT * FROM music_selections ORDER BY createdAt DESC').all().map(rowToMusicSelection),
   }
+}
+
+function nextExperienceId() {
+  const rows = db.prepare("SELECT id FROM experiences WHERE id LIKE 'exp-%'").all()
+  const max = rows.reduce((m, r) => {
+    const n = parseInt(r.id.replace(/^exp-/, ''), 10)
+    return isNaN(n) ? m : Math.max(m, n)
+  }, 0)
+  return `exp-${max + 1}`
+}
+
+export function createExperience(experience) {
+  const id = experience.id || nextExperienceId()
+  const bullets = JSON.stringify(experience.bullets && Array.isArray(experience.bullets) ? experience.bullets : [])
+  db.prepare(
+    'INSERT INTO experiences (id, name, description, bullets, fromPrice, imageUrl, sortOrder, createdAt) VALUES (?, ?, ?, ?, ?, ?, ?, ?)'
+  ).run(
+    id,
+    experience.name,
+    experience.description,
+    bullets,
+    experience.fromPrice ?? 0,
+    experience.imageUrl ?? null,
+    experience.sortOrder ?? 0,
+    experience.createdAt || new Date().toISOString()
+  )
+  return id
+}
+
+export function updateExperience(id, updates) {
+  const row = db.prepare('SELECT * FROM experiences WHERE id = ?').get(id)
+  if (!row) return
+  const bullets = updates.bullets !== undefined
+    ? JSON.stringify(Array.isArray(updates.bullets) ? updates.bullets : [])
+    : row.bullets
+  db.prepare(
+    'UPDATE experiences SET name=?, description=?, bullets=?, fromPrice=?, imageUrl=?, sortOrder=? WHERE id=?'
+  ).run(
+    updates.name ?? row.name,
+    updates.description ?? row.description,
+    bullets,
+    updates.fromPrice !== undefined ? updates.fromPrice : row.fromPrice,
+    updates.imageUrl !== undefined ? updates.imageUrl : row.imageUrl,
+    updates.sortOrder !== undefined ? updates.sortOrder : row.sortOrder,
+    id
+  )
+}
+
+export function deleteExperience(id) {
+  db.prepare('DELETE FROM experiences WHERE id = ?').run(id)
+}
+
+export function createMusicSelection(ms) {
+  const songIds = JSON.stringify(Array.isArray(ms.songIds) ? ms.songIds : [])
+  db.prepare(
+    'INSERT INTO music_selections (id, clientId, submitterName, submitterEmail, label, songIds, songsText, createdAt) VALUES (?, ?, ?, ?, ?, ?, ?, ?)'
+  ).run(
+    ms.id,
+    ms.clientId ?? null,
+    ms.submitterName,
+    ms.submitterEmail,
+    ms.label ?? null,
+    songIds,
+    ms.songsText ?? null,
+    ms.createdAt
+  )
+  return ms.id
+}
+
+/** Find active client by email (case-insensitive). Returns client or null. */
+export function getClientByEmail(email) {
+  if (!email || typeof email !== 'string') return null
+  const e = String(email).trim().toLowerCase()
+  if (!e) return null
+  const row = db.prepare('SELECT * FROM clients WHERE deletedAt IS NULL AND LOWER(TRIM(email)) = ?').get(e)
+  return row ? rowToClient(row) : null
 }
 
 export function createClient(client) {
@@ -343,6 +533,12 @@ export function getNextClientId() {
   return `c${max + 1}`
 }
 
+/** Get client by id (including soft-deleted). Returns client + deletedAt, or null. */
+export function getClientById(id) {
+  const row = db.prepare('SELECT * FROM clients WHERE id = ?').get(id)
+  return row ? { ...rowToClient(row), deletedAt: row.deletedAt ?? null } : null
+}
+
 const _softDeleteClient = db.transaction((id) => {
   const ts = new Date().toISOString()
   db.prepare('UPDATE projects SET deletedAt = ? WHERE clientId = ?').run(ts, id)
@@ -366,7 +562,7 @@ export function restoreClient(id) {
 
 export function createProject(project) {
   db.prepare(
-    'INSERT INTO projects (id, clientId, clientName, title, stage, value, weddingDate, venue, packageType, dueDate, createdAt, notes, requestedArtist) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)'
+    'INSERT INTO projects (id, clientId, clientName, title, stage, value, weddingDate, venue, packageType, dueDate, createdAt, notes, requestedArtist, cloudProjectId) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)'
   ).run(
     project.id,
     project.clientId,
@@ -380,7 +576,8 @@ export function createProject(project) {
     project.dueDate,
     project.createdAt ?? null,
     project.notes ?? null,
-    project.requestedArtist ?? null
+    project.requestedArtist ?? null,
+    project.cloudProjectId ?? null
   )
   return project.id
 }
@@ -390,7 +587,7 @@ export function updateProject(id, updates) {
   if (!row) return
   const p = { ...rowToProject(row), ...updates }
   db.prepare(
-    'UPDATE projects SET clientId=?, clientName=?, title=?, stage=?, value=?, weddingDate=?, venue=?, packageType=?, dueDate=?, createdAt=?, notes=?, requestedArtist=? WHERE id=?'
+    'UPDATE projects SET clientId=?, clientName=?, title=?, stage=?, value=?, weddingDate=?, venue=?, packageType=?, dueDate=?, createdAt=?, notes=?, requestedArtist=?, cloudProjectId=?, archivedAt=? WHERE id=?'
   ).run(
     p.clientId,
     p.clientName,
@@ -404,6 +601,8 @@ export function updateProject(id, updates) {
     p.createdAt ?? null,
     p.notes ?? null,
     p.requestedArtist ?? null,
+    p.cloudProjectId ?? null,
+    p.archivedAt ?? null,
     id
   )
 }
@@ -506,42 +705,68 @@ export function deleteContract(id) {
   db.prepare('DELETE FROM contracts WHERE id = ?').run(id)
 }
 
+/** Next human-readable invoice number (INV-001, INV-002, ...). */
+function getNextInvoiceNumber() {
+  const row = db.prepare(
+    "SELECT MAX(CAST(SUBSTR(invoiceNumber, 5) AS INTEGER)) AS n FROM invoices WHERE invoiceNumber GLOB 'INV-[0-9]*'"
+  ).get()
+  const n = (row?.n != null && !Number.isNaN(Number(row.n))) ? Number(row.n) + 1 : 1
+  return `INV-${String(n).padStart(3, '0')}`
+}
+
+function lineItemsTotal(lineItems) {
+  if (!Array.isArray(lineItems) || lineItems.length === 0) return null
+  return lineItems.reduce((s, li) => s + (Number(li.quantity) || 0) * (Number(li.unitPrice) || 0), 0)
+}
+
 export function createInvoice(invoice) {
+  const invoiceNumber = invoice.invoiceNumber ?? getNextInvoiceNumber()
+  const lineItems = Array.isArray(invoice.lineItems) ? invoice.lineItems : []
+  const amount = lineItems.length > 0 ? Math.round(lineItemsTotal(lineItems)) : Number(invoice.amount)
+  const lineItemsJson = lineItems.length > 0 ? JSON.stringify(lineItems) : null
   db.prepare(
-    'INSERT INTO invoices (id, projectId, clientName, clientEmail, projectTitle, amount, status, dueDate, paidAt, type, templateId) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)'
+    'INSERT INTO invoices (id, projectId, clientName, clientEmail, projectTitle, amount, status, dueDate, paidAt, type, templateId, invoiceNumber, lineItems) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)'
   ).run(
     invoice.id,
     invoice.projectId ?? null,
     invoice.clientName,
     invoice.clientEmail ?? null,
     invoice.projectTitle,
-    invoice.amount,
+    amount,
     invoice.status,
     invoice.dueDate,
     invoice.paidAt ?? null,
     invoice.type ?? null,
-    invoice.templateId ?? null
+    invoice.templateId ?? null,
+    invoiceNumber,
+    lineItemsJson
   )
-  return invoice.id
+  return { id: invoice.id, invoiceNumber }
 }
 
 export function updateInvoice(id, updates) {
   const row = db.prepare('SELECT * FROM invoices WHERE id = ?').get(id)
   if (!row) return
   const i = { ...rowToInvoice(row), ...updates }
+  const lineItems = Array.isArray(i.lineItems) ? i.lineItems : []
+  const amount = lineItems.length > 0 ? Math.round(lineItemsTotal(lineItems)) : Number(i.amount)
+  const lineItemsJson = JSON.stringify(lineItems)
   db.prepare(
-    'UPDATE invoices SET projectId=?, clientName=?, clientEmail=?, projectTitle=?, amount=?, status=?, dueDate=?, paidAt=?, type=?, templateId=? WHERE id=?'
+    'UPDATE invoices SET projectId=?, clientName=?, clientEmail=?, projectTitle=?, amount=?, status=?, dueDate=?, paidAt=?, type=?, templateId=?, invoiceNumber=?, lineItems=?, lastReminderSentAt=? WHERE id=?'
   ).run(
     i.projectId ?? null,
     i.clientName,
     i.clientEmail ?? null,
     i.projectTitle,
-    i.amount,
+    amount,
     i.status,
     i.dueDate,
     i.paidAt ?? null,
     i.type ?? null,
     i.templateId ?? null,
+    i.invoiceNumber ?? null,
+    lineItemsJson,
+    i.lastReminderSentAt ?? null,
     id
   )
 }

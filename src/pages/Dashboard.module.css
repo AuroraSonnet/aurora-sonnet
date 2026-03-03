@@ -255,6 +255,12 @@
   flex: 1 1 100%;
 }
 
+.suggestionLinks {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0 1rem;
+}
+
 .suggestionLink {
   font-size: 0.9rem;
   color: var(--accent);
