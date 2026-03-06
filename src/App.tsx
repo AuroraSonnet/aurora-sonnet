@@ -19,6 +19,7 @@ import InquireDuo from './pages/InquireDuo'
 import InquireCombined from './pages/InquireCombined'
 import InquireGeneral from './pages/InquireGeneral'
 import SignContract from './pages/SignContract'
+import AcceptProposal from './pages/AcceptProposal'
 import RestrictedAccess from './pages/RestrictedAccess'
 import WeddingMusicSelection from './pages/WeddingMusicSelection'
 
@@ -33,6 +34,7 @@ const isPublicApp = () => !isLocalOrigin()
 const isPublicPath = (pathname: string) =>
   /^\/invoices\/view\/[^/]+$/.test(pathname) ||
   /^\/sign\/[^/]+$/.test(pathname) ||
+  /^\/accept-proposal\/[^/]+$/.test(pathname) ||
   pathname === '/embed/inquire-general'
 
 function LayoutOrRestricted() {
@@ -45,6 +47,7 @@ export default function App() {
   return (
     <Routes>
       <Route path="/sign/:contractId" element={<SignContract />} />
+      <Route path="/accept-proposal/:proposalId" element={<AcceptProposal />} />
       <Route path="/embed/inquire-general" element={<InquireGeneral />} />
       <Route path="/invoices/view/:id" element={<InvoiceView />} />
       <Route path="/" element={<LayoutOrRestricted />}>

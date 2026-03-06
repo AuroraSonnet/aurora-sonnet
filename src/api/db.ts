@@ -30,7 +30,7 @@ export interface AppState {
   projects: { id: string; clientId: string; clientName: string; title: string; stage: string; value: number; weddingDate: string; venue?: string; packageType?: string; dueDate: string; createdAt?: string; archivedAt?: string }[]
   proposals: { id: string; projectId: string; clientName: string; title: string; status: string; value: number; sentAt?: string }[]
   invoices: { id: string; projectId?: string; clientName: string; clientEmail?: string; projectTitle: string; amount: number; status: string; dueDate: string; paidAt?: string; type?: string; templateId?: string; invoiceNumber?: string; lineItems?: { description: string; quantity: number; unitPrice: number }[]; lastReminderSentAt?: string }[]
-  contracts: { id: string; projectId: string; clientName: string; title: string; status: string; value: number; weddingDate: string; venue?: string; packageType?: string; signedAt?: string; createdAt: string; templateId?: string; signToken?: string; clientSignedAt?: string }[]
+  contracts: { id: string; projectId: string; clientName: string; title: string; status: string; value: number; weddingDate: string; venue?: string; packageType?: string; signedAt?: string; createdAt: string; templateId?: string; signToken?: string; clientSignedAt?: string; lastReminderSentAt?: string }[]
   expenses: { id: string; date: string; description: string; amount: number; category: string }[]
   calendarReminders?: { id: string; date: string; title: string; notes?: string; clientId?: string; projectId?: string; reminderAt?: string; sentAt?: string; createdAt: string }[]
   contractTemplates?: DocumentTemplate[]
@@ -264,6 +264,17 @@ export async function apiDeleteProposal(id: string): Promise<boolean> {
   }
 }
 
+export async function apiEnsureProposalAcceptToken(proposalId: string): Promise<{ acceptToken: string } | null> {
+  try {
+    const res = await fetch(`${API}/proposals/${proposalId}/ensure-accept-token`, { method: 'POST' })
+    if (!res.ok) return null
+    const data = (await res.json()) as { acceptToken?: string }
+    return data.acceptToken ? { acceptToken: data.acceptToken } : null
+  } catch {
+    return null
+  }
+}
+
 export async function apiDeleteContract(id: string): Promise<boolean> {
   try {
     const res = await fetch(`${API}/contracts/${id}`, { method: 'DELETE' })
@@ -273,8 +284,9 @@ export async function apiDeleteContract(id: string): Promise<boolean> {
   }
 }
 
-export function getContractFileUrl(id: string): string {
-  return `${API}/contracts/${id}/file`
+export function getContractFileUrl(id: string, token?: string): string {
+  const url = `${API}/contracts/${id}/file`
+  return token ? `${url}?token=${encodeURIComponent(token)}` : url
 }
 
 export async function apiSignContractClient(id: string, token: string, signatureDataUrl: string): Promise<{ ok: boolean; clientSignedAt?: string }> {
@@ -304,6 +316,24 @@ export async function apiSignContractVendor(id: string, signatureDataUrl: string
     return data
   } catch (err) {
     throw err
+  }
+}
+
+export async function apiSendContractReminder(
+  id: string,
+  baseUrl?: string
+): Promise<{ ok: true; sentAt: string } | { ok: false; error: string }> {
+  try {
+    const res = await fetch(`${API}/contracts/${id}/send-reminder`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ baseUrl: baseUrl || '' }),
+    })
+    const data = await res.json().catch(() => ({}))
+    if (!res.ok) return { ok: false, error: data.error || 'Failed to send reminder' }
+    return { ok: true, sentAt: data.sentAt }
+  } catch (err) {
+    return { ok: false, error: err instanceof Error ? err.message : 'Failed to send reminder' }
   }
 }
 
@@ -564,7 +594,19 @@ export async function apiUpdateContractTemplateContent(id: string, contentHtml: 
   }
 }
 
-/** Upload generated PDF for a contract (e.g. from editor template merge). */
+/** Fetch contract template PDF as base64 (for copying into a new contract so template edits don't affect it). */
+export async function fetchContractTemplateFileAsBase64(templateId: string): Promise<string> {
+  const res = await fetch(`${API}/templates/contracts/${templateId}/file`)
+  if (!res.ok) throw new Error('Failed to load template PDF')
+  const blob = await res.blob()
+  const buf = await blob.arrayBuffer()
+  const bytes = new Uint8Array(buf)
+  let binary = ''
+  for (let i = 0; i < bytes.length; i++) binary += String.fromCharCode(bytes[i])
+  return btoa(binary)
+}
+
+/** Upload generated PDF for a contract (e.g. from editor template merge or file-based template copy). */
 export async function apiUploadContractFile(contractId: string, fileBase64: string): Promise<void> {
   const res = await fetch(`${API}/contracts/${contractId}/file`, {
     method: 'PUT',
@@ -647,5 +689,21 @@ export async function apiReplaceInvoiceTemplateFile(id: string, fileBase64: stri
       if (text) msg = text
     }
     throw new Error(msg)
+  }
+}
+
+export async function apiUpdateMusicSelection(id: string, updates: { label?: string }): Promise<{ ok: true } | { ok: false; error: string }> {
+  try {
+    const res = await fetch(`${API}/music-selection/${id}`, {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(updates),
+    })
+    const body = await res.json().catch(() => ({}))
+    const msg = (body && typeof body.error === 'string') ? body.error : 'Failed to update'
+    if (res.ok) return { ok: true }
+    return { ok: false, error: msg }
+  } catch {
+    return { ok: false, error: 'Network error' }
   }
 }

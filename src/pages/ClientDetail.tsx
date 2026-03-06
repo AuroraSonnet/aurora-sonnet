@@ -1,9 +1,114 @@
 import { useState, useEffect } from 'react'
 import { useParams, Link, useNavigate } from 'react-router-dom'
-import { useApp } from '../context/AppContext'
+import { useApp, type MusicSelection } from '../context/AppContext'
+import { getInquiryApiBaseUrl } from '../utils/inquiryApiUrl'
 import { getPackageLabel } from '../data/packages'
 import { getInquiryReplyBody } from '../utils/emailSignature'
+import { htmlToPdfBase64 } from '../utils/htmlToPdf'
 import styles from './ClientDetail.module.css'
+
+/** Split a single line so "Special requests: ..." appears as its own line. */
+function splitSpecialRequest(line: string): string[] {
+  const marker = /Special requests:/i
+  const m = line.match(marker)
+  if (!m || m.index == null) return [line]
+  const i = m.index
+  const songPart = line.slice(0, i).replace(/,\s*$/, '').trim()
+  const requestPart = line.slice(i).trim()
+  const out: string[] = []
+  if (songPart) out.push(songPart)
+  if (requestPart) out.push(requestPart)
+  return out.length ? out : [line]
+}
+
+/** Split songsText (e.g. "Song A — Artist A, Song B — Artist B") into lines.
+ * Handles titles that contain commas (e.g. "Signed, Sealed, Delivered (I'm Yours) — Stevie Wonder")
+ * by grouping comma fragments until we hit the artist separator " — ".
+ * Lines that contain "Special requests: ..." are split so the special request is its own bullet.
+ */
+function songLines(songsText: string | undefined): string[] {
+  if (!songsText || !songsText.trim()) return []
+  const parts = songsText.split(',').map((s) => s.trim()).filter(Boolean)
+  const lines: string[] = []
+  let current = ''
+
+  for (const part of parts) {
+    if (!current) {
+      current = part
+      continue
+    }
+
+    const currentHasArtist = current.includes(' — ')
+    const partHasArtist = part.includes(' — ')
+
+    if (!currentHasArtist) {
+      // Still building up the song title before the " — Artist" separator
+      current = `${current}, ${part}`
+      continue
+    }
+
+    // current already has an artist section; decide if this starts a new song
+    if (partHasArtist) {
+      lines.push(current)
+      current = part
+    } else {
+      // Extra comma inside the same title after we've already seen " — "
+      current = `${current}, ${part}`
+    }
+  }
+
+  if (current) lines.push(current)
+
+  // Split any line that contains "Special requests:" so it appears as its own bullet
+  const result: string[] = []
+  for (const line of lines) {
+    result.push(...splitSpecialRequest(line))
+  }
+  return result
+}
+
+function repertoirePlainText(clientName: string, selections: MusicSelection[]): string {
+  const lines: string[] = ['Music repertoire', clientName, '']
+  for (const m of selections) {
+    lines.push((m.label || 'Wedding music') + ' — ' + new Date(m.createdAt).toLocaleDateString())
+    for (const line of songLines(m.songsText)) lines.push('  • ' + line)
+    lines.push('')
+  }
+  return lines.join('\n')
+}
+
+function repertoireHtml(clientName: string, selections: MusicSelection[]): string {
+  const brandColor = '#382e27'
+  const accentColor = '#6b5b52'
+  const fontDisplay = "'Playfair Display', serif"
+  const fontBody = "'Inter', sans-serif"
+  let html =
+    `<div style="font-family: ${fontBody}; max-width:210mm; margin:0 auto; background:#fff; color:${brandColor}; font-size:18px; line-height:1.65; padding:48px 56px 56px;">` +
+    `<header style="text-align:center; margin-bottom:28px; padding-bottom:18px; border-bottom:2px solid ${brandColor};">` +
+    `<div style="font-family: ${fontDisplay}; font-size:30px; font-weight:500; letter-spacing:0.24em; text-transform:uppercase; margin:0;">Aurora Sonnet</div>` +
+    `<div style="font-family: ${fontBody}; font-size:14px; color:${accentColor}; margin-top:6px; letter-spacing:0.18em; text-transform:uppercase;">Music Repertoire</div>` +
+    `</header>` +
+    `<h1 style="font-family: ${fontDisplay}; font-size:22px; font-weight:600; margin:0 0 8px 0; color:${brandColor};">${escapeHtml(clientName)}</h1>` +
+    `<p style="font-family: ${fontBody}; color:${accentColor}; font-size:16px; margin:0 0 32px 0;">Repertoire selections</p>`
+  for (const m of selections) {
+    const label = escapeHtml(m.label || 'Wedding music')
+    const date = new Date(m.createdAt).toLocaleDateString()
+    html +=
+      `<section style="margin-bottom:28px;">` +
+      `<h2 style="font-family: ${fontDisplay}; font-size:20px; font-weight:600; margin:0 0 6px 0; color:${brandColor};">${label}</h2>` +
+      `<p style="font-family: ${fontBody}; color:${accentColor}; font-size:14px; margin:0 0 12px 0;">${date}</p>` +
+      `<ul style="font-family: ${fontBody}; margin:0; padding-left:28px; font-size:17px;">`
+    for (const line of songLines(m.songsText)) html += `<li style="margin:0 0 8px 0;">${escapeHtml(line)}</li>`
+    html += '</ul></section>'
+  }
+  html += `<footer style="font-family: ${fontBody}; margin-top:40px; padding-top:16px; border-top:1px solid #e0d9d4; font-size:13px; color:${accentColor};">Aurora Sonnet · Music repertoire</footer>`
+  html += '</div>'
+  return html
+}
+
+function escapeHtml(s: string): string {
+  return s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;')
+}
 
 export default function ClientDetail() {
   const { id } = useParams<{ id: string }>()
@@ -15,14 +120,65 @@ export default function ClientDetail() {
   const clientInvoices = invoices.filter((i) => client && i.clientName.includes(client.name))
   const clientMusicSelections = (musicSelections ?? []).filter((m) => m.clientId === id)
 
+  const [remoteMusicSelections, setRemoteMusicSelections] = useState<MusicSelection[] | null>(null)
+
   const [showEdit, setShowEdit] = useState(false)
   const [editForm, setEditForm] = useState({ name: '', email: '', phone: '', partnerName: '' })
   const [editError, setEditError] = useState<string | null>(null)
   const [saving, setSaving] = useState(false)
+  const [editingSelectionId, setEditingSelectionId] = useState<string | null>(null)
+  const [editLabelValue, setEditLabelValue] = useState('')
+  const [editLabelError, setEditLabelError] = useState<string | null>(null)
+  const [repertoirePdfLoading, setRepertoirePdfLoading] = useState(false)
 
   useEffect(() => {
     if (client) setEditForm({ name: client.name, email: client.email || '', phone: client.phone || '', partnerName: client.partnerName || '' })
   }, [client])
+
+  // Fallback: if no local music selections yet, fetch from server (Render) by client id/email
+  useEffect(() => {
+    if (!client) return
+    if (clientMusicSelections.length > 0) return
+    const base = getInquiryApiBaseUrl()
+    if (!base) return
+    let cancelled = false
+    const fetchRemoteSelections = async () => {
+      try {
+        // Use the same proxy as sync so Electron avoids CORS (request goes to local server, which fetches Render)
+        let res = await fetch(`/api/proxy-remote-state?base=${encodeURIComponent(base.replace(/\/$/, ''))}`)
+        if (!res.ok) {
+          // Fallback: direct Render fetch (works in browser when CORS allows)
+          res = await fetch(`${base.replace(/\/$/, '')}/api/state`)
+        }
+        if (!res.ok) return
+        const data = (await res.json()) as { musicSelections?: MusicSelection[] }
+        const all = (data.musicSelections ?? []) as MusicSelection[]
+        if (all.length === 0) return
+        const byId = all.filter((m) => m.clientId === client.id)
+        const byEmail =
+          client.email && client.email.trim()
+            ? all.filter((m) => (m.submitterEmail || '').toLowerCase() === client.email!.toLowerCase())
+            : []
+        const merged: MusicSelection[] = []
+        const seen = new Set<string>()
+        for (const m of [...byId, ...byEmail]) {
+          if (!seen.has(m.id)) {
+            seen.add(m.id)
+            merged.push(m)
+          }
+        }
+        if (!cancelled && merged.length > 0) {
+          setRemoteMusicSelections(merged)
+        }
+      } catch {
+        // ignore; page still works without remote selections
+      }
+    }
+    void fetchRemoteSelections()
+    return () => {
+      cancelled = true
+    }
+  }, [client, clientMusicSelections.length])
 
   const handleSaveEdit = async (e: React.FormEvent) => {
     e.preventDefault()
@@ -41,6 +197,53 @@ export default function ClientDetail() {
       setEditError(err instanceof Error ? err.message : 'Could not save')
     } finally {
       setSaving(false)
+    }
+  }
+
+  const effectiveMusicSelections = remoteMusicSelections ?? clientMusicSelections
+
+  const handleSendRepertoireEmail = () => {
+    if (!client?.email || effectiveMusicSelections.length === 0) return
+    const subject = encodeURIComponent(`Music repertoire — ${client.name}`)
+    const body = encodeURIComponent(repertoirePlainText(client.name, effectiveMusicSelections))
+    window.location.href = `mailto:${encodeURIComponent(client.email)}?subject=${subject}&body=${body}`
+  }
+
+  const handleDownloadRepertoirePdf = async () => {
+    if (!client || effectiveMusicSelections.length === 0) return
+    setRepertoirePdfLoading(true)
+    try {
+      const html = repertoireHtml(client.name, effectiveMusicSelections)
+      const base64 = await htmlToPdfBase64(html)
+      const blob = await (await fetch(`data:application/pdf;base64,${base64}`)).blob()
+      const url = URL.createObjectURL(blob)
+      const a = document.createElement('a')
+      a.href = url
+      a.download = `music-repertoire-${client.name.replace(/\s+/g, '-')}.pdf`
+      a.click()
+      URL.revokeObjectURL(url)
+    } finally {
+      setRepertoirePdfLoading(false)
+    }
+  }
+
+  const handleStartEditLabel = (m: MusicSelection) => {
+    setEditingSelectionId(m.id)
+    setEditLabelValue(m.label || 'Wedding music')
+  }
+
+  const handleSaveEditLabel = async () => {
+    if (!editingSelectionId) return
+    setEditLabelError(null)
+    const label = editLabelValue.trim() || 'Wedding music'
+    try {
+      await actions.updateMusicSelection(editingSelectionId, { label })
+      setRemoteMusicSelections((prev) =>
+        prev ? prev.map((x) => (x.id === editingSelectionId ? { ...x, label } : x)) : null
+      )
+      setEditingSelectionId(null)
+    } catch (err) {
+      setEditLabelError(err instanceof Error ? err.message : 'Failed to save')
     }
   }
 
@@ -196,21 +399,81 @@ export default function ClientDetail() {
         </section>
 
         <section className={styles.card}>
-          <h2>Music selections</h2>
-          {clientMusicSelections.length === 0 ? (
+          <div className={styles.cardHeader}>
+            <h2>Music repertoire</h2>
+            {effectiveMusicSelections.length > 0 && (
+              <div className={styles.repertoireActions}>
+                <button
+                  type="button"
+                  className={styles.secBtn}
+                  onClick={handleSendRepertoireEmail}
+                  title="Open email with repertoire"
+                >
+                  Send by email
+                </button>
+                <button
+                  type="button"
+                  className={styles.secBtn}
+                  onClick={handleDownloadRepertoirePdf}
+                  disabled={repertoirePdfLoading}
+                >
+                  {repertoirePdfLoading ? 'Creating…' : 'Download PDF'}
+                </button>
+              </div>
+            )}
+          </div>
+          {effectiveMusicSelections.length === 0 ? (
             <p className={styles.empty}>No music selections yet.</p>
           ) : (
-            <ul className={styles.list}>
-              {clientMusicSelections.map((m) => (
-                <li key={m.id}>
-                  <span>
-                    <strong>{m.label || 'Wedding music'}</strong>
-                    {m.songsText && <span className={styles.meta}> — {m.songsText}</span>}
-                  </span>
-                  <span className={styles.meta}>{new Date(m.createdAt).toLocaleDateString()}</span>
-                </li>
+            <div className={styles.repertoireList}>
+              {effectiveMusicSelections.map((m) => (
+                <div key={m.id} className={styles.repertoireBlock}>
+                  <div className={styles.repertoireBlockHead}>
+                    {editingSelectionId === m.id ? (
+                      <div className={styles.repertoireEditRow}>
+                        <input
+                          type="text"
+                          value={editLabelValue}
+                          onChange={(e) => setEditLabelValue(e.target.value)}
+                          className={styles.input}
+                          placeholder="e.g. Ceremony – Processional"
+                          autoFocus
+                        />
+                        <button type="button" className={styles.primBtn} onClick={handleSaveEditLabel}>
+                          Save
+                        </button>
+                        <button type="button" className={styles.secBtn} onClick={() => { setEditingSelectionId(null); setEditLabelError(null) }}>
+                          Cancel
+                        </button>
+                        {editLabelError && <span className={styles.error} style={{ width: '100%' }}>{editLabelError}</span>}
+                      </div>
+                    ) : (
+                      <>
+                        <h3 className={styles.repertoireLabel}>{m.label || 'Wedding music'}</h3>
+                        <span className={styles.meta}>{new Date(m.createdAt).toLocaleDateString()}</span>
+                        <button
+                          type="button"
+                          className={styles.repertoireEditBtn}
+                          onClick={() => handleStartEditLabel(m)}
+                          title="Edit label"
+                        >
+                          Edit
+                        </button>
+                      </>
+                    )}
+                  </div>
+                  {songLines(m.songsText).length > 0 ? (
+                    <ul className={styles.songList}>
+                      {songLines(m.songsText).map((line, i) => (
+                        <li key={i}>{line}</li>
+                      ))}
+                    </ul>
+                  ) : m.songsText ? (
+                    <p className={styles.meta}>{m.songsText}</p>
+                  ) : null}
+                </div>
               ))}
-            </ul>
+            </div>
           )}
         </section>
 

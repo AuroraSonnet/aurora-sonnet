@@ -163,6 +163,15 @@
   background: var(--bg-app);
 }
 
+.rowHighlight {
+  background: var(--bg-app);
+}
+
+.rowHighlight td:first-child {
+  border-left: 3px solid var(--accent);
+  padding-left: calc(1rem - 3px);
+}
+
 .status {
   font-size: 0.8rem;
   text-transform: capitalize;
@@ -238,4 +247,17 @@
 .signingModal h3 {
   margin: 0 0 1rem 0;
   font-size: 1.15rem;
+}
+
+.agreeLabel {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  margin-bottom: 1rem;
+  cursor: pointer;
+  font-size: 0.95rem;
+}
+
+.agreeLabel input {
+  flex-shrink: 0;
 }

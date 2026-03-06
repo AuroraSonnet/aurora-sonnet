@@ -3,31 +3,137 @@ import { createPortal } from 'react-dom'
 import { Link } from 'react-router-dom'
 import { useApp } from '../context/AppContext'
 import { useUndo } from '../context/UndoContext'
-import { apiDeleteProposal, apiCreateProposal } from '../api/db'
+import { apiDeleteProposal, apiCreateProposal, apiEnsureProposalAcceptToken } from '../api/db'
+import { getInquiryApiBaseUrl, DEFAULT_INQUIRY_API_URL } from '../utils/inquiryApiUrl'
 import { ALL_PACKAGES, getPackageOrDuoPrice } from '../data/packages'
-import type { Proposal, Invoice } from '../data/mock'
+import type { Proposal } from '../data/mock'
 import { EMAIL_SIGNATURE } from '../utils/emailSignature'
 import styles from './Proposals.module.css'
 
 const DEFAULT_EMAIL_BODY = `Dear [Client],
 
-It is our pleasure to present your curated proposal for {{title}}.
+It is our pleasure to present your curated proposal for the {{experienceName}} experience with Aurora Sonnet.
 
-All details are outlined in the proposal for your review at your convenience. If any questions come to mind, we would be pleased to connect by phone, WhatsApp, or email.
+Event
 
-We have attached an invoice with the full details and amount. Please review and reply to this email to confirm your booking.
+Date: {{eventDate}}
+Venue: {{venue}}
 
-We have crafted this offering with your celebration in mind and look forward to the honour of being part of your day.`
+Experience
 
-function getDefaultEmailBody(title: string, clientName?: string): string {
-  const greeting = clientName ? `Dear ${clientName},` : 'Dear [Name],'
-  return DEFAULT_EMAIL_BODY.replace('Dear [Client],', greeting).replace('{{title}}', title)
+{{experienceName}}
+
+{{experienceBullets}}
+
+Elevated enhancements (optional)
+
+- DJ set (evening, 3–4 hours) — from $1,500
+- Saxophone feature (cocktails or reception; 2 × 45‑minute sets) — from $1,250
+- Grand piano hire (delivery, tuning, pickup; NYC area) — $1,300–$2,500
+
+Experience Investment
+
+{{total}}
+
+Retainer to reserve your date: {{retainer}}
+Remaining balance: {{balance}} due 30 days prior to your event
+
+Next Steps
+
+To proceed, please confirm your experience below. Once confirmed, we will send your agreement and retainer invoice to secure your date.
+
+After booking, you will receive access to our repertoire form to select your songs and share any special requests.
+
+Confirm your experience:
+{{acceptProposalUrl}}`
+
+function formatExperienceBullets(details: string | undefined): string {
+  if (!details || !details.trim()) return ''
+  return details
+    .split('\n')
+    .map((s) => s.trim())
+    .filter(Boolean)
+    .map((line) => `• ${line}`)
+    .join('\n')
+}
+
+function formatBulletsList(bullets: string[] | undefined): string {
+  if (!bullets || bullets.length === 0) return ''
+  return bullets.map((b) => b.trim()).filter(Boolean).map((b) => `• ${b}`).join('\n')
+}
+
+function getExperienceBulletsFallback(
+  proposal: Proposal,
+  presetExperiences: Array<{ name: string; bullets: string[] }>
+): string {
+  const fromDetails = formatExperienceBullets(proposal.customPackageDetails)
+  if (fromDetails.trim()) return fromDetails
+
+  const name = (proposal.customPackageName?.trim() || proposal.title || '').trim()
+  if (!name) return ''
+  const match = presetExperiences.find((e) => e.name.trim().toLowerCase() === name.toLowerCase())
+  return formatBulletsList(match?.bullets)
+}
+
+function getDefaultEmailBody(
+  _title: string,
+  clientName?: string,
+  extras?: {
+    eventDate?: string
+    venue?: string
+    total?: number
+    retainer?: number
+    balance?: number
+    experienceName?: string
+    experienceBullets?: string
+    acceptProposalUrl?: string
+  }
+): string {
+  const greetingName = clientName?.trim() || '[Client]'
+  const greeting = `Dear ${greetingName},`
+  let body = DEFAULT_EMAIL_BODY.replace('Dear [Client],', greeting)
+
+  const replaceToken = (token: string, value: string) => {
+    body = body.split(token).join(value)
+  }
+
+  const fmtMoney = (n?: number) =>
+    n != null && Number.isFinite(n) ? `$${n.toLocaleString()}` : '$____'
+
+  const {
+    eventDate,
+    venue,
+    total,
+    retainer,
+    balance,
+    experienceName,
+    experienceBullets,
+    acceptProposalUrl,
+  } = extras || {}
+
+  const totalStr = fmtMoney(total)
+  const retainerStr = fmtMoney(retainer)
+  const balanceStr = fmtMoney(balance)
+
+  replaceToken('{{eventDate}}', eventDate || '[Event date]')
+  replaceToken('{{venue}}', venue || '[Venue]')
+  replaceToken('{{total}}', totalStr)
+  replaceToken('{{retainer}}', retainerStr)
+  replaceToken('{{balance}}', balanceStr)
+  replaceToken('{{experienceName}}', experienceName || '[Experience]')
+  replaceToken('{{experienceBullets}}', experienceBullets ?? '')
+  replaceToken(
+    '{{acceptProposalUrl}}',
+    acceptProposalUrl || '[Link to accept proposal — will be added when you send]'
+  )
+
+  return body
 }
 
 export default function Proposals() {
   const { state, actions } = useApp()
   const { pushUndo } = useUndo()
-  const { proposals, projects, clients, invoices } = state
+  const { proposals, projects, clients, contracts, invoices, experiences = [] } = state
   const [showCreate, setShowCreate] = useState(false)
   const [selectedPackage, setSelectedPackage] = useState<Record<string, string>>({})
   const [customPackageByProject, setCustomPackageByProject] = useState<
@@ -49,11 +155,8 @@ export default function Proposals() {
     subject: string
     body: string
     toEmail: string
-    selectedInvoiceIds: string[]
     markAsSentOnSend: boolean
   } | null>(null)
-  const [showCreateInvoiceInModal, setShowCreateInvoiceInModal] = useState(false)
-  const [createInvoiceForm, setCreateInvoiceForm] = useState({ projectTitle: '', amount: 0, dueDate: '' })
   const [duplicateSource, setDuplicateSource] = useState<Proposal | null>(null)
   const [duplicateProjectId, setDuplicateProjectId] = useState<string>('')
   const [toast, setToast] = useState<string | null>(null)
@@ -69,6 +172,26 @@ export default function Proposals() {
   const menuRef = useRef<HTMLDivElement>(null)
   const menuTriggerRef = useRef<HTMLButtonElement | null>(null)
   const dropdownPortalRef = useRef<HTMLDivElement | null>(null)
+  const [selectedExperienceId, setSelectedExperienceId] = useState<string>('')
+
+  const presetExperiences = [
+    ...ALL_PACKAGES.map((p) => ({
+      id: p.id,
+      name: p.name,
+      description: p.description,
+      bullets: p.bullets,
+      fromPrice: p.fromPrice,
+      isCustom: false,
+    })),
+    ...(experiences ?? []).map((e) => ({
+      id: e.id,
+      name: e.name,
+      description: e.description,
+      bullets: e.bullets,
+      fromPrice: e.fromPrice,
+      isCustom: true,
+    })),
+  ]
 
   const showToast = (message: string) => {
     setToast(message)
@@ -109,24 +232,56 @@ export default function Proposals() {
     return pair?.client?.email ?? ''
   }
 
-  const openSendModal = (p: Proposal) => {
-    const clientName = getClientForProposal(p)?.client?.name
-    const defaultBody = getDefaultEmailBody(p.title, clientName)
+  const openSendModal = async (p: Proposal) => {
+    const pair = getClientForProposal(p)
+    const clientName = pair?.client?.name
+    const project = pair?.project
+    const eventDate =
+      project?.weddingDate ? new Date(project.weddingDate).toLocaleDateString() : undefined
+    const venue = project?.venue
+    const total = p.value
+    const retainer = Math.round(total * 0.5)
+    const balance = Math.max(0, total - retainer)
+    // Use a URL that works for the client (never localhost/file when emailing). Prefer Settings → Public app URL.
+    const rawBase =
+      (state.config?.publicAppUrl || '').trim() ||
+      getInquiryApiBaseUrl() ||
+      (typeof window !== 'undefined' ? window.location.origin : '')
+    const baseUrl =
+      typeof window !== 'undefined' &&
+      (rawBase.startsWith('http://localhost') || rawBase.startsWith('file:'))
+        ? DEFAULT_INQUIRY_API_URL
+        : rawBase || DEFAULT_INQUIRY_API_URL
+    let acceptToken = p.acceptToken
+    if (!acceptToken) {
+      const result = await apiEnsureProposalAcceptToken(p.id)
+      if (result) acceptToken = result.acceptToken
+      else await actions.refreshState()
+    }
+    const acceptProposalUrl =
+      baseUrl && acceptToken
+        ? `${baseUrl.replace(/\/$/, '')}/accept-proposal/${p.id}?token=${encodeURIComponent(acceptToken)}`
+        : undefined
+    const experienceName = p.customPackageName?.trim() || p.title
+    const experienceBullets = getExperienceBulletsFallback(p, presetExperiences)
+    const defaultBody = getDefaultEmailBody(p.title, clientName, {
+      eventDate,
+      venue,
+      total,
+      retainer,
+      balance,
+      experienceName,
+      experienceBullets,
+      acceptProposalUrl,
+    })
     const savedBody = p.emailBody?.trim()
     const body = savedBody || defaultBody
     const toEmail = getClientEmailForProposal(p)
-    const relevantInvoices = invoices.filter(
-      (i) => i.projectId === p.projectId || (clientName && i.clientName === clientName)
-    )
-    const unpaid = relevantInvoices.filter((i) => i.status !== 'paid')
-    const defaultInvoiceIds =
-      unpaid.length > 0 ? [unpaid[0].id] : relevantInvoices.length > 0 ? [relevantInvoices[0].id] : []
     setSendModal({
       proposal: p,
       subject: `Your Curated Proposal — ${p.title} | Aurora Sonnet`,
       body,
       toEmail: toEmail || '',
-      selectedInvoiceIds: defaultInvoiceIds,
       markAsSentOnSend: true,
     })
     setMenuOpenId(null)
@@ -135,26 +290,49 @@ export default function Proposals() {
 
   const closeSendModal = () => {
     setSendModal(null)
-    setShowCreateInvoiceInModal(false)
+  }
+
+  const openEmailAgreementAndInvoice = (p: Proposal) => {
+    const pair = getClientForProposal(p)
+    const client = pair?.client
+    const contract = (contracts ?? []).find((c) => c.projectId === p.projectId) as { id: string; status: string; signToken?: string } | undefined
+    const invoice = (invoices ?? []).find(
+      (i) => i.projectId === p.projectId && (i.type === 'deposit' || i.type === 'other' || !i.type)
+    ) ?? (invoices ?? []).find((i) => i.projectId === p.projectId)
+    const baseUrl =
+      (state.config?.publicAppUrl || '').trim() ||
+      getInquiryApiBaseUrl() ||
+      (typeof window !== 'undefined' ? window.location.origin : '')
+    const signUrl =
+      contract?.status === 'sent' && contract?.signToken && baseUrl
+        ? `${baseUrl.replace(/\/$/, '')}/sign/${contract.id}?token=${encodeURIComponent(contract.signToken)}`
+        : ''
+    const invoiceViewUrl =
+      invoice && baseUrl ? `${baseUrl.replace(/\/$/, '')}/invoices/view/${invoice.id}` : ''
+    const toEmail = (client?.email || '').trim()
+    const firstName = (p.clientName || '').split(/\s+/)[0] || 'there'
+    const subject = `Your agreement and retainer — ${p.title} | Aurora Sonnet`
+    const body =
+      `Hi ${firstName},\n\nThank you for accepting your proposal for ${p.title}. Please sign your agreement and pay your retainer to secure your date.\n\n` +
+      (signUrl ? `Sign your agreement: ${signUrl}\n\n` : '') +
+      (invoiceViewUrl ? `View and pay your retainer: ${invoiceViewUrl}\n\n` : '') +
+      `Best,\nAurora Sonnet`
+    setMenuOpenId(null)
+    setMenuTriggerRect(null)
+    if (toEmail) {
+      window.location.href = `mailto:${encodeURIComponent(toEmail)}?subject=${encodeURIComponent(subject)}&body=${encodeURIComponent(body)}`
+    } else {
+      const url = `mailto:?subject=${encodeURIComponent(subject)}&body=${encodeURIComponent(body)}`
+      window.location.href = url
+    }
   }
 
   const doSendProposalEmail = async () => {
     if (!sendModal) return
-    const { proposal: p, subject, body, selectedInvoiceIds, toEmail, markAsSentOnSend } = sendModal
+    const { proposal: p, subject, body, toEmail, markAsSentOnSend } = sendModal
     const email = (toEmail || '').trim()
     const signatureAppended = body.includes('Lisa Dubocquet')
     let finalBody = signatureAppended ? body : `${body}\n\n${EMAIL_SIGNATURE}`
-    if (selectedInvoiceIds.length > 0) {
-      const selectedInvoices: Invoice[] = selectedInvoiceIds
-        .map((id) => invoices.find((i) => i.id === id))
-        .filter((i): i is Invoice => Boolean(i))
-      if (selectedInvoices.length > 0) {
-        const lines = selectedInvoices.map(
-          (i) => `• ${i.projectTitle}: $${i.amount.toLocaleString()} (due ${i.dueDate})${i.status === 'paid' ? ' — paid' : ''}`
-        )
-        finalBody += `\n\n---\nInvoice(s) included:\n${lines.join('\n')}\n\nWe'll send a payment link separately, or you can pay when you're ready.`
-      }
-    }
     if (markAsSentOnSend && p.status === 'draft') {
       await actions.updateProposal(p.id, { status: 'sent', sentAt: new Date().toISOString().slice(0, 10) })
       showToast('Marked as sent')
@@ -178,7 +356,41 @@ export default function Proposals() {
 
   const startEdit = (p: Proposal) => {
     setEditingId(p.id)
-    const defaultBody = getDefaultEmailBody(p.title, getClientForProposal(p)?.client?.name)
+    const pair = getClientForProposal(p)
+    const clientName = pair?.client?.name
+    const project = pair?.project
+    const eventDate =
+      project?.weddingDate ? new Date(project.weddingDate).toLocaleDateString() : undefined
+    const venue = project?.venue
+    const total = p.value
+    const retainer = Math.round(total * 0.5)
+    const balance = Math.max(0, total - retainer)
+    const rawBase =
+      (state.config?.publicAppUrl || '').trim() ||
+      getInquiryApiBaseUrl() ||
+      (typeof window !== 'undefined' ? window.location.origin : '')
+    const baseUrl =
+      typeof window !== 'undefined' &&
+      (rawBase.startsWith('http://localhost') || rawBase.startsWith('file:'))
+        ? DEFAULT_INQUIRY_API_URL
+        : rawBase || DEFAULT_INQUIRY_API_URL
+    const acceptProposalUrl =
+      baseUrl && p.acceptToken
+        ? `${baseUrl.replace(/\/$/, '')}/accept-proposal/${p.id}?token=${encodeURIComponent(p.acceptToken)}`
+        : undefined
+    const experienceName = p.customPackageName?.trim() || p.title
+    const experienceBullets = getExperienceBulletsFallback(p, presetExperiences)
+    const defaultBody = getDefaultEmailBody(p.title, clientName, {
+      eventDate,
+      venue,
+      total,
+      retainer,
+      balance,
+      experienceName,
+      experienceBullets,
+      acceptProposalUrl,
+    })
+    setSelectedExperienceId('')
     setEditForm({
       title: p.title,
       value: p.value,
@@ -344,7 +556,7 @@ export default function Proposals() {
       <header className={styles.header}>
         <h1>Proposals</h1>
         <p className={styles.subtitle}>
-          Create and track proposals. Send by email with an invoice attached; clients confirm by reply.
+          Create and track proposals. Edit your message and send directly from Aurora Sonnet; clients confirm by reply.
         </p>
         <button
           type="button"
@@ -359,7 +571,7 @@ export default function Proposals() {
         <section className={styles.card}>
           <h2>Create proposal from booking</h2>
           <p className={styles.cardDesc}>
-            Pick a project to create a proposal. Send it by email with an invoice attached.
+            Pick a project to create a proposal. Send by email; agreement and invoice go out after they accept.
           </p>
           {projectsWithoutProposal.length === 0 ? (
             <p className={styles.emptyText}>Every project already has a proposal.</p>
@@ -590,19 +802,11 @@ Total — $3,500"
                       <div className={styles.actionsCell}>
                         <button
                           type="button"
-                          className={styles.linkBtn}
-                          onClick={() => startEdit(p)}
-                          title="Edit proposal details"
-                        >
-                          Edit proposal
-                        </button>
-                        <button
-                          type="button"
                           className={styles.primaryBtn}
-                          onClick={() => openSendModal(p)}
-                          title="Send proposal by email"
+                          onClick={() => void openSendModal(p)}
+                          title="Edit and send proposal by email"
                         >
-                          Send by email
+                          Edit/Send
                         </button>
                       </div>
                     </td>
@@ -644,7 +848,37 @@ Total — $3,500"
                   <tr key={`${p.id}-custom`}>
                     <td colSpan={6} className={styles.editEmailCell}>
                       <div className={styles.customPackageEditSection}>
-                        <span className={styles.editEmailLabel}>Custom package (optional)</span>
+                        <span className={styles.editEmailLabel}>Experience & package (optional)</span>
+                        <label className={styles.customPackageLabel}>Experience preset</label>
+                        <select
+                          className={styles.inlineSelect}
+                          value={selectedExperienceId}
+                          onChange={(e) => {
+                            const id = e.target.value
+                            setSelectedExperienceId(id)
+                            const exp = presetExperiences.find((x) => x.id === id)
+                            if (!exp) return
+                            const detailsLines = [
+                              exp.description?.trim() || '',
+                              '',
+                              ...exp.bullets,
+                            ].filter(Boolean)
+                            setEditForm((f) => ({
+                              ...f,
+                              customPackageName: exp.name,
+                              customPackageDetails: detailsLines.join('\n'),
+                              customPriceBreakdown: `From $${exp.fromPrice.toLocaleString()}`,
+                              value: f.value || exp.fromPrice,
+                            }))
+                          }}
+                        >
+                          <option value="">None selected</option>
+                          {presetExperiences.map((exp) => (
+                            <option key={exp.id} value={exp.id}>
+                              {exp.name} {exp.isCustom ? '— custom' : ''}
+                            </option>
+                          ))}
+                        </select>
                         <label className={styles.customPackageLabel}>Package name</label>
                         <input
                           type="text"
@@ -715,7 +949,30 @@ Total — $3,500"
             role="menu"
           >
             <button type="button" role="menuitem" onClick={() => startEdit(p)}>Edit</button>
-            <button type="button" role="menuitem" onClick={() => openSendModal(p)}>Send email</button>
+            <button type="button" role="menuitem" onClick={() => void openSendModal(p)}>Send email</button>
+            {p.status === 'accepted' && (
+              <>
+                <Link
+                  to={`/contracts?projectId=${encodeURIComponent(p.projectId)}`}
+                  className={styles.dropdownItemLink}
+                  onClick={() => { setMenuOpenId(null); setMenuTriggerRect(null) }}
+                  role="menuitem"
+                >
+                  Edit contract
+                </Link>
+                <Link
+                  to={`/invoices?projectId=${encodeURIComponent(p.projectId)}`}
+                  className={styles.dropdownItemLink}
+                  onClick={() => { setMenuOpenId(null); setMenuTriggerRect(null) }}
+                  role="menuitem"
+                >
+                  Edit invoice
+                </Link>
+                <button type="button" role="menuitem" onClick={() => openEmailAgreementAndInvoice(p)}>
+                  Email agreement & invoice
+                </button>
+              </>
+            )}
             <button type="button" role="menuitem" onClick={() => openDuplicateModal(p)}>Duplicate</button>
             <button type="button" role="menuitem" className={styles.dropdownDanger} onClick={() => handleDelete(p)}>Delete</button>
           </div>,
@@ -812,138 +1069,9 @@ Total — $3,500"
                 ))}
               </div>
             </div>
-            <div className={styles.modalField}>
-              <label>Include invoice(s) in email</label>
-              <span className={styles.modalHint}>Select one or more saved invoices to add their details to the email.</span>
-              {(() => {
-                const proposalClientName = getClientForProposal(sendModal.proposal)?.client?.name
-                const relevantInvoices = invoices.filter(
-                  (i) =>
-                    i.projectId === sendModal.proposal.projectId ||
-                    (proposalClientName && i.clientName === proposalClientName)
-                )
-                return (
-                  <>
-                    {relevantInvoices.length === 0 && !showCreateInvoiceInModal ? (
-                      <p className={styles.modalHint}>No invoices for this project or client yet. Create one below or add one on the Invoices page.</p>
-                    ) : (
-                      <div className={styles.invoiceCheckboxList}>
-                        {relevantInvoices.map((inv) => (
-                          <label key={inv.id} className={styles.modalCheckLabel}>
-                            <input
-                              type="checkbox"
-                              checked={sendModal.selectedInvoiceIds.includes(inv.id)}
-                              onChange={(e) => {
-                                const checked = e.target.checked
-                                setSendModal((s) =>
-                                  s
-                                    ? {
-                                        ...s,
-                                        selectedInvoiceIds: checked
-                                          ? [...s.selectedInvoiceIds, inv.id]
-                                          : s.selectedInvoiceIds.filter((id) => id !== inv.id),
-                                      }
-                                    : null
-                                )
-                              }}
-                            />
-                            {' '}
-                            {inv.projectTitle}: ${inv.amount.toLocaleString()} (due {inv.dueDate})
-                            {inv.status === 'paid' ? ' — paid' : ''}
-                          </label>
-                        ))}
-                      </div>
-                    )}
-                    {!showCreateInvoiceInModal ? (
-                      <button
-                        type="button"
-                        className={styles.createInvoiceBtn}
-                        onClick={() => {
-                          const defaultDue = new Date(Date.now() + 14 * 24 * 60 * 60 * 1000).toISOString().slice(0, 10)
-                          setCreateInvoiceForm({
-                            projectTitle: sendModal.proposal.title,
-                            amount: 0,
-                            dueDate: defaultDue,
-                          })
-                          setShowCreateInvoiceInModal(true)
-                        }}
-                      >
-                        Create new invoice
-                      </button>
-                    ) : (
-                      <div className={styles.createInvoiceForm}>
-                        <label className={styles.createInvoiceLabel}>Title</label>
-                        <input
-                          type="text"
-                          className={styles.modalInput}
-                          value={createInvoiceForm.projectTitle}
-                          onChange={(e) => setCreateInvoiceForm((f) => ({ ...f, projectTitle: e.target.value }))}
-                          placeholder="e.g. Deposit"
-                        />
-                        <label className={styles.createInvoiceLabel}>Amount ($)</label>
-                        <input
-                          type="number"
-                          min={0}
-                          step={1}
-                          className={styles.modalInput}
-                          value={createInvoiceForm.amount || ''}
-                          onChange={(e) => setCreateInvoiceForm((f) => ({ ...f, amount: Number(e.target.value) || 0 }))}
-                        />
-                        <label className={styles.createInvoiceLabel}>Due date</label>
-                        <input
-                          type="date"
-                          className={styles.modalInput}
-                          value={createInvoiceForm.dueDate}
-                          onChange={(e) => setCreateInvoiceForm((f) => ({ ...f, dueDate: e.target.value }))}
-                        />
-                        <div className={styles.createInvoiceActions}>
-                          <button
-                            type="button"
-                            className={styles.primaryBtn}
-                            onClick={() => {
-                              if (!sendModal) return
-                              const dueDate = (createInvoiceForm.dueDate || '').trim()
-                              if (!dueDate) {
-                                showToast('Please set a due date.')
-                                return
-                              }
-                              const pair = getClientForProposal(sendModal.proposal)
-                              const clientName = pair?.client?.name ?? sendModal.proposal.title
-                              const clientEmail = pair?.client?.email
-                              const amount = Number(createInvoiceForm.amount)
-                              const newId = actions.addInvoice({
-                                projectId: sendModal.proposal.projectId,
-                                clientName,
-                                clientEmail,
-                                projectTitle: createInvoiceForm.projectTitle.trim() || sendModal.proposal.title,
-                                amount: Number.isFinite(amount) ? amount : 0,
-                                status: 'draft',
-                                dueDate,
-                                type: 'other',
-                              })
-                              setSendModal((s) =>
-                                s ? { ...s, selectedInvoiceIds: [...s.selectedInvoiceIds, newId] } : null
-                              )
-                              setShowCreateInvoiceInModal(false)
-                              showToast('Invoice created and selected for email.')
-                            }}
-                          >
-                            Save invoice
-                          </button>
-                          <button
-                            type="button"
-                            className={styles.linkBtn}
-                            onClick={() => setShowCreateInvoiceInModal(false)}
-                          >
-                            Cancel
-                          </button>
-                        </div>
-                      </div>
-                    )}
-                  </>
-                )
-              })()}
-            </div>
+            {/* Invoice section was intentionally removed for a simpler flow:
+                proposals go out on their own; invoices are created later from the Invoices page
+                or automatically after agreements are signed. */}
             <div className={styles.modalField}>
               <label className={styles.modalCheckLabel}>
                 <input

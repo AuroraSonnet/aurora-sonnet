@@ -91,6 +91,22 @@ export default function Invoices() {
 
   const todayStr = new Date().toISOString().slice(0, 10)
 
+  // When arriving with ?projectId= (e.g. from Proposals "Edit invoice"), open that project's invoice for editing
+  const projectIdFromUrl = searchParams.get('projectId')
+  useEffect(() => {
+    if (!projectIdFromUrl) return
+    const inv =
+      invoices.find((i) => i.projectId === projectIdFromUrl && (i.type === 'deposit' || i.type === 'other')) ??
+      invoices.find((i) => i.projectId === projectIdFromUrl)
+    if (inv) setEditingInvoice(inv)
+    setSearchParams((p) => {
+      const next = new URLSearchParams(p)
+      next.delete('projectId')
+      return next
+    }, { replace: true })
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [projectIdFromUrl])
+
   // Open reminder modal when arriving from Dashboard with ?remind=invoiceId
   const remindId = searchParams.get('remind')
   useEffect(() => {

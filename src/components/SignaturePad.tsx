@@ -5,12 +5,15 @@ export interface SignaturePadProps {
   onCapture: (dataUrl: string) => void
   onCancel?: () => void
   label?: string
+  /** When true, Sign button is disabled (e.g. while submitting). */
+  disabled?: boolean
 }
 
 /** Canvas-based signature pad with typed-name fallback */
-export default function SignaturePad({ onCapture, onCancel, label = 'Sign here' }: SignaturePadProps) {
+export default function SignaturePad({ onCapture, onCancel, label = 'Sign here', disabled = false }: SignaturePadProps) {
   const canvasRef = useRef<HTMLCanvasElement>(null)
   const [isDrawing, setIsDrawing] = useState(false)
+  const [hasDrawn, setHasDrawn] = useState(false)
   const [typedName, setTypedName] = useState('')
   const [mode, setMode] = useState<'draw' | 'type'>('draw')
 
@@ -56,6 +59,7 @@ export default function SignaturePad({ onCapture, onCancel, label = 'Sign here' 
       ctx.lineWidth = 2
       ctx.lineCap = 'round'
       ctx.stroke()
+      setHasDrawn(true)
     },
     [isDrawing, getContext]
   )
@@ -69,6 +73,7 @@ export default function SignaturePad({ onCapture, onCancel, label = 'Sign here' 
     if (!ctx) return
     ctx.clearRect(0, 0, canvas.width, canvas.height)
     setTypedName('')
+    setHasDrawn(false)
   }, [getContext])
 
   const handleSubmit = useCallback(() => {
@@ -114,7 +119,7 @@ export default function SignaturePad({ onCapture, onCancel, label = 'Sign here' 
         <button
           type="button"
           className={mode === 'draw' ? `${styles.tab} ${styles.tabActive}` : styles.tab}
-          onClick={() => setMode('draw')}
+          onClick={() => { setMode('draw'); setHasDrawn(false) }}
         >
           Draw
         </button>
@@ -157,7 +162,7 @@ export default function SignaturePad({ onCapture, onCancel, label = 'Sign here' 
           type="button"
           onClick={handleSubmit}
           className={styles.submitBtn}
-          disabled={mode === 'draw' ? false : !typedName.trim()}
+          disabled={disabled || (mode === 'type' && !typedName.trim()) || (mode === 'draw' && !hasDrawn)}
         >
           Sign
         </button>

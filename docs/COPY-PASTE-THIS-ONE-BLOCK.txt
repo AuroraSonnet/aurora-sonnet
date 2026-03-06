@@ -290,8 +290,20 @@ If your app's API is on a different URL, find API_BASE='https://...' in the scri
         headers:{'Content-Type':'application/json'},
         body:JSON.stringify({name:name,email:email,label:label||undefined,songIds:ids,songsText:songsText})
       }).then(function(r){
-        if(r.ok){alert('Thank you! Your selections have been saved.');if(window.location&&window.location.reload)window.location.reload();}
-        else{r.json().catch(function(){return {};}).then(function(d){var msg=(d&&d.error)||('Something went wrong ('+r.status+').');alert(msg+' Please try again or email us directly.');});}
+        if(r.ok){
+          if(typeof window!=='undefined' && window.location){
+            window.location.href='https://aurorasonnet.com/repertoire-submissions-thank-you';
+          }else{
+            alert('Thank you! Your selections have been saved.');
+            if(window.location&&window.location.reload)window.location.reload();
+          }
+          return;
+        }else{
+          r.json().catch(function(){return {};}).then(function(d){
+            var msg=(d&&d.error)||('Something went wrong ('+r.status+').');
+            alert(msg+' Please try again or email us directly.');
+          });
+        }
       }).catch(function(e){alert('Could not connect. Please check your connection and try again, or email us directly.');})
       .finally(function(){if(btn){btn.disabled=false;btn.textContent=orig;}});
     };

@@ -3,6 +3,7 @@
  * Change this default if your deployed API has a different URL (e.g. new Render service).
  * You can also override per device in Settings → Inquiry API URL.
  */
+/** Default public app URL (Render). Used for proposal accept links so clients always get a working URL. */
 export const DEFAULT_INQUIRY_API_URL = 'https://aurora-sonnet-1.onrender.com'
 
 const STORAGE_KEY = 'aurora_inquiry_api_url'

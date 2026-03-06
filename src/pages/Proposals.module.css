@@ -205,6 +205,24 @@
   background: var(--bg-app);
 }
 
+.dropdownItemLink {
+  display: block;
+  width: 100%;
+  text-align: left;
+  padding: 0.5rem 1rem;
+  border: none;
+  background: none;
+  font-size: 0.9rem;
+  color: var(--text-primary);
+  text-decoration: none;
+  cursor: pointer;
+  font-family: inherit;
+}
+
+.dropdownItemLink:hover {
+  background: var(--bg-app);
+}
+
 .dropdownDanger:hover {
   color: var(--danger, #c00) !important;
 }

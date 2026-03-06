@@ -42,6 +42,8 @@ export interface Proposal {
   status: 'draft' | 'sent' | 'accepted' | 'declined'
   value: number
   sentAt?: string
+  /** Token for the public accept-proposal link; generated when needed. */
+  acceptToken?: string
   /** Custom email body when sending proposal (optional). */
   emailBody?: string
   /** Custom package: name (e.g. "Custom Celebration Package"). */
@@ -95,6 +97,7 @@ export interface Contract {
   templateId?: string
   signToken?: string
   clientSignedAt?: string
+  lastReminderSentAt?: string
 }
 
 export interface Expense {

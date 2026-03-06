@@ -36,6 +36,7 @@ import {
   apiCreateExperience,
   apiUpdateExperience,
   apiDeleteExperience,
+  apiUpdateMusicSelection,
   type Experience,
 } from '../api/db'
 import { playNewInquirySound, prepareInquirySoundContext } from '../utils/sound'
@@ -240,6 +241,7 @@ type AppActions = {
   createExperience: (experience: { name: string; description: string; bullets: string[]; fromPrice: number; imageUrl?: string | null; sortOrder?: number }) => Promise<{ ok: true; experience: Experience } | { ok: false; error: string }>
   updateExperience: (id: string, updates: Partial<Pick<Experience, 'name' | 'description' | 'bullets' | 'fromPrice' | 'imageUrl' | 'sortOrder'>>) => Promise<{ ok: true; experience: Experience } | { ok: false; error: string }>
   deleteExperience: (id: string) => Promise<boolean>
+  updateMusicSelection: (id: string, updates: { label?: string }) => Promise<void>
 }
 
 const AppContext = createContext<{ state: AppState; actions: AppActions } | null>(null)
@@ -468,6 +470,17 @@ export function AppProvider({ children }: { children: ReactNode }) {
     [useApi]
   )
 
+  const updateMusicSelection = useCallback(async (id: string, updates: { label?: string }) => {
+    const result = await apiUpdateMusicSelection(id, updates)
+    if (!result.ok) throw new Error(result.error)
+    setState((s) => ({
+      ...s,
+      musicSelections: (s.musicSelections ?? []).map((m) =>
+        m.id === id ? { ...m, ...updates } : m
+      ),
+    }))
+  }, [])
+
   const addNewsletterTemplate = useCallback(
     (template: Omit<NewsletterTemplate, 'id' | 'createdAt'>): string => {
       const id = nextId('nt', state.newsletterTemplates)
@@ -582,9 +595,11 @@ export function AppProvider({ children }: { children: ReactNode }) {
       const apiState = (await res.json()) as {
         clients?: { id: string; name: string; email: string; phone?: string; partnerName?: string; createdAt: string }[]
         projects?: { id: string; clientId: string; clientName: string; title: string; stage: string; value: number; weddingDate: string; venue?: string; packageType?: string; dueDate: string; createdAt?: string; notes?: string }[]
+        musicSelections?: MusicSelection[]
       }
       const allCloudClients = apiState.clients ?? []
       const allCloudProjects = apiState.projects ?? []
+      const remoteSelections = (apiState as { musicSelections?: MusicSelection[] }).musicSelections ?? []
       const deletedIds = getDeletedClientIds()
       // Include all clients from server except deleted; only treat as test when email is non-empty and matches test pattern (so empty-email clients still sync)
       const cloudClients = allCloudClients.filter((c) => {
@@ -767,6 +782,18 @@ export function AppProvider({ children }: { children: ReactNode }) {
         // Do not call refreshState() here — it fetches from local server and can overwrite
         // the clients we just merged from Render (local DB may not have them yet).
       }
+      // Merge music selections from server into local state (no duplicates by id)
+      if (remoteSelections.length > 0) {
+        setState((prev) => {
+          const existing = prev.musicSelections ?? []
+          const existingIds = new Set(existing.map((m) => m.id))
+          const additions = remoteSelections.filter((m) => !existingIds.has(m.id))
+          if (additions.length === 0) return prev
+          const next = { ...prev, musicSelections: [...existing, ...additions] }
+          saveState(next)
+          return next
+        })
+      }
       const serverClients = allCloudClients.length
       const serverProjects = allCloudProjects.length
       let message: string
@@ -814,6 +841,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
         createExperience,
         updateExperience,
         deleteExperience,
+        updateMusicSelection,
       },
     }),
     [
@@ -844,6 +872,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
       createExperience,
       updateExperience,
       deleteExperience,
+      updateMusicSelection,
     ]
   )
 

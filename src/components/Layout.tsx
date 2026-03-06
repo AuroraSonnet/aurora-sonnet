@@ -24,13 +24,13 @@ const nav = [
   { to: '/invoices', label: 'Invoices', icon: '◎' },
   { to: '/calendar', label: 'Calendar', icon: '📅' },
   { to: '/experiences', label: 'Experiences', icon: '✦' },
-  { to: '/music-selection', label: 'Music selection', icon: '♪' },
+  { to: '/music-selection', label: 'Repertoire', icon: '♪' },
   { to: '/newsletter', label: 'Newsletter', icon: '✉' },
   { to: '/bookkeeping', label: 'Bookkeeping', icon: '◈' },
   { to: '/automations', label: 'Automations', icon: '⚡' },
   { to: '/settings', label: 'Settings', icon: '⚙' },
 ]
-const navBeforeLeadForms = 9 // Dashboard through Music selection, then Lead forms
+const navBeforeLeadForms = 9 // Dashboard through Repertoire, then Lead forms
 
 export default function Layout() {
   const location = useLocation()

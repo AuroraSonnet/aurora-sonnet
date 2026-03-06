@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useRef } from 'react'
 import { useParams, useSearchParams } from 'react-router-dom'
 import { apiSignContractClient, getContractFileUrl } from '../api/db'
 import SignaturePad from '../components/SignaturePad'
@@ -16,8 +16,11 @@ export default function SignContract() {
     message: string
   } | null>(null)
   const [loading, setLoading] = useState(true)
+  const [submitting, setSubmitting] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [signed, setSigned] = useState(false)
+  const [agreed, setAgreed] = useState(false)
+  const signatureSectionRef = useRef<HTMLDivElement>(null)
 
   useEffect(() => {
     if (!contractId || !token) {
@@ -26,18 +29,22 @@ export default function SignContract() {
       return
     }
     fetch(`/api/contracts/${contractId}/sign-info?token=${encodeURIComponent(token)}`)
-      .then((res) => res.json())
-      .then((data) => {
-        if (data.error) throw new Error(data.error)
+      .then((res) => res.json().then((data) => ({ ok: res.ok, data })))
+      .then(({ ok, data }) => {
+        if (!ok || data.error) throw new Error(data?.error || 'Invalid or expired signing link')
         setInfo(data)
       })
       .catch((err) => setError(err instanceof Error ? err.message : 'Failed to load'))
       .finally(() => setLoading(false))
   }, [contractId, token])
 
+  useEffect(() => {
+    if (info?.awaiting === 'client') signatureSectionRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' })
+  }, [info?.awaiting])
+
   const handleSign = async (dataUrl: string) => {
-    if (!contractId || !token) return
-    setLoading(true)
+    if (!contractId || !token || submitting) return
+    setSubmitting(true)
     setError(null)
     try {
       await apiSignContractClient(contractId, token, dataUrl)
@@ -45,7 +52,7 @@ export default function SignContract() {
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Failed to sign')
     } finally {
-      setLoading(false)
+      setSubmitting(false)
     }
   }
 
@@ -69,6 +76,7 @@ export default function SignContract() {
   }
 
   if (signed || (info && info.awaiting === 'vendor')) {
+    const downloadUrl = contractId && token ? getContractFileUrl(contractId, token) : null
     return (
       <div className={styles.page}>
         <div className={styles.card}>
@@ -78,6 +86,13 @@ export default function SignContract() {
               ? 'You have signed the contract. Aurora Sonnet will sign and the contract will be complete shortly.'
               : 'You have already signed. Aurora Sonnet will add their signature to complete the contract.'}
           </p>
+          {downloadUrl && (
+            <p className={styles.downloadWrap}>
+              <a href={downloadUrl} download className={styles.downloadLink}>
+                Download your copy
+              </a>
+            </p>
+          )}
         </div>
       </div>
     )
@@ -103,11 +118,22 @@ export default function SignContract() {
         <div className={styles.pdfWrap}>
           <iframe
             title="Contract PDF"
-            src={getContractFileUrl(contractId!)}
+            src={getContractFileUrl(contractId!, token ?? undefined)}
             className={styles.pdfIframe}
           />
         </div>
-        <SignaturePad label="Your signature" onCapture={handleSign} />
+        <div ref={signatureSectionRef} className={styles.signatureSection}>
+          <label className={styles.agreeLabel}>
+            <input
+              type="checkbox"
+              checked={agreed}
+              onChange={(e) => setAgreed(e.target.checked)}
+              aria-describedby="agree-desc"
+            />
+            <span id="agree-desc">I have read and agree to the contract.</span>
+          </label>
+          <SignaturePad label="Your signature" onCapture={handleSign} disabled={submitting || !agreed} />
+        </div>
       </div>
     </div>
   )

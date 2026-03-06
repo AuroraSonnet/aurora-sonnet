@@ -44,6 +44,7 @@ import {
   updateExperience,
   deleteExperience,
   createMusicSelection,
+  updateMusicSelection,
   seedDb,
   getNextClientId,
 } from './db.js'
@@ -116,7 +117,9 @@ function logSmtpStatus() {
   }
 }
 
-// Match db.js: Mac app uses DATA_DIR; Render uses /tmp; local dev uses server dir
+// Match db.js: Mac app uses DATA_DIR; Render uses /tmp; local dev uses server dir.
+// Contract PDFs live only in CONTRACTS_DIR (contracts/{id}.pdf). Templates live in TEMPLATES_CONTRACTS_DIR.
+// Existing contracts get their own PDF at creation (from template or generated); template edits do not change them.
 const dataDir = process.env.DATA_DIR || (process.env.RENDER ? '/tmp/aurora-sonnet-data' : __dirname)
 const PAYMENTS_FILE = join(dataDir, 'payments.json')
 const TEMPLATES_CONTRACTS_DIR = join(dataDir, 'templates', 'contracts')
@@ -531,6 +534,20 @@ app.post('/api/music-selection', (req, res) => {
   }
 })
 
+app.patch('/api/music-selection/:id', (req, res) => {
+  try {
+    const id = req.params.id
+    const body = req.body || {}
+    const label = body.label !== undefined ? String(body.label).trim() || null : undefined
+    if (label === undefined) return res.status(400).json({ error: 'No updates provided' })
+    updateMusicSelection(id, { label })
+    return res.status(200).json({ ok: true })
+  } catch (err) {
+    logError('DB', 'Failed to update music selection', err)
+    return res.status(500).json({ error: 'Failed to update' })
+  }
+})
+
 // --- SQLite API (full state + CRUD) ---
 app.get('/api/state', (req, res) => {
   try {
@@ -710,6 +727,141 @@ app.delete('/api/proposals/:id', (req, res) => {
   }
 })
 
+function randomAcceptToken() {
+  return `${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 14)}`
+}
+
+app.post('/api/proposals/:id/ensure-accept-token', (req, res) => {
+  try {
+    const id = req.params.id
+    const state = getState()
+    const proposal = state.proposals.find((p) => p.id === id)
+    if (!proposal) return res.status(404).json({ error: 'Proposal not found' })
+    let token = proposal.acceptToken
+    if (!token) {
+      token = randomAcceptToken()
+      updateProposal(id, { acceptToken: token })
+    }
+    res.json({ acceptToken: token })
+  } catch (err) {
+    logError('DB', 'Failed to ensure accept token', err)
+    res.status(500).json({ error: 'Failed to ensure accept token' })
+  }
+})
+
+app.get('/api/proposals/:id/accept-info', (req, res) => {
+  try {
+    const { token } = req.query
+    const state = getState()
+    const proposal = state.proposals.find((p) => p.id === req.params.id)
+    if (!proposal) return res.status(404).json({ error: 'Proposal not found' })
+    if (!token || proposal.acceptToken !== token) return res.status(403).json({ error: 'Invalid or expired link' })
+    if (proposal.status === 'accepted') return res.json({ ...proposal, alreadyAccepted: true })
+    res.json({
+      id: proposal.id,
+      title: proposal.title,
+      clientName: proposal.clientName,
+      value: proposal.value,
+      alreadyAccepted: false,
+    })
+  } catch (err) {
+    logError('API', 'Failed to get accept info', err)
+    res.status(500).json({ error: 'Failed to load proposal' })
+  }
+})
+
+app.post('/api/proposals/:id/accept', async (req, res) => {
+  try {
+    const id = req.params.id
+    const { token } = req.body || {}
+    const state = getState()
+    const proposal = state.proposals.find((p) => p.id === id)
+    if (!proposal) return res.status(404).json({ error: 'Proposal not found' })
+    if (!token || proposal.acceptToken !== token) return res.status(403).json({ error: 'Invalid or expired link' })
+    if (proposal.status === 'accepted') return res.status(400).json({ error: 'Proposal already accepted' })
+
+    const project = state.projects.find((p) => p.id === proposal.projectId)
+    if (!project) return res.status(400).json({ error: 'Project not found' })
+    const client = state.clients.find((c) => c.id === project.clientId)
+    const clientEmail = (client?.email || '').trim()
+    const baseUrl = (req.body && req.body.baseUrl) || process.env.APP_URL || ''
+
+    let contract = state.contracts.find((c) => c.projectId === proposal.projectId)
+    if (!contract) {
+      const template = (state.contractTemplates || [])[0]
+      const contractId = nextId('c', state.contracts)
+      const signToken = randomAcceptToken()
+      createContract({
+        id: contractId,
+        projectId: project.id,
+        clientName: project.clientName,
+        title: project.title,
+        status: 'sent',
+        value: project.value,
+        weddingDate: project.weddingDate || '',
+        venue: project.venue,
+        packageType: project.packageType,
+        signedAt: null,
+        createdAt: new Date().toISOString().slice(0, 10),
+        templateId: template ? template.id : null,
+        signToken,
+        clientSignedAt: null,
+        lastReminderSentAt: null,
+      })
+      if (template && template.fileName) {
+        const templatePath = join(TEMPLATES_CONTRACTS_DIR, template.fileName)
+        if (existsSync(templatePath)) {
+          ensureContractsDir()
+          const buf = readFileSync(templatePath)
+          writeFileSync(join(CONTRACTS_DIR, `${contractId}.pdf`), buf)
+        }
+      }
+      contract = getState().contracts.find((c) => c.id === contractId)
+    } else if (contract.status !== 'sent' || !contract.signToken) {
+      const signToken = randomAcceptToken()
+      updateContract(contract.id, { status: 'sent', signToken })
+      contract = getState().contracts.find((c) => c.id === contract.id)
+    }
+    const signUrl = contract && contract.status === 'sent' && contract.signToken
+      ? `${baseUrl.replace(/\/$/, '')}/sign/${contract.id}?token=${encodeURIComponent(contract.signToken)}`
+      : ''
+
+    let invoice = (getState().invoices || []).find((inv) => inv.projectId === proposal.projectId && (inv.type === 'deposit' || inv.type === 'other'))
+    if (!invoice) {
+      const retainer = Math.round(proposal.value * 0.5)
+      const invoiceId = nextId('i', getState().invoices)
+      createInvoice({
+        id: invoiceId,
+        projectId: project.id,
+        clientName: project.clientName,
+        clientEmail: clientEmail || undefined,
+        projectTitle: project.title,
+        amount: retainer,
+        status: 'sent',
+        dueDate: new Date(Date.now() + 30 * 24 * 60 * 60 * 1000).toISOString().slice(0, 10),
+        type: 'deposit',
+      })
+      invoice = getState().invoices.find((i) => i.id === invoiceId)
+    }
+    const invoiceViewUrl = invoice && baseUrl
+      ? `${baseUrl.replace(/\/$/, '')}/invoices/view/${invoice.id}`
+      : ''
+
+    updateProposal(id, { status: 'accepted' })
+
+    res.json({
+      ok: true,
+      contractId: contract?.id,
+      invoiceId: invoice?.id,
+      signUrl: signUrl || null,
+      invoiceViewUrl: invoiceViewUrl || null,
+    })
+  } catch (err) {
+    logError('API', 'Failed to accept proposal', err)
+    res.status(500).json({ error: err.message || 'Failed to accept proposal' })
+  }
+})
+
 app.post('/api/contracts', (req, res) => {
   try {
     const c = req.body
@@ -733,6 +885,7 @@ app.patch('/api/contracts/:id', (req, res) => {
   }
 })
 
+/** Load contract PDF: prefer contract's own file in CONTRACTS_DIR; fallback to template only for legacy contracts that never had a copy. */
 function loadContractPdfBuffer(contract) {
   const signedPath = join(CONTRACTS_DIR, `${contract.id}.pdf`)
   if (existsSync(signedPath)) return readFileSync(signedPath)
@@ -740,18 +893,18 @@ function loadContractPdfBuffer(contract) {
   if (!templateId) return null
   const state = getState()
   const t = state.contractTemplates.find((x) => x.id === templateId)
-  if (!t) return null
+  if (!t || !t.fileName) return null
   const templatePath = join(TEMPLATES_CONTRACTS_DIR, t.fileName)
   if (!existsSync(templatePath)) return null
   return readFileSync(templatePath)
 }
 
-async function stampSignature(pdfBuffer, signatureDataUrl, label) {
+async function stampSignature(pdfBuffer, signatureDataUrl, label, signedDate) {
   const pdf = await PDFDocument.load(pdfBuffer)
   const pages = pdf.getPages()
   if (pages.length === 0) return pdf.save()
   const page = pages[pages.length - 1]
-  const { width, height } = page.getSize()
+  const { width } = page.getSize()
   const base64 = signatureDataUrl.replace(/^data:image\/png;base64,/, '')
   const imgBytes = Buffer.from(base64, 'base64')
   const img = await pdf.embedPng(imgBytes)
@@ -760,7 +913,9 @@ async function stampSignature(pdfBuffer, signatureDataUrl, label) {
   const x = width - imgW - 40
   const y = 40
   page.drawImage(img, { x, y, width: imgW, height: imgH })
-  page.drawText(label || '', { x, y: y - 14, size: 9, color: { type: 'RGB', red: 0.4, green: 0.4, blue: 0.4 } })
+  const gray = { type: 'RGB', red: 0.4, green: 0.4, blue: 0.4 }
+  page.drawText(label || '', { x, y: y - 14, size: 9, color: gray })
+  if (signedDate) page.drawText(`Signed: ${signedDate}`, { x, y: y - 26, size: 8, color: gray })
   return pdf.save()
 }
 
@@ -769,6 +924,12 @@ app.get('/api/contracts/:id/file', (req, res) => {
     const state = getState()
     const contract = state.contracts.find((c) => c.id === req.params.id)
     if (!contract) return res.status(404).json({ error: 'Contract not found' })
+    const token = req.query.token
+    if (token != null && token !== '') {
+      if (contract.status !== 'sent' || !contract.signToken || contract.signToken !== token) {
+        return res.status(403).json({ error: 'Invalid or expired link' })
+      }
+    }
     const buf = loadContractPdfBuffer(contract)
     if (!buf) return res.status(404).json({ error: 'Contract PDF not available' })
     res.setHeader('Content-Type', 'application/pdf')
@@ -809,6 +970,10 @@ app.get('/api/contracts/:id/sign-info', (req, res) => {
     if (contract.clientSignedAt) {
       return res.json({ ...contract, awaiting: 'vendor', message: 'Client has signed. Awaiting vendor signature.' })
     }
+    const pdfBuf = loadContractPdfBuffer(contract)
+    if (!pdfBuf) {
+      return res.status(400).json({ error: 'Contract PDF not available. Please ask the sender to generate the contract first.' })
+    }
     res.json({ ...contract, awaiting: 'client', message: 'Please sign below.' })
   } catch (err) {
     logError('DB', 'Failed to load signing info', err)
@@ -830,9 +995,9 @@ app.post('/api/contracts/:id/sign-client', async (req, res) => {
     const buf = loadContractPdfBuffer(contract)
     if (!buf) return res.status(400).json({ error: 'Contract PDF not available' })
     ensureContractsDir()
-    const signedPdf = await stampSignature(buf, signatureDataUrl, `${contract.clientName} (Client)`)
-    writeFileSync(join(CONTRACTS_DIR, `${contract.id}.pdf`), signedPdf)
     const clientSignedAt = new Date().toISOString().slice(0, 10)
+    const signedPdf = await stampSignature(buf, signatureDataUrl, `${contract.clientName} (Client)`, clientSignedAt)
+    writeFileSync(join(CONTRACTS_DIR, `${contract.id}.pdf`), signedPdf)
     updateContract(contract.id, { clientSignedAt })
     res.json({ ok: true, clientSignedAt })
   } catch (err) {
@@ -852,14 +1017,65 @@ app.post('/api/contracts/:id/sign-vendor', async (req, res) => {
     const buf = loadContractPdfBuffer(contract)
     if (!buf) return res.status(400).json({ error: 'Contract PDF not available' })
     ensureContractsDir()
-    const signedPdf = await stampSignature(buf, signatureDataUrl, 'Aurora Sonnet (Vendor)')
-    writeFileSync(join(CONTRACTS_DIR, `${contract.id}.pdf`), signedPdf)
     const signedAt = new Date().toISOString().slice(0, 10)
+    const signedPdf = await stampSignature(buf, signatureDataUrl, 'Aurora Sonnet (Vendor)', signedAt)
+    writeFileSync(join(CONTRACTS_DIR, `${contract.id}.pdf`), signedPdf)
     updateContract(contract.id, { status: 'signed', signedAt })
     res.json({ ok: true, signedAt })
   } catch (err) {
     logError('API', 'Failed to sign (vendor)', err)
     res.status(500).json({ error: err.message || 'Failed to sign' })
+  }
+})
+
+const CONTRACT_REMINDER_THROTTLE_DAYS = 3
+async function sendContractReminderEmail(contractId, baseUrl = '') {
+  if (!reminderTransporter) return { sent: false, error: 'SMTP not configured' }
+  const state = getState()
+  const contract = state.contracts.find((c) => c.id === contractId)
+  if (!contract) return { sent: false, error: 'Contract not found' }
+  if (contract.status !== 'sent' || contract.clientSignedAt) return { sent: false, error: 'Contract not awaiting client signature' }
+  const project = state.projects.find((p) => p.id === contract.projectId)
+  const client = project ? state.clients.find((c) => c.id === project.clientId) : null
+  const toEmail = (client?.email || '').trim()
+  if (!toEmail) return { sent: false, error: 'No client email for this contract' }
+  const lastSent = contract.lastReminderSentAt || ''
+  if (lastSent) {
+    const cutoff = new Date()
+    cutoff.setDate(cutoff.getDate() - CONTRACT_REMINDER_THROTTLE_DAYS)
+    if (lastSent.slice(0, 10) >= cutoff.toISOString().slice(0, 10)) return { sent: false, error: 'Reminder already sent recently. Wait a few days before sending again.' }
+  }
+  const signUrl = baseUrl ? `${baseUrl.replace(/\/$/, '')}/sign/${contract.id}?token=${encodeURIComponent(contract.signToken || '')}` : ''
+  const firstName = (contract.clientName || '').split(/\s+/)[0] || 'there'
+  const subject = `Please sign your contract: ${contract.title}`
+  const text =
+    `Hi ${firstName},\n\nThis is a friendly reminder to sign your contract for ${contract.title}.\n\n` +
+    (signUrl ? `Sign here: ${signUrl}\n\n` : '') +
+    `Thank you!\n\nBest,\nAurora Sonnet`
+  await reminderTransporter.sendMail({
+    from: SMTP_FROM,
+    to: toEmail,
+    subject,
+    text,
+  })
+  const sentAt = new Date().toISOString()
+  updateContract(contractId, { lastReminderSentAt: sentAt })
+  return { sent: true, sentAt }
+}
+
+app.post('/api/contracts/:id/send-reminder', async (req, res) => {
+  try {
+    const { id } = req.params
+    const baseUrl = (req.body && req.body.baseUrl) || process.env.APP_URL || ''
+    const result = await sendContractReminderEmail(id, baseUrl)
+    if (!result.sent) {
+      const status = result.error === 'SMTP not configured' ? 503 : 400
+      return res.status(status).json({ ok: false, error: result.error })
+    }
+    res.json({ ok: true, sentAt: result.sentAt })
+  } catch (err) {
+    logError('SMTP', 'Failed to send contract reminder', err)
+    res.status(500).json({ error: 'Failed to send reminder email' })
   }
 })
 
@@ -1605,11 +1821,16 @@ app.post('/api/create-checkout-session', async (req, res) => {
   }
 })
 
-// Serve built frontend in production (after all API routes)
+// Serve built frontend in production (after all API routes). SPA fallback: non-API GET gets index.html.
 const distPath = join(__dirname, '..', 'dist')
 if (existsSync(distPath)) {
   app.use(express.static(distPath))
-  app.get('*', (req, res) => res.sendFile(join(distPath, 'index.html')))
+  app.get('*', (req, res, next) => {
+    if (req.path.startsWith('/api')) return next()
+    res.sendFile(join(distPath, 'index.html'), (err) => {
+      if (err) next(err)
+    })
+  })
 }
 
 app.listen(PORT, () => {

@@ -141,6 +141,11 @@ try {
   if (!/duplicate column/i.test(e.message)) throw e
 }
 try {
+  db.exec('ALTER TABLE contracts ADD COLUMN lastReminderSentAt TEXT')
+} catch (e) {
+  if (!/duplicate column/i.test(e.message)) throw e
+}
+try {
   db.exec('ALTER TABLE invoices ADD COLUMN templateId TEXT')
 } catch (e) {
   if (!/duplicate column/i.test(e.message)) throw e
@@ -217,6 +222,11 @@ for (const col of ['customPackageName', 'customPackageDetails', 'customPriceBrea
     if (!/duplicate column/i.test(e.message)) throw e
   }
 }
+try {
+  db.exec('ALTER TABLE proposals ADD COLUMN acceptToken TEXT')
+} catch (e) {
+  if (!/duplicate column/i.test(e.message)) throw e
+}
 // sentAt for calendar reminders (whether email was sent)
 try {
   db.exec('ALTER TABLE calendar_reminders ADD COLUMN sentAt TEXT')
@@ -288,6 +298,7 @@ function rowToProposal(r) {
     customPackageName: r.customPackageName || undefined,
     customPackageDetails: r.customPackageDetails || undefined,
     customPriceBreakdown: r.customPriceBreakdown || undefined,
+    acceptToken: r.acceptToken || undefined,
   }
 }
 
@@ -343,6 +354,7 @@ function rowToContract(r) {
     templateId: r.templateId || undefined,
     signToken: r.signToken || undefined,
     clientSignedAt: r.clientSignedAt || undefined,
+    lastReminderSentAt: r.lastReminderSentAt || undefined,
   }
 }
 
@@ -494,6 +506,22 @@ export function createMusicSelection(ms) {
   return ms.id
 }
 
+export function updateMusicSelection(id, updates) {
+  if (!id || typeof id !== 'string') return
+  const allowed = ['label']
+  const setClauses = []
+  const values = []
+  for (const key of allowed) {
+    if (Object.prototype.hasOwnProperty.call(updates, key)) {
+      setClauses.push(`${key} = ?`)
+      values.push(updates[key] ?? null)
+    }
+  }
+  if (setClauses.length === 0) return
+  values.push(id)
+  db.prepare(`UPDATE music_selections SET ${setClauses.join(', ')} WHERE id = ?`).run(...values)
+}
+
 /** Find active client by email (case-insensitive). Returns client or null. */
 export function getClientByEmail(email) {
   if (!email || typeof email !== 'string') return null
@@ -613,7 +641,7 @@ export function deleteProject(id) {
 
 export function createProposal(proposal) {
   db.prepare(
-    'INSERT INTO proposals (id, projectId, clientName, title, status, value, sentAt, emailBody, customPackageName, customPackageDetails, customPriceBreakdown) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)'
+    'INSERT INTO proposals (id, projectId, clientName, title, status, value, sentAt, emailBody, customPackageName, customPackageDetails, customPriceBreakdown, acceptToken) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)'
   ).run(
     proposal.id,
     proposal.projectId,
@@ -625,7 +653,8 @@ export function createProposal(proposal) {
     proposal.emailBody ?? null,
     proposal.customPackageName ?? null,
     proposal.customPackageDetails ?? null,
-    proposal.customPriceBreakdown ?? null
+    proposal.customPriceBreakdown ?? null,
+    proposal.acceptToken ?? null
   )
   return proposal.id
 }
@@ -635,7 +664,7 @@ export function updateProposal(id, updates) {
   if (!row) return
   const p = { ...rowToProposal(row), ...updates }
   db.prepare(
-    'UPDATE proposals SET projectId=?, clientName=?, title=?, status=?, value=?, sentAt=?, emailBody=?, customPackageName=?, customPackageDetails=?, customPriceBreakdown=? WHERE id=?'
+    'UPDATE proposals SET projectId=?, clientName=?, title=?, status=?, value=?, sentAt=?, emailBody=?, customPackageName=?, customPackageDetails=?, customPriceBreakdown=?, acceptToken=? WHERE id=?'
   ).run(
     p.projectId,
     p.clientName,
@@ -647,6 +676,7 @@ export function updateProposal(id, updates) {
     p.customPackageName ?? null,
     p.customPackageDetails ?? null,
     p.customPriceBreakdown ?? null,
+    p.acceptToken ?? null,
     id
   )
 }
@@ -657,7 +687,7 @@ export function deleteProposal(id) {
 
 export function createContract(contract) {
   db.prepare(
-    'INSERT INTO contracts (id, projectId, clientName, title, status, value, weddingDate, venue, packageType, signedAt, createdAt, templateId, signToken, clientSignedAt) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)'
+    'INSERT INTO contracts (id, projectId, clientName, title, status, value, weddingDate, venue, packageType, signedAt, createdAt, templateId, signToken, clientSignedAt, lastReminderSentAt) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)'
   ).run(
     contract.id,
     contract.projectId,
@@ -672,7 +702,8 @@ export function createContract(contract) {
     contract.createdAt,
     contract.templateId ?? null,
     contract.signToken ?? null,
-    contract.clientSignedAt ?? null
+    contract.clientSignedAt ?? null,
+    contract.lastReminderSentAt ?? null
   )
   return contract.id
 }
@@ -682,7 +713,7 @@ export function updateContract(id, updates) {
   if (!row) return
   const c = { ...rowToContract(row), ...updates }
   db.prepare(
-    'UPDATE contracts SET projectId=?, clientName=?, title=?, status=?, value=?, weddingDate=?, venue=?, packageType=?, signedAt=?, createdAt=?, templateId=?, signToken=?, clientSignedAt=? WHERE id=?'
+    'UPDATE contracts SET projectId=?, clientName=?, title=?, status=?, value=?, weddingDate=?, venue=?, packageType=?, signedAt=?, createdAt=?, templateId=?, signToken=?, clientSignedAt=?, lastReminderSentAt=? WHERE id=?'
   ).run(
     c.projectId,
     c.clientName,
@@ -697,6 +728,7 @@ export function updateContract(id, updates) {
     c.templateId ?? null,
     c.signToken ?? null,
     c.clientSignedAt ?? null,
+    c.lastReminderSentAt ?? null,
     id
   )
 }
