@@ -845,23 +845,33 @@ app.get('/api/proposals/:id/accept-info', (req, res) => {
 app.post('/api/proposals/:id/accept', async (req, res) => {
   try {
     const id = req.params.id
-    const { token } = req.body || {}
+    const { token, acceptedTotal: bodyAcceptedTotal, selectedEnhancements: bodySelectedEnhancements } = req.body || {}
     const state = getState()
-    const proposal = state.proposals.find((p) => p.id === id)
+    let proposal = state.proposals.find((p) => p.id === id)
     if (!proposal) return res.status(404).json({ error: 'Proposal not found' })
     if (!token || proposal.acceptToken !== token) return res.status(403).json({ error: 'Invalid or expired link' })
     if (proposal.status === 'accepted') return res.status(400).json({ error: 'Proposal already accepted' })
 
-    const project = state.projects.find((p) => p.id === proposal.projectId)
+    let project = state.projects.find((p) => p.id === proposal.projectId)
     if (!project) return res.status(400).json({ error: 'Project not found' })
     const client = state.clients.find((c) => c.id === project.clientId)
     const clientEmail = (client?.email || '').trim()
     const baseUrl = (req.body && req.body.baseUrl) || process.env.APP_URL || ''
 
-    let contract = state.contracts.find((c) => c.projectId === proposal.projectId)
+    const finalValue = Number(bodyAcceptedTotal) > 0 ? Number(bodyAcceptedTotal) : proposal.value
+    const acceptedEnhancementsJson = Array.isArray(bodySelectedEnhancements) && bodySelectedEnhancements.length > 0
+      ? JSON.stringify(bodySelectedEnhancements)
+      : null
+    updateProposal(id, { status: 'accepted', value: finalValue, acceptedEnhancements: acceptedEnhancementsJson })
+    updateProject(proposal.projectId, { value: finalValue })
+    const stateAfter = getState()
+    proposal = stateAfter.proposals.find((p) => p.id === id)
+    project = stateAfter.projects.find((p) => p.id === proposal.projectId)
+
+    let contract = stateAfter.contracts.find((c) => c.projectId === proposal.projectId)
     if (!contract) {
-      const template = (state.contractTemplates || [])[0]
-      const contractId = nextId('c', state.contracts)
+      const template = (stateAfter.contractTemplates || [])[0]
+      const contractId = nextId('c', stateAfter.contracts)
       const signToken = randomAcceptToken()
       createContract({
         id: contractId,
@@ -894,13 +904,18 @@ app.post('/api/proposals/:id/accept', async (req, res) => {
       updateContract(contract.id, { status: 'sent', signToken })
       contract = getState().contracts.find((c) => c.id === contract.id)
     }
+    // Ensure contract reflects the accepted total (including any enhancements).
+    if (contract && contract.value !== finalValue) {
+      updateContract(contract.id, { value: finalValue })
+      contract = getState().contracts.find((c) => c.id === contract.id)
+    }
     const signUrl = contract && contract.status === 'sent' && contract.signToken
       ? `${baseUrl.replace(/\/$/, '')}/sign/${contract.id}?token=${encodeURIComponent(contract.signToken)}`
       : ''
 
     let invoice = (getState().invoices || []).find((inv) => inv.projectId === proposal.projectId && (inv.type === 'deposit' || inv.type === 'other'))
+    const retainer = Math.round((proposal?.value ?? finalValue) * 0.5)
     if (!invoice) {
-      const retainer = Math.round(proposal.value * 0.5)
       const invoiceId = nextId('i', getState().invoices)
       createInvoice({
         id: invoiceId,
@@ -915,11 +930,14 @@ app.post('/api/proposals/:id/accept', async (req, res) => {
       })
       invoice = getState().invoices.find((i) => i.id === invoiceId)
     }
+    // If a deposit invoice already exists and hasn't been paid, align it to the accepted total.
+    if (invoice && invoice.type === 'deposit' && !invoice.paidAt && invoice.status !== 'paid' && invoice.amount !== retainer) {
+      updateInvoice(invoice.id, { amount: retainer })
+      invoice = getState().invoices.find((i) => i.id === invoice.id)
+    }
     const invoiceViewUrl = invoice && baseUrl
       ? `${baseUrl.replace(/\/$/, '')}/invoices/view/${invoice.id}`
       : ''
-
-    updateProposal(id, { status: 'accepted' })
 
     res.json({
       ok: true,

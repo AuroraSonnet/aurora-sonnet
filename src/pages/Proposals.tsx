@@ -1,4 +1,4 @@
-import { useState, useRef, useEffect, Fragment } from 'react'
+import { useState, useRef, useEffect, useMemo, Fragment } from 'react'
 import { createPortal } from 'react-dom'
 import { Link } from 'react-router-dom'
 import { useApp } from '../context/AppContext'
@@ -19,17 +19,8 @@ Event
 Date: {{eventDate}}
 Venue: {{venue}}
 
-Experience
-
-{{experienceName}}
-
+Experience: {{experienceName}}
 {{experienceBullets}}
-
-Elevated enhancements (optional)
-
-- DJ set (evening, 3–4 hours) — from $1,500
-- Saxophone feature (cocktails or reception; 2 × 45‑minute sets) — from $1,250
-- Grand piano hire (delivery, tuning, pickup; NYC area) — $1,300–$2,500
 
 Experience Investment
 
@@ -173,6 +164,28 @@ export default function Proposals() {
   const menuTriggerRef = useRef<HTMLButtonElement | null>(null)
   const dropdownPortalRef = useRef<HTMLDivElement | null>(null)
   const [selectedExperienceId, setSelectedExperienceId] = useState<string>('')
+  const [sortBy, setSortBy] = useState<'date' | 'alphabetical'>('date')
+
+  const sortedProposals = useMemo(() => {
+    const list = [...proposals]
+    if (sortBy === 'date') {
+      list.sort((a, b) => {
+        const aDate = a.sentAt || ''
+        const bDate = b.sentAt || ''
+        if (!aDate && !bDate) return 0
+        if (!aDate) return 1
+        if (!bDate) return -1
+        return bDate.localeCompare(aDate)
+      })
+    } else {
+      list.sort((a, b) => {
+        const cmp = (a.title || '').toLowerCase().localeCompare((b.title || '').toLowerCase())
+        if (cmp !== 0) return cmp
+        return (a.clientName || '').toLowerCase().localeCompare((b.clientName || '').toLowerCase())
+      })
+    }
+    return list
+  }, [proposals, sortBy])
 
   const presetExperiences = [
     ...ALL_PACKAGES.map((p) => ({
@@ -270,7 +283,8 @@ export default function Proposals() {
       baseUrl && acceptToken
         ? `${baseUrl.replace(/\/$/, '')}/accept-proposal/${p.id}?token=${encodeURIComponent(acceptToken)}`
         : undefined
-    const experienceName = p.customPackageName?.trim() || p.title
+    const experienceName =
+      p.customPackageName?.trim() || project?.packageType?.trim() || p.title
     const experienceBullets = getExperienceBulletsFallback(p, presetExperiences)
     const defaultBody = getDefaultEmailBody(p.title, clientName, {
       eventDate,
@@ -386,7 +400,8 @@ export default function Proposals() {
       baseUrl && p.acceptToken
         ? `${baseUrl.replace(/\/$/, '')}/accept-proposal/${p.id}?token=${encodeURIComponent(p.acceptToken)}`
         : undefined
-    const experienceName = p.customPackageName?.trim() || p.title
+    const experienceName =
+      p.customPackageName?.trim() || project?.packageType?.trim() || p.title
     const experienceBullets = getExperienceBulletsFallback(p, presetExperiences)
     const defaultBody = getDefaultEmailBody(p.title, clientName, {
       eventDate,
@@ -698,6 +713,19 @@ Total — $3,500"
         </section>
       )}
 
+      <div className={styles.sortBar}>
+        <label htmlFor="proposals-sort" className={styles.sortLabel}>Sort by</label>
+        <select
+          id="proposals-sort"
+          className={styles.sortSelect}
+          value={sortBy}
+          onChange={(e) => setSortBy(e.target.value as 'date' | 'alphabetical')}
+          aria-label="Sort proposals"
+        >
+          <option value="date">Date (newest first)</option>
+          <option value="alphabetical">Alphabetical (by project)</option>
+        </select>
+      </div>
       <div className={styles.tableWrap}>
         <table className={styles.table}>
           <thead>
@@ -711,7 +739,7 @@ Total — $3,500"
             </tr>
           </thead>
           <tbody>
-            {proposals.map((p) => (
+            {sortedProposals.map((p) => (
               <Fragment key={p.id}>
                 <tr>
                   {editingId === p.id ? (

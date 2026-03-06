@@ -227,6 +227,11 @@ try {
 } catch (e) {
   if (!/duplicate column/i.test(e.message)) throw e
 }
+try {
+  db.exec('ALTER TABLE proposals ADD COLUMN acceptedEnhancements TEXT')
+} catch (e) {
+  if (!/duplicate column/i.test(e.message)) throw e
+}
 // sentAt for calendar reminders (whether email was sent)
 try {
   db.exec('ALTER TABLE calendar_reminders ADD COLUMN sentAt TEXT')
@@ -299,6 +304,7 @@ function rowToProposal(r) {
     customPackageDetails: r.customPackageDetails || undefined,
     customPriceBreakdown: r.customPriceBreakdown || undefined,
     acceptToken: r.acceptToken || undefined,
+    acceptedEnhancements: r.acceptedEnhancements || undefined,
   }
 }
 
@@ -664,7 +670,7 @@ export function updateProposal(id, updates) {
   if (!row) return
   const p = { ...rowToProposal(row), ...updates }
   db.prepare(
-    'UPDATE proposals SET projectId=?, clientName=?, title=?, status=?, value=?, sentAt=?, emailBody=?, customPackageName=?, customPackageDetails=?, customPriceBreakdown=?, acceptToken=? WHERE id=?'
+    'UPDATE proposals SET projectId=?, clientName=?, title=?, status=?, value=?, sentAt=?, emailBody=?, customPackageName=?, customPackageDetails=?, customPriceBreakdown=?, acceptToken=?, acceptedEnhancements=? WHERE id=?'
   ).run(
     p.projectId,
     p.clientName,
@@ -677,6 +683,7 @@ export function updateProposal(id, updates) {
     p.customPackageDetails ?? null,
     p.customPriceBreakdown ?? null,
     p.acceptToken ?? null,
+    p.acceptedEnhancements ?? null,
     id
   )
 }

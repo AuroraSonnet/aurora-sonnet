@@ -149,3 +149,129 @@
   color: #5c5349;
   font-size: 0.9375rem;
 }
+
+.enhancementsTitle {
+  font-family: 'Playfair Display', Georgia, serif;
+  font-size: 1rem;
+  font-weight: 600;
+  color: #241a14;
+  margin: 1.25rem 0 0.25rem 0;
+}
+
+.enhancementsIntro {
+  font-size: 0.875rem;
+  color: #5c5349;
+  margin: 0 0 0.75rem 0;
+}
+
+.enhancementsList {
+  list-style: none;
+  margin: 0 0 1rem 0;
+  padding: 0;
+  border: 1px solid #ebe7e2;
+  border-radius: 2px;
+  overflow: hidden;
+}
+
+.enhancementItem {
+  margin: 0;
+  border-bottom: 1px solid #ebe7e2;
+}
+
+.enhancementItem:last-child {
+  border-bottom: none;
+}
+
+.enhancementLabel {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+  padding: 0.75rem 1rem;
+  cursor: pointer;
+  font-size: 0.9375rem;
+  color: #382e27;
+}
+
+.enhancementLabel:hover {
+  background: #f8f6f3;
+}
+
+.enhancementCheckbox {
+  flex-shrink: 0;
+  width: 1.125rem;
+  height: 1.125rem;
+  accent-color: #7d6e5c;
+}
+
+.enhancementText {
+  flex: 1;
+}
+
+.enhancementPrice {
+  font-weight: 500;
+  color: #241a14;
+  white-space: nowrap;
+}
+
+.pianoOptions {
+  padding: 0 1rem 0.75rem 2.85rem;
+}
+
+.pianoOptionsIntro {
+  font-size: 0.8125rem;
+  color: #5c5349;
+  margin: 0 0 0.4rem 0;
+}
+
+.pianoOptionsList {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+
+.pianoOptionLabel {
+  display: flex;
+  align-items: flex-start;
+  gap: 0.5rem;
+  padding: 0.3rem 0;
+  font-size: 0.875rem;
+  color: #382e27;
+}
+
+.pianoOptionRadio {
+  flex-shrink: 0;
+  width: 1rem;
+  height: 1rem;
+  margin-top: 0.15rem;
+  accent-color: #7d6e5c;
+}
+
+.pianoOptionText {
+  flex: 1;
+}
+
+.pianoOptionTitle {
+  display: block;
+  font-weight: 500;
+}
+
+.pianoOptionDescription {
+  display: block;
+  font-size: 0.8125rem;
+  color: #5c5349;
+}
+
+.pianoOptionPrice {
+  flex-shrink: 0;
+  font-weight: 500;
+  color: #241a14;
+  white-space: nowrap;
+}
+
+.addedLine {
+  font-size: 0.875rem;
+  color: #5c5349;
+  margin: 0 0 0.5rem 0;
+  padding: 0.5rem 0;
+  border-top: 1px solid #ebe7e2;
+}
