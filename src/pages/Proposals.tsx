@@ -3,7 +3,7 @@ import { createPortal } from 'react-dom'
 import { Link } from 'react-router-dom'
 import { useApp } from '../context/AppContext'
 import { useUndo } from '../context/UndoContext'
-import { apiDeleteProposal, apiCreateProposal, apiEnsureProposalAcceptToken } from '../api/db'
+import { apiDeleteProposal, apiCreateProposal, apiEnsureProposalAcceptToken, apiSyncProposalForAccept } from '../api/db'
 import { getInquiryApiBaseUrl, DEFAULT_INQUIRY_API_URL } from '../utils/inquiryApiUrl'
 import { ALL_PACKAGES, getPackageOrDuoPrice } from '../data/packages'
 import type { Proposal } from '../data/mock'
@@ -257,6 +257,14 @@ export default function Proposals() {
       const result = await apiEnsureProposalAcceptToken(p.id)
       if (result) acceptToken = result.acceptToken
       else await actions.refreshState()
+    }
+    // When the accept link points to a remote server (e.g. Render), sync proposal + project + client there so the link works.
+    if (baseUrl && acceptToken && pair?.client && pair?.project && baseUrl !== (typeof window !== 'undefined' ? window.location.origin : '')) {
+      await apiSyncProposalForAccept(baseUrl, {
+        client: { id: pair.client.id, name: pair.client.name, email: pair.client.email, phone: pair.client.phone, partnerName: pair.client.partnerName, createdAt: pair.client.createdAt },
+        project: { id: pair.project.id, clientId: pair.project.clientId, clientName: pair.project.clientName, title: pair.project.title, stage: pair.project.stage, value: pair.project.value, weddingDate: pair.project.weddingDate, venue: pair.project.venue, packageType: pair.project.packageType, dueDate: pair.project.dueDate, createdAt: pair.project.createdAt, notes: pair.project.notes, requestedArtist: pair.project.requestedArtist, cloudProjectId: pair.project.cloudProjectId },
+        proposal: { id: p.id, projectId: p.projectId, clientName: p.clientName, title: p.title, status: p.status, value: p.value, sentAt: p.sentAt, acceptToken },
+      })
     }
     const acceptProposalUrl =
       baseUrl && acceptToken

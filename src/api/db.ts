@@ -275,6 +275,24 @@ export async function apiEnsureProposalAcceptToken(proposalId: string): Promise<
   }
 }
 
+/** Sync proposal + project + client to a remote API (e.g. Render) so the accept link works there. */
+export async function apiSyncProposalForAccept(
+  publicBaseUrl: string,
+  payload: { client: { id: string; name: string; email: string; phone?: string; partnerName?: string; createdAt?: string }; project: { id: string; clientId: string; clientName: string; title: string; stage?: string; value: number; weddingDate?: string; venue?: string; packageType?: string; dueDate?: string; createdAt?: string; notes?: string; requestedArtist?: string; cloudProjectId?: string }; proposal: { id: string; projectId: string; clientName: string; title: string; status: string; value: number; sentAt?: string; acceptToken: string } }
+): Promise<boolean> {
+  try {
+    const base = publicBaseUrl.replace(/\/$/, '')
+    const res = await fetch(`${base}/api/proposals/sync-for-accept`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(payload),
+    })
+    return res.ok
+  } catch {
+    return false
+  }
+}
+
 export async function apiDeleteContract(id: string): Promise<boolean> {
   try {
     const res = await fetch(`${API}/contracts/${id}`, { method: 'DELETE' })

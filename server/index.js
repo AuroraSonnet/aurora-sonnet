@@ -749,6 +749,78 @@ app.post('/api/proposals/:id/ensure-accept-token', (req, res) => {
   }
 })
 
+// Sync proposal + project + client from Mac app so accept link works on Render (remote DB).
+app.post('/api/proposals/sync-for-accept', (req, res) => {
+  try {
+    const { client, project, proposal } = req.body || {}
+    if (!proposal || !proposal.id || !proposal.acceptToken || !project || !client) {
+      return res.status(400).json({ error: 'Missing client, project, or proposal with id and acceptToken' })
+    }
+    const state = getState()
+    const now = new Date().toISOString().slice(0, 10)
+    if (!getClientById(client.id)) {
+      createClient({
+        id: client.id,
+        name: String(client.name || '').trim() || 'Client',
+        email: String(client.email || '').trim() || 'noreply@example.com',
+        phone: client.phone ?? null,
+        partnerName: client.partnerName ?? null,
+        createdAt: client.createdAt || now,
+      })
+    } else {
+      updateClient(client.id, {
+        name: String(client.name || '').trim() || 'Client',
+        email: String(client.email || '').trim() || 'noreply@example.com',
+        phone: client.phone ?? null,
+        partnerName: client.partnerName ?? null,
+      })
+    }
+    if (!state.projects.find((p) => p.id === project.id)) {
+      createProject({
+        id: project.id,
+        clientId: project.clientId,
+        clientName: String(project.clientName || '').trim() || 'Project',
+        title: String(project.title || '').trim() || 'Booking',
+        stage: project.stage || 'proposal',
+        value: Number(project.value) || 0,
+        weddingDate: project.weddingDate || now,
+        venue: project.venue ?? null,
+        packageType: project.packageType ?? null,
+        dueDate: project.dueDate || now,
+        createdAt: project.createdAt ?? null,
+        notes: project.notes ?? null,
+        requestedArtist: project.requestedArtist ?? null,
+        cloudProjectId: project.cloudProjectId ?? null,
+      })
+    }
+    const existing = getState().proposals.find((p) => p.id === proposal.id)
+    if (!existing) {
+      createProposal({
+        id: proposal.id,
+        projectId: proposal.projectId,
+        clientName: String(proposal.clientName || '').trim() || 'Client',
+        title: String(proposal.title || '').trim() || 'Proposal',
+        status: proposal.status || 'draft',
+        value: Number(proposal.value) || 0,
+        sentAt: proposal.sentAt ?? null,
+        acceptToken: proposal.acceptToken,
+      })
+    } else {
+      updateProposal(proposal.id, {
+        acceptToken: proposal.acceptToken,
+        title: String(proposal.title || '').trim() || existing.title,
+        value: Number(proposal.value) || existing.value,
+        status: proposal.status || existing.status,
+        clientName: String(proposal.clientName || '').trim() || existing.clientName,
+      })
+    }
+    res.json({ ok: true })
+  } catch (err) {
+    logError('DB', 'Failed to sync proposal for accept', err)
+    res.status(500).json({ error: err.message || 'Failed to sync' })
+  }
+})
+
 app.get('/api/proposals/:id/accept-info', (req, res) => {
   try {
     const { token } = req.query
