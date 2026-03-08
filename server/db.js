@@ -4,8 +4,10 @@ import { fileURLToPath } from 'url'
 import { dirname, join } from 'path'
 
 const __dirname = dirname(fileURLToPath(import.meta.url))
-// On Render the filesystem is read-only; use writable path so inquiry form works
-const dataDir = process.env.DATA_DIR || (process.env.RENDER ? '/tmp/aurora-sonnet-data' : __dirname)
+// On Render the filesystem is read-only; use writable path so inquiry form works.
+// Render sets RENDER=true and RENDER_EXTERNAL_URL; either indicates we should use /tmp.
+const isRender = process.env.RENDER === 'true' || (process.env.RENDER_EXTERNAL_URL && process.env.RENDER_EXTERNAL_URL.includes('onrender.com'))
+const dataDir = process.env.DATA_DIR || (isRender ? '/tmp/aurora-sonnet-data' : __dirname)
 if (!existsSync(dataDir)) mkdirSync(dataDir, { recursive: true })
 const db = new Database(join(dataDir, 'aurora.db'))
 db.pragma('journal_mode = WAL')
@@ -238,6 +240,29 @@ try {
 } catch (e) {
   if (!/duplicate column/i.test(e.message)) throw e
 }
+
+// Ensure inquiry-related columns exist (handles old DBs on Render or restores)
+function ensureInquiryColumns() {
+  const projectCols = db.prepare("PRAGMA table_info(projects)").all().map((r) => r.name)
+  for (const col of ['notes', 'requestedArtist', 'cloudProjectId', 'deletedAt', 'archivedAt']) {
+    if (!projectCols.includes(col)) {
+      try {
+        db.exec(`ALTER TABLE projects ADD COLUMN ${col} TEXT`)
+      } catch (e) {
+        if (!/duplicate column/i.test(e.message)) throw e
+      }
+    }
+  }
+  const clientCols = db.prepare("PRAGMA table_info(clients)").all().map((r) => r.name)
+  if (!clientCols.includes('deletedAt')) {
+    try {
+      db.exec('ALTER TABLE clients ADD COLUMN deletedAt TEXT')
+    } catch (e) {
+      if (!/duplicate column/i.test(e.message)) throw e
+    }
+  }
+}
+ensureInquiryColumns()
 
 // Indexes for soft-delete: keep getState() fast when filtering active clients/projects
 db.exec('CREATE INDEX IF NOT EXISTS idx_clients_active ON clients(id) WHERE deletedAt IS NULL')
@@ -567,6 +592,53 @@ export function getNextClientId() {
   return `c${max + 1}`
 }
 
+/** Next project id from all rows (including soft-deleted) so new inquiries work after a full wipe. */
+export function getNextProjectId() {
+  const row = db.prepare("SELECT MAX(CAST(SUBSTR(id, 2) AS INTEGER)) AS maxId FROM projects").get()
+  const max = typeof row?.maxId === 'number' ? row.maxId : 0
+  return `p${max + 1}`
+}
+
+/** Create client (if new) and project in one transaction to avoid duplicate-id races. Returns { clientId, projectId }. */
+export const createInquiryInTransaction = db.transaction((data) => {
+  const emailNorm = String(data.email ?? '').trim().toLowerCase()
+  const existing = db.prepare('SELECT id FROM clients WHERE deletedAt IS NULL AND LOWER(TRIM(email)) = ?').get(emailNorm)
+  let clientId
+  if (existing) {
+    clientId = existing.id
+  } else {
+    const cRow = db.prepare("SELECT MAX(CAST(SUBSTR(id, 2) AS INTEGER)) AS maxId FROM clients").get()
+    const cMax = typeof cRow?.maxId === 'number' ? cRow.maxId : 0
+    clientId = `c${cMax + 1}`
+    db.prepare(
+      'INSERT INTO clients (id, name, email, phone, partnerName, createdAt) VALUES (?, ?, ?, ?, ?, ?)'
+    ).run(clientId, data.name, data.email, data.phone ?? null, null, data.today)
+  }
+  const pRow = db.prepare("SELECT MAX(CAST(SUBSTR(id, 2) AS INTEGER)) AS maxId FROM projects").get()
+  const pMax = typeof pRow?.maxId === 'number' ? pRow.maxId : 0
+  const projectId = `p${pMax + 1}`
+  const value = typeof data.value === 'number' && !isNaN(data.value) ? data.value : 0
+  db.prepare(
+    'INSERT INTO projects (id, clientId, clientName, title, stage, value, weddingDate, venue, packageType, dueDate, createdAt, notes, requestedArtist, cloudProjectId) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)'
+  ).run(
+    projectId,
+    clientId,
+    data.clientName,
+    data.title,
+    'inquiry',
+    value,
+    data.weddingDate,
+    data.venue ?? null,
+    data.packageType ?? null,
+    data.dueDate,
+    data.today,
+    data.notes ?? null,
+    data.requestedArtist ?? null,
+    null
+  )
+  return { clientId, projectId }
+})
+
 /** Get client by id (including soft-deleted). Returns client + deletedAt, or null. */
 export function getClientById(id) {
   const row = db.prepare('SELECT * FROM clients WHERE id = ?').get(id)
@@ -582,6 +654,12 @@ const _softDeleteClient = db.transaction((id) => {
 /** Soft-delete client and all their projects (can be restored with restoreClient). Runs in a single transaction. */
 export function deleteClient(id) {
   _softDeleteClient(id)
+}
+
+/** Return ids of all soft-deleted clients. */
+export function getDeletedClientIds() {
+  const rows = db.prepare('SELECT id FROM clients WHERE deletedAt IS NOT NULL').all()
+  return rows.map((r) => r.id)
 }
 
 const _restoreClient = db.transaction((id) => {

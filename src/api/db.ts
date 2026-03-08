@@ -219,12 +219,75 @@ export async function apiCreateExpense(expense: Record<string, unknown>): Promis
 export async function apiDeleteClient(id: string): Promise<boolean> {
   try {
     const res = await fetch(`${API}/clients/${id}`, { method: 'DELETE' })
-    // Treat 404 (not found) as success so local deletes can still proceed even if the
-    // record was already removed on the server.
     if (res.ok || res.status === 404) return true
     return false
   } catch {
     return false
+  }
+}
+
+/** Delete a client on a specific API base (e.g. Render). Use after local delete so Sync doesn't bring the contact back. */
+export async function apiDeleteClientOnRemote(baseUrl: string, id: string): Promise<boolean> {
+  if (!baseUrl || !baseUrl.startsWith('http')) return true
+  try {
+    const base = baseUrl.replace(/\/$/, '')
+    const res = await fetch(`${base}/api/clients/${id}`, { method: 'DELETE' })
+    return res.ok || res.status === 404
+  } catch {
+    return false
+  }
+}
+
+/** Soft-delete all clients on a specific API. Returns { ok, deleted } or { ok: false, reason? }. */
+export async function apiDeleteAllClientsOnRemote(baseUrl: string): Promise<{ ok: boolean; deleted?: number; reason?: string }> {
+  if (!baseUrl || !baseUrl.startsWith('http')) return { ok: true, deleted: 0 }
+  try {
+    const base = baseUrl.replace(/\/$/, '')
+    const res = await fetch(`${base}/api/clients/delete-all`, { method: 'POST' })
+    if (res.status === 502 || res.status === 503) return { ok: false, reason: 'waking_up' }
+    if (!res.ok) return { ok: false, reason: res.status.toString() }
+    const data = await res.json().catch(() => ({}))
+    return { ok: true, deleted: typeof data.deleted === 'number' ? data.deleted : 0 }
+  } catch {
+    return { ok: false, reason: 'network' }
+  }
+}
+
+/** Soft-delete all clients on the current (same-origin) API. */
+export async function apiDeleteAllClients(): Promise<{ ok: boolean; deleted?: number }> {
+  try {
+    const res = await fetch(`${API}/clients/delete-all`, { method: 'POST' })
+    if (!res.ok) return { ok: false }
+    const data = await res.json().catch(() => ({}))
+    return { ok: true, deleted: typeof data.deleted === 'number' ? data.deleted : 0 }
+  } catch {
+    return { ok: false }
+  }
+}
+
+/** Restore all soft-deleted clients on a specific API (e.g. Render). Returns { ok, restored } or { ok: false }. */
+export async function apiRestoreAllClientsOnRemote(baseUrl: string): Promise<{ ok: boolean; restored?: number }> {
+  if (!baseUrl || !baseUrl.startsWith('http')) return { ok: true, restored: 0 }
+  try {
+    const base = baseUrl.replace(/\/$/, '')
+    const res = await fetch(`${base}/api/clients/restore-all`, { method: 'POST' })
+    if (!res.ok) return { ok: false }
+    const data = await res.json().catch(() => ({}))
+    return { ok: true, restored: typeof data.restored === 'number' ? data.restored : 0 }
+  } catch {
+    return { ok: false }
+  }
+}
+
+/** Restore all soft-deleted clients on the current (same-origin) API. */
+export async function apiRestoreAllClients(): Promise<{ ok: boolean; restored?: number }> {
+  try {
+    const res = await fetch(`${API}/clients/restore-all`, { method: 'POST' })
+    if (!res.ok) return { ok: false }
+    const data = await res.json().catch(() => ({}))
+    return { ok: true, restored: typeof data.restored === 'number' ? data.restored : 0 }
+  } catch {
+    return { ok: false }
   }
 }
 

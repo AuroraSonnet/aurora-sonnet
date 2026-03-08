@@ -47,7 +47,7 @@
           <select name="requestedArtist">
             <option value="">Select Duo</option>
             <option value="eli-liv">Eli & Liv</option>
-            <option value="riley-richard">Riley & Richard</option>
+            <option value="riley-richard">Riley & Lu</option>
             <option value="garrett-tamara">Garrett & Tamara</option>
           </select>
         </label>
@@ -139,8 +139,25 @@
     };
     fetch(APP_URL + '/api/inquiry', { method: 'POST', headers: { 'Content-Type': 'application/json', 'Accept': 'application/json' }, body: JSON.stringify(payload) })
       .then(function(res){
-        if (res.ok) { try { if (window.top && window.top.location) window.top.location.href = THANK_YOU; } catch(_){} return; }
-        return res.json().then(function(d){ throw new Error(d.error || 'Send failed'); });
+        if (res.ok) {
+          btn.textContent = 'Thank you! Redirecting…';
+          function goThankYou() {
+            try { if (window.top && window.top.location) { window.top.location.replace(THANK_YOU); return; } } catch (_) {}
+            try { window.location.replace(THANK_YOU); } catch (e) {
+              if (errEl) { errEl.innerHTML = 'Thank you! <a href="' + THANK_YOU + '" target="_top">Click here</a> if you\'re not redirected.'; errEl.style.display = 'block'; errEl.style.color = '#333'; }
+            }
+          }
+          goThankYou();
+          setTimeout(function(){ if (errEl && !errEl.querySelector('a')) goThankYou(); }, 800);
+          return;
+        }
+        return res.text().then(function(t){
+          var d;
+          try { d = t ? JSON.parse(t) : {}; } catch (_) { throw new Error('Server error (500). If this keeps happening, check Render logs for [DB] Inquiry failed.'); }
+          var msg = (d && (d.detail || d.error)) || 'Send failed';
+          if (res.status === 502 || res.status === 503) throw new Error('Server is waking up. Please wait 30–60 seconds and try again.');
+          throw new Error(msg);
+        });
       })
       .catch(function(err){
         if (sendingHint) sendingHint.style.display = 'none';

@@ -2,7 +2,8 @@ import { useState, useMemo } from 'react'
 import { Link, useNavigate } from 'react-router-dom'
 import { useApp } from '../context/AppContext'
 import { useUndo } from '../context/UndoContext'
-import { apiDeleteClient } from '../api/db'
+import { apiDeleteClient, apiDeleteClientOnRemote, apiDeleteAllClients, apiDeleteAllClientsOnRemote, apiRestoreAllClients, apiRestoreAllClientsOnRemote } from '../api/db'
+import { getInquiryApiBaseUrl } from '../utils/inquiryApiUrl'
 import styles from './Clients.module.css'
 
 export default function Clients() {
@@ -20,6 +21,8 @@ export default function Clients() {
   const [addError, setAddError] = useState<string | null>(null)
   const [search, setSearch] = useState('')
   const [sortBy, setSortBy] = useState<'name-az' | 'name-za' | 'recent'>('name-az')
+  const [deletingAll, setDeletingAll] = useState(false)
+  const [restoringAll, setRestoringAll] = useState(false)
 
   const filteredClients = useMemo(() => {
     const q = search.trim().toLowerCase()
@@ -55,6 +58,8 @@ export default function Clients() {
         undo: async () => {
           const ok = await apiDeleteClient(clientId)
           if (ok) {
+            const base = getInquiryApiBaseUrl()
+            if (base) await apiDeleteClientOnRemote(base, clientId)
             actions.removeClientLocally(clientId)
           }
         },
@@ -63,6 +68,72 @@ export default function Clients() {
       setForm({ name: '', email: '', phone: '', partnerName: '' })
     } catch (err) {
       setAddError(err instanceof Error ? err.message : 'Could not add client')
+    }
+  }
+
+  const handleDeleteAllClients = async () => {
+    if (clients.length === 0) return
+    const msg =
+      clients.length === 1
+        ? 'Delete this client and their projects? This cannot be undone.'
+        : `Delete all ${clients.length} clients and their projects? This cannot be undone.`
+    if (!window.confirm(msg)) return
+    setDeletingAll(true)
+    try {
+      const base = getInquiryApiBaseUrl()
+      let ok = false
+      let reason: string | undefined
+      if (base) {
+        try {
+          const apiOrigin = new URL(base).origin
+          if (typeof window !== 'undefined' && window.location?.origin === apiOrigin) {
+            ok = (await apiDeleteAllClients()).ok
+          } else {
+            const result = await apiDeleteAllClientsOnRemote(base)
+            ok = result.ok
+            reason = result.reason
+          }
+        } catch {
+          const result = await apiDeleteAllClientsOnRemote(base)
+          ok = result.ok
+          reason = result.reason
+        }
+      } else {
+        ok = (await apiDeleteAllClients()).ok
+      }
+      if (!ok) {
+        setDeletingAll(false)
+        const hint =
+          reason === 'waking_up'
+            ? 'Server is waking up (Render cold start). Wait 30–60 seconds and try again.'
+            : reason === 'network'
+              ? 'Cannot reach the server. Check Settings → Inquiry API URL and your internet connection. If using Render free tier, the server may be sleeping — wait a minute and try again.'
+              : 'Delete failed. Check Settings → Inquiry API URL (e.g. https://aurora-sonnet-1.onrender.com) and that the server is reachable.'
+        window.alert(hint)
+        return
+      }
+      for (const c of clients) actions.removeClientLocally(c.id)
+    } finally {
+      setDeletingAll(false)
+    }
+  }
+
+  const handleRestoreAllClients = async () => {
+    if (!window.confirm('Restore all deleted clients and their bookings from the server?')) return
+    setRestoringAll(true)
+    try {
+      const base = getInquiryApiBaseUrl()
+      const result = base
+        ? await apiRestoreAllClientsOnRemote(base)
+        : await apiRestoreAllClients()
+      if (!result.ok) {
+        window.alert('Restore failed. Is the server URL correct in Settings?')
+        return
+      }
+      await actions.refreshState()
+      if ((result.restored ?? 0) > 0) window.alert(`Restored ${result.restored} client(s).`)
+    } finally {
+      setRestoringAll(false)
     }
   }
 
@@ -188,6 +259,24 @@ export default function Clients() {
         </select>
         <button type="button" className={styles.exportBtn} onClick={handleExportEmails}>
           Download emails
+        </button>
+        <button
+          type="button"
+          className={styles.restoreAllBtn}
+          onClick={handleRestoreAllClients}
+          disabled={restoringAll}
+          title="Restore clients and bookings that were deleted (soft-deleted on server)"
+        >
+          {restoringAll ? 'Restoring…' : 'Restore deleted clients'}
+        </button>
+        <button
+          type="button"
+          className={styles.deleteAllBtn}
+          onClick={handleDeleteAllClients}
+          disabled={clients.length === 0 || deletingAll}
+          title={clients.length === 0 ? 'No clients to delete' : 'Delete all clients and their projects'}
+        >
+          {deletingAll ? 'Deleting…' : 'Delete all clients'}
         </button>
       </div>
 

@@ -14,6 +14,8 @@ import {
   updateClient,
   deleteClient,
   restoreClient,
+  getDeletedClientIds,
+  createInquiryInTransaction,
   createProject,
   updateProject,
   deleteProject,
@@ -47,6 +49,7 @@ import {
   updateMusicSelection,
   seedDb,
   getNextClientId,
+  getNextProjectId,
 } from './db.js'
 import {
   seedClients,
@@ -120,7 +123,8 @@ function logSmtpStatus() {
 // Match db.js: Mac app uses DATA_DIR; Render uses /tmp; local dev uses server dir.
 // Contract PDFs live only in CONTRACTS_DIR (contracts/{id}.pdf). Templates live in TEMPLATES_CONTRACTS_DIR.
 // Existing contracts get their own PDF at creation (from template or generated); template edits do not change them.
-const dataDir = process.env.DATA_DIR || (process.env.RENDER ? '/tmp/aurora-sonnet-data' : __dirname)
+const isRender = process.env.RENDER === 'true' || (process.env.RENDER_EXTERNAL_URL && String(process.env.RENDER_EXTERNAL_URL).includes('onrender.com'))
+const dataDir = process.env.DATA_DIR || (isRender ? '/tmp/aurora-sonnet-data' : __dirname)
 const PAYMENTS_FILE = join(dataDir, 'payments.json')
 const TEMPLATES_CONTRACTS_DIR = join(dataDir, 'templates', 'contracts')
 const TEMPLATES_INVOICES_DIR = join(dataDir, 'templates', 'invoices')
@@ -137,7 +141,7 @@ ensureTemplatesDirs()
 ensureContractsDir()
 
 async function sendDueCalendarReminders() {
-  if (!reminderTransporter || !REMINDER_EMAIL_TO) return { sent: 0 }
+  if (!reminderTransporter || !REMINDER_EMAIL_TO) return { sent: 0, error: 'SMTP not configured. Set SMTP in Settings to send reminder emails.' }
   const state = getState()
   const nowIso = new Date().toISOString()
   const due = (state.calendarReminders || []).filter(
@@ -208,18 +212,23 @@ app.use((req, res, next) => {
   next()
 })
 
-// CORS: allow Vite dev, optional frontend origin, aurorasonnet.com (embed form), and public API endpoints from any HTTPS origin
+// CORS: allow Vite dev, optional frontend origin, aurorasonnet.com (embed form), Render app URL, and public API endpoints from any HTTPS origin
 const frontendOrigin = process.env.FRONTEND_ORIGIN
+const renderExternalUrl = (process.env.RENDER_EXTERNAL_URL || '').trim().replace(/\/$/, '')
 const allowedOrigins = [
   frontendOrigin,
+  renderExternalUrl,
   'https://aurorasonnet.com',
   'https://www.aurorasonnet.com',
+  'https://aurora-sonnet-1.onrender.com',
 ].filter(Boolean)
 const publicEndpoints = ['/api/state', '/api/inquiry', '/api/music-selection']
+const clientBulkEndpoints = ['/api/clients/delete-all', '/api/clients/restore-all']
 app.use((req, res, next) => {
   const origin = req.headers.origin
   const isStateGet = req.method === 'GET' && req.path === '/api/state'
   const isPublicEndpoint = publicEndpoints.some((p) => req.path === p || req.path.startsWith(p + '?'))
+  const isClientBulk = req.method === 'POST' && clientBulkEndpoints.includes(req.path)
   const allow =
     (origin && (origin.includes('localhost') || origin.includes('127.0.0.1'))) ||
     (origin && allowedOrigins.includes(origin)) ||
@@ -229,6 +238,9 @@ app.use((req, res, next) => {
     res.setHeader('Access-Control-Allow-Origin', origin)
   } else if (isStateGet && (!origin || origin === 'null' || origin === 'file://' || !origin.startsWith('https://'))) {
     // Desktop app (Electron) often sends no origin, "null", or file://; allow so sync can fetch /api/state
+    res.setHeader('Access-Control-Allow-Origin', '*')
+  } else if (isClientBulk && (!origin || origin === 'null' || origin === 'file://')) {
+    // Mac/Electron app may send null or file origin; allow so Delete all / Restore work
     res.setHeader('Access-Control-Allow-Origin', '*')
   }
   res.setHeader('Access-Control-Allow-Methods', 'GET, POST, PATCH, DELETE, OPTIONS')
@@ -412,12 +424,6 @@ app.post('/api/inquiry', async (req, res) => {
       }
       return res.status(400).json({ error: 'Name and email required' })
     }
-    const state = getState()
-    const emailLower = email.toLowerCase()
-    const existingClient = state.clients.find((c) => (c.email || '').toLowerCase() === emailLower)
-    // Use DB-based id generator so we never reuse ids of soft-deleted clients
-    const clientId = existingClient ? existingClient.id : getNextClientId()
-    const projectId = nextId('p', state.projects)
     const today = new Date().toISOString().slice(0, 10)
     const weddingDate = (body.weddingDate || '').trim() || today
     const venue = (body.venue || '').trim() || undefined
@@ -425,32 +431,21 @@ app.post('/api/inquiry', async (req, res) => {
     const value = packageId && PACKAGE_PRICES[packageId] != null ? PACKAGE_PRICES[packageId] : 0
     const isGeneral = !venue && !packageId
     const title = isGeneral ? 'General inquiry' : (venue ? `${venue} Wedding` : 'Wedding inquiry')
-
-    // Only create a new contact when this email is not already on the Contacts page
-    if (!existingClient) {
-      createClient({
-        id: clientId,
-        name,
-        email,
-        phone: (body.phone || '').trim() || undefined,
-        partnerName: undefined,
-        createdAt: today,
-      })
-    }
     const inquiryMessage = (body.message || '').trim() || undefined
     const requestedArtist = (body.requestedArtist || '').trim() || undefined
-    createProject({
-      id: projectId,
-      clientId,
-      clientName: name,
-      title,
-      stage: 'inquiry',
-      value,
+
+    const { clientId, projectId } = createInquiryInTransaction({
+      name,
+      email,
+      phone: (body.phone || '').trim() || undefined,
+      today,
       weddingDate,
       venue: venue || undefined,
       packageType: packageId || undefined,
+      value,
+      title,
+      clientName: name,
       dueDate: weddingDate,
-      createdAt: today,
       notes: inquiryMessage,
       requestedArtist: requestedArtist || undefined,
     })
@@ -476,6 +471,9 @@ app.post('/api/inquiry', async (req, res) => {
     }
     return res.status(201).json({ clientId, projectId })
   } catch (err) {
+    const msg = err && typeof err.message === 'string' ? err.message : 'Failed to create inquiry'
+    console.error('[DB] Inquiry failed:', msg)
+    if (err && err.stack) console.error(err.stack)
     logError('DB', 'Failed to create inquiry', err)
     const body = req.body || {}
     const rawNext = (body._next != null && body._next !== '') ? String(body._next).trim() : null
@@ -483,7 +481,8 @@ app.post('/api/inquiry', async (req, res) => {
     if (nextUrl) {
       return res.redirect(303, nextUrl + (nextUrl.includes('?') ? '&' : '?') + 'error=server')
     }
-    return res.status(500).json({ error: 'Failed to create inquiry' })
+    res.setHeader('Content-Type', 'application/json')
+    return res.status(500).json({ error: 'Failed to create inquiry', detail: msg })
   }
 })
 
@@ -652,6 +651,29 @@ app.post('/api/clients/:id/restore', (req, res) => {
   } catch (err) {
     logError('DB', 'Failed to restore client', err)
     res.status(500).json({ error: 'Failed to restore client' })
+  }
+})
+
+app.post('/api/clients/restore-all', (req, res) => {
+  try {
+    const ids = getDeletedClientIds()
+    for (const id of ids) restoreClient(id)
+    res.json({ ok: true, restored: ids.length })
+  } catch (err) {
+    logError('DB', 'Failed to restore clients', err)
+    res.status(500).json({ error: 'Failed to restore clients' })
+  }
+})
+
+app.post('/api/clients/delete-all', (req, res) => {
+  try {
+    const state = getState()
+    const list = state.clients || []
+    for (const c of list) deleteClient(c.id)
+    res.json({ ok: true, deleted: list.length })
+  } catch (err) {
+    logError('DB', 'Failed to delete all clients', err)
+    res.status(500).json({ error: 'Failed to delete all clients' })
   }
 })
 
@@ -864,14 +886,14 @@ app.post('/api/proposals/:id/accept', async (req, res) => {
       : null
     updateProposal(id, { status: 'accepted', value: finalValue, acceptedEnhancements: acceptedEnhancementsJson })
     updateProject(proposal.projectId, { value: finalValue })
-    const stateAfter = getState()
-    proposal = stateAfter.proposals.find((p) => p.id === id)
-    project = stateAfter.projects.find((p) => p.id === proposal.projectId)
+    let s = getState()
+    proposal = s.proposals.find((p) => p.id === id)
+    project = s.projects.find((p) => p.id === proposal.projectId)
 
-    let contract = stateAfter.contracts.find((c) => c.projectId === proposal.projectId)
+    let contract = s.contracts.find((c) => c.projectId === proposal.projectId)
     if (!contract) {
-      const template = (stateAfter.contractTemplates || [])[0]
-      const contractId = nextId('c', stateAfter.contracts)
+      const template = (s.contractTemplates || [])[0]
+      const contractId = nextId('c', s.contracts)
       const signToken = randomAcceptToken()
       createContract({
         id: contractId,
@@ -898,25 +920,27 @@ app.post('/api/proposals/:id/accept', async (req, res) => {
           writeFileSync(join(CONTRACTS_DIR, `${contractId}.pdf`), buf)
         }
       }
-      contract = getState().contracts.find((c) => c.id === contractId)
+      s = getState()
+      contract = s.contracts.find((c) => c.id === contractId)
     } else if (contract.status !== 'sent' || !contract.signToken) {
       const signToken = randomAcceptToken()
       updateContract(contract.id, { status: 'sent', signToken })
-      contract = getState().contracts.find((c) => c.id === contract.id)
+      s = getState()
+      contract = s.contracts.find((c) => c.id === contract.id)
     }
-    // Ensure contract reflects the accepted total (including any enhancements).
     if (contract && contract.value !== finalValue) {
       updateContract(contract.id, { value: finalValue })
-      contract = getState().contracts.find((c) => c.id === contract.id)
+      s = getState()
+      contract = s.contracts.find((c) => c.id === contract.id)
     }
     const signUrl = contract && contract.status === 'sent' && contract.signToken
       ? `${baseUrl.replace(/\/$/, '')}/sign/${contract.id}?token=${encodeURIComponent(contract.signToken)}`
       : ''
 
-    let invoice = (getState().invoices || []).find((inv) => inv.projectId === proposal.projectId && (inv.type === 'deposit' || inv.type === 'other'))
+    let invoice = (s.invoices || []).find((inv) => inv.projectId === proposal.projectId && (inv.type === 'deposit' || inv.type === 'other'))
     const retainer = Math.round((proposal?.value ?? finalValue) * 0.5)
     if (!invoice) {
-      const invoiceId = nextId('i', getState().invoices)
+      const invoiceId = nextId('i', s.invoices || [])
       createInvoice({
         id: invoiceId,
         projectId: project.id,
@@ -928,12 +952,12 @@ app.post('/api/proposals/:id/accept', async (req, res) => {
         dueDate: new Date(Date.now() + 30 * 24 * 60 * 60 * 1000).toISOString().slice(0, 10),
         type: 'deposit',
       })
-      invoice = getState().invoices.find((i) => i.id === invoiceId)
-    }
-    // If a deposit invoice already exists and hasn't been paid, align it to the accepted total.
-    if (invoice && invoice.type === 'deposit' && !invoice.paidAt && invoice.status !== 'paid' && invoice.amount !== retainer) {
+      s = getState()
+      invoice = s.invoices.find((i) => i.id === invoiceId)
+    } else if (invoice.type === 'deposit' && !invoice.paidAt && invoice.status !== 'paid' && invoice.amount !== retainer) {
       updateInvoice(invoice.id, { amount: retainer })
-      invoice = getState().invoices.find((i) => i.id === invoice.id)
+      s = getState()
+      invoice = s.invoices.find((i) => i.id === invoice.id)
     }
     const invoiceViewUrl = invoice && baseUrl
       ? `${baseUrl.replace(/\/$/, '')}/invoices/view/${invoice.id}`
@@ -975,14 +999,14 @@ app.patch('/api/contracts/:id', (req, res) => {
   }
 })
 
-/** Load contract PDF: prefer contract's own file in CONTRACTS_DIR; fallback to template only for legacy contracts that never had a copy. */
-function loadContractPdfBuffer(contract) {
+/** Load contract PDF: prefer contract's own file in CONTRACTS_DIR; fallback to template only for legacy contracts that never had a copy. Pass state when caller already has it to avoid extra getState(). */
+function loadContractPdfBuffer(contract, state) {
   const signedPath = join(CONTRACTS_DIR, `${contract.id}.pdf`)
   if (existsSync(signedPath)) return readFileSync(signedPath)
   const templateId = contract.templateId
   if (!templateId) return null
-  const state = getState()
-  const t = state.contractTemplates.find((x) => x.id === templateId)
+  const s = state || getState()
+  const t = s.contractTemplates.find((x) => x.id === templateId)
   if (!t || !t.fileName) return null
   const templatePath = join(TEMPLATES_CONTRACTS_DIR, t.fileName)
   if (!existsSync(templatePath)) return null
@@ -1020,7 +1044,7 @@ app.get('/api/contracts/:id/file', (req, res) => {
         return res.status(403).json({ error: 'Invalid or expired link' })
       }
     }
-    const buf = loadContractPdfBuffer(contract)
+    const buf = loadContractPdfBuffer(contract, state)
     if (!buf) return res.status(404).json({ error: 'Contract PDF not available' })
     res.setHeader('Content-Type', 'application/pdf')
     res.send(buf)
@@ -1060,7 +1084,7 @@ app.get('/api/contracts/:id/sign-info', (req, res) => {
     if (contract.clientSignedAt) {
       return res.json({ ...contract, awaiting: 'vendor', message: 'Client has signed. Awaiting vendor signature.' })
     }
-    const pdfBuf = loadContractPdfBuffer(contract)
+    const pdfBuf = loadContractPdfBuffer(contract, state)
     if (!pdfBuf) {
       return res.status(400).json({ error: 'Contract PDF not available. Please ask the sender to generate the contract first.' })
     }
@@ -1082,7 +1106,7 @@ app.post('/api/contracts/:id/sign-client', async (req, res) => {
       return res.status(403).json({ error: 'Invalid or expired signing link' })
     }
     if (contract.clientSignedAt) return res.status(400).json({ error: 'Client has already signed' })
-    const buf = loadContractPdfBuffer(contract)
+    const buf = loadContractPdfBuffer(contract, state)
     if (!buf) return res.status(400).json({ error: 'Contract PDF not available' })
     ensureContractsDir()
     const clientSignedAt = new Date().toISOString().slice(0, 10)
@@ -1104,7 +1128,7 @@ app.post('/api/contracts/:id/sign-vendor', async (req, res) => {
     const contract = state.contracts.find((c) => c.id === req.params.id)
     if (!contract) return res.status(404).json({ error: 'Contract not found' })
     if (!contract.clientSignedAt) return res.status(400).json({ error: 'Client must sign first' })
-    const buf = loadContractPdfBuffer(contract)
+    const buf = loadContractPdfBuffer(contract, state)
     if (!buf) return res.status(400).json({ error: 'Contract PDF not available' })
     ensureContractsDir()
     const signedAt = new Date().toISOString().slice(0, 10)
@@ -1440,9 +1464,13 @@ app.delete('/api/experiences/:id', (req, res) => {
   }
 })
 
+// Send due calendar reminders (reminderAt <= now, sentAt not set). Safe for cron: each reminder gets sentAt only after successful send, so no double-send.
 app.post('/api/calendar-reminders/send-due', async (req, res) => {
   try {
     const result = await sendDueCalendarReminders()
+    if (result.error && result.sent === 0) {
+      return res.status(503).json({ sent: 0, error: result.error })
+    }
     res.json(result)
   } catch (err) {
     logError('SMTP', 'Failed to send due calendar reminders', err)
