@@ -412,7 +412,8 @@ export default function Proposals() {
       if (result) acceptToken = result.acceptToken
       else await actions.refreshState()
     }
-    // Sync proposal + project + client to the public site so the accept link always works there.
+    // Sync proposal to Render in background (best-effort; the d parameter in the URL
+    // makes the link self-contained so it works even if this sync fails).
     if (baseUrl && acceptToken && pair?.client && pair?.project) {
       const payload = {
         client: {
@@ -450,13 +451,12 @@ export default function Proposals() {
           acceptToken,
         },
       }
-      let syncOk = await apiSyncProposalForAccept(baseUrl, payload)
-      if (!syncOk && baseUrl !== DEFAULT_INQUIRY_API_URL) {
-        syncOk = await apiSyncProposalForAccept(DEFAULT_INQUIRY_API_URL, payload)
-      }
-      if (!syncOk) {
-        alert('Warning: Could not sync proposal to Render after multiple attempts. The proposal link will not work.\n\nMake sure your Render server (aurora-sonnet-1.onrender.com) is running, then try sending this proposal again.')
-      }
+      void apiSyncProposalForAccept(baseUrl, payload).then((ok) => {
+        if (!ok && baseUrl !== DEFAULT_INQUIRY_API_URL) {
+          return apiSyncProposalForAccept(DEFAULT_INQUIRY_API_URL, payload)
+        }
+        return ok
+      })
     }
     let acceptProposalUrl: string | undefined
     if (baseUrl && acceptToken) {
@@ -491,8 +491,13 @@ export default function Proposals() {
       experienceBullets,
       acceptProposalUrl,
     })
-    const savedBody = p.emailBody?.trim()
-    const body = savedBody || defaultBody
+    let body = p.emailBody?.trim() || defaultBody
+    if (acceptProposalUrl && body) {
+      body = body.replace(
+        /https?:\/\/[^\s]*\/accept-proposal\/[^\s]*/g,
+        acceptProposalUrl
+      )
+    }
     const toEmail = getClientEmailForProposal(p)
     setSendModal({
       proposal: p,
