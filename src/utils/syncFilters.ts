@@ -12,28 +12,50 @@ function isTestEmail(email: string): boolean {
   if (!domain) return true
   const isTestDomain = TEST_DOMAINS.some((d) => domain === d || domain.endsWith('.' + d))
   if (isTestDomain) return true
-  // Only treat test/demo/etc as test when domain is also test (e.g. test@example.com). Allow test@gmail.com.
   if (TEST_LOCAL_PARTS.includes(local) && isTestDomain) return true
   return false
 }
 
-// Soft-delete tracking (currently disabled to avoid blocking new inquiries).
-// We keep these functions so calls compile, but they are no-ops so sync always
-// reflects whatever the API returns.
+const DELETED_KEY = 'aurora_deleted_client_ids'
+
+function loadDeleted(): Set<string> {
+  try {
+    const raw = localStorage.getItem(DELETED_KEY)
+    if (!raw) return new Set()
+    return new Set(JSON.parse(raw) as string[])
+  } catch {
+    return new Set()
+  }
+}
+
+function saveDeleted(ids: Set<string>): void {
+  localStorage.setItem(DELETED_KEY, JSON.stringify([...ids]))
+}
+
 export function getDeletedClientIds(): Set<string> {
-  return new Set()
+  return loadDeleted()
 }
 
-export function addDeletedClientId(_id: string): void {
-  // no-op
+export function addDeletedClientId(id: string): void {
+  const ids = loadDeleted()
+  ids.add(id)
+  saveDeleted(ids)
 }
 
-export function removeDeletedClientId(_id: string): void {
-  // no-op
+export function addDeletedClientIds(idList: string[]): void {
+  const ids = loadDeleted()
+  for (const id of idList) ids.add(id)
+  saveDeleted(ids)
+}
+
+export function removeDeletedClientId(id: string): void {
+  const ids = loadDeleted()
+  ids.delete(id)
+  saveDeleted(ids)
 }
 
 export function clearDeletedClientIds(): void {
-  // no-op
+  localStorage.removeItem(DELETED_KEY)
 }
 
 export { isTestEmail }

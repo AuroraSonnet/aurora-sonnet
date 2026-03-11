@@ -273,12 +273,12 @@ export function AppProvider({ children }: { children: ReactNode }) {
       if (apiState) {
         setUseApi(true)
         const hasData =
-          apiState.clients.length > 0 ||
-          apiState.projects.length > 0 ||
-          apiState.proposals.length > 0 ||
-          apiState.invoices.length > 0 ||
-          apiState.contracts.length > 0 ||
-          apiState.expenses.length > 0
+          (apiState.clients?.length ?? 0) > 0 ||
+          (apiState.projects?.length ?? 0) > 0 ||
+          (apiState.proposals?.length ?? 0) > 0 ||
+          (apiState.invoices?.length ?? 0) > 0 ||
+          (apiState.contracts?.length ?? 0) > 0 ||
+          (apiState.expenses?.length ?? 0) > 0
         if (hasData) {
           setState((prev) => mergeStateFromApi(prev, apiState as AppState & { automations?: Automation[]; contractTemplates?: DocumentTemplate[]; invoiceTemplates?: DocumentTemplate[]; pipelineStages?: PipelineStage[] }))
           return
@@ -319,7 +319,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
 
   const updateProject = useCallback((id: string, updates: Partial<Project>) => {
     setState((s) => {
-      const next = { ...s, projects: s.projects.map((p) => (p.id === id ? { ...p, ...updates } : p)) }
+      const next = { ...s, projects: (s.projects ?? []).map((p) => (p.id === id ? { ...p, ...updates } : p)) }
       if (useApi) apiUpdateProject(id, updates)
       return next
     })
@@ -330,107 +330,109 @@ export function AppProvider({ children }: { children: ReactNode }) {
       const result = await apiUpdateClient(id, updates as Record<string, unknown>)
       if (!result.ok) throw new Error(result.error)
     }
-    setState((s) => ({ ...s, clients: s.clients.map((c) => (c.id === id ? { ...c, ...updates } : c)) }))
+    setState((s) => ({ ...s, clients: (s.clients ?? []).map((c) => (c.id === id ? { ...c, ...updates } : c)) }))
   }, [useApi])
 
   const addClient = useCallback(async (client: Omit<Client, 'id'>): Promise<string> => {
-    const id = nextId('', state.clients)
+    let id = nextId('', state.clients ?? [])
     const createdAt = (client as Client).createdAt ?? new Date().toISOString().slice(0, 10)
-    const newClient = { ...client, id, createdAt } as Client
     if (useApi) {
-      const result = await apiCreateClient({ ...newClient, createdAt })
+      const result = await apiCreateClient({ ...client, id, createdAt })
       if (!result.ok) throw new Error(result.error)
+      id = result.id
     }
-    setState((s) => ({ ...s, clients: [...s.clients, newClient] }))
+    const newClient = { ...client, id, createdAt } as Client
+    setState((s) => ({ ...s, clients: [...(s.clients ?? []), newClient] }))
     return id
-  }, [state.clients, useApi])
+  }, [state.clients ?? [], useApi])
 
   const addProject = useCallback((project: Omit<Project, 'id'>): string => {
-    const id = nextId('p', state.projects)
+    const id = nextId('p', state.projects ?? [])
     const createdAt = project.createdAt ?? new Date().toISOString().slice(0, 10)
     const newProject = { ...project, id, createdAt }
-    setState((s) => ({ ...s, projects: [...s.projects, newProject] }))
+    setState((s) => ({ ...s, projects: [...(s.projects ?? []), newProject] }))
     if (useApi) apiCreateProject(newProject as Record<string, unknown>)
     return id
-  }, [state.projects, useApi])
+  }, [state.projects ?? [], useApi])
 
   const addProposal = useCallback(async (proposal: Omit<Proposal, 'id'>): Promise<string> => {
-    const id = nextId('pr', state.proposals)
+    const id = nextId('pr', state.proposals ?? [])
     const newProposal = { ...proposal, id }
-    setState((s) => ({ ...s, proposals: [...s.proposals, newProposal] }))
+    setState((s) => ({ ...s, proposals: [...(s.proposals ?? []), newProposal] }))
     if (useApi) await apiCreateProposal(newProposal as Record<string, unknown>)
     return id
-  }, [state.proposals, useApi])
+  }, [state.proposals ?? [], useApi])
 
   const updateProposal = useCallback(async (id: string, updates: Partial<Proposal>): Promise<boolean> => {
-    setState((s) => ({ ...s, proposals: s.proposals.map((p) => (p.id === id ? { ...p, ...updates } : p)) }))
+    setState((s) => ({ ...s, proposals: (s.proposals ?? []).map((p) => (p.id === id ? { ...p, ...updates } : p)) }))
     if (useApi) return apiUpdateProposal(id, updates as Record<string, unknown>)
     return true
   }, [useApi])
 
   const addContract = useCallback((contract: Omit<Contract, 'id'>): string => {
-    const id = nextId('c', state.contracts)
+    const id = nextId('c', state.contracts ?? [])
     const newContract = { ...contract, id }
-    setState((s) => ({ ...s, contracts: [...s.contracts, newContract] }))
+    setState((s) => ({ ...s, contracts: [...(s.contracts ?? []), newContract] }))
     if (useApi) apiCreateContract(newContract as Record<string, unknown>)
     return id
-  }, [state.contracts, useApi])
+  }, [state.contracts ?? [], useApi])
 
   const updateContract = useCallback((id: string, updates: Partial<Contract>) => {
     setState((s) => {
-      const next = { ...s, contracts: s.contracts.map((c) => (c.id === id ? { ...c, ...updates } : c)) }
+      const next = { ...s, contracts: (s.contracts ?? []).map((c) => (c.id === id ? { ...c, ...updates } : c)) }
       if (useApi) apiUpdateContract(id, updates as Record<string, unknown>)
       return next
     })
   }, [useApi])
 
   const addInvoice = useCallback((invoice: Omit<Invoice, 'id'>): string => {
-    const id = nextId('i', state.invoices)
+    const id = nextId('i', state.invoices ?? [])
     const newInvoice = { ...invoice, id }
-    setState((s) => ({ ...s, invoices: [...s.invoices, newInvoice] }))
+    setState((s) => ({ ...s, invoices: [...(s.invoices ?? []), newInvoice] }))
     if (useApi) apiCreateInvoice(newInvoice as Record<string, unknown>)
     return id
-  }, [state.invoices, useApi])
+  }, [state.invoices ?? [], useApi])
 
   const updateInvoice = useCallback((id: string, updates: Partial<Invoice>) => {
     setState((s) => {
-      const next = { ...s, invoices: s.invoices.map((i) => (i.id === id ? { ...i, ...updates } : i)) }
+      const next = { ...s, invoices: (s.invoices ?? []).map((i) => (i.id === id ? { ...i, ...updates } : i)) }
       if (useApi) apiUpdateInvoice(id, updates as Record<string, unknown>)
       return next
     })
   }, [useApi])
 
   const addExpense = useCallback((expense: Omit<Expense, 'id'>): string => {
-    const id = nextId('e', state.expenses)
+    const id = nextId('e', state.expenses ?? [])
     const newExpense = { ...expense, id }
-    setState((s) => ({ ...s, expenses: [...s.expenses, newExpense] }))
+    setState((s) => ({ ...s, expenses: [...(s.expenses ?? []), newExpense] }))
     if (useApi) apiCreateExpense(newExpense as Record<string, unknown>)
     return id
-  }, [state.expenses, useApi])
+  }, [state.expenses ?? [], useApi])
 
   const deleteExpense = useCallback((id: string) => {
-    setState((s) => ({ ...s, expenses: s.expenses.filter((e) => e.id !== id) }))
+    setState((s) => ({ ...s, expenses: (s.expenses ?? []).filter((e) => e.id !== id) }))
     if (useApi) apiDeleteExpense(id)
   }, [useApi])
 
   const addCalendarReminder = useCallback((reminder: Omit<CalendarReminder, 'id'>): string => {
-    const id = nextId('cr', state.calendarReminders)
+    const list = state.calendarReminders ?? []
+    const id = nextId('cr', list)
     const newReminder = { ...reminder, id }
-    setState((s) => ({ ...s, calendarReminders: [...s.calendarReminders, newReminder] }))
+    setState((s) => ({ ...s, calendarReminders: [...(s.calendarReminders ?? []), newReminder] }))
     if (useApi) apiCreateCalendarReminder(newReminder)
     return id
-  }, [state.calendarReminders, useApi])
+  }, [state.calendarReminders ?? [], useApi])
 
   const updateCalendarReminder = useCallback((id: string, updates: Partial<CalendarReminder>) => {
     setState((s) => ({
       ...s,
-      calendarReminders: s.calendarReminders.map((r) => (r.id === id ? { ...r, ...updates } : r)),
+      calendarReminders: (s.calendarReminders ?? []).map((r) => (r.id === id ? { ...r, ...updates } : r)),
     }))
     if (useApi) apiUpdateCalendarReminder(id, updates as Record<string, unknown>)
   }, [useApi])
 
   const deleteCalendarReminder = useCallback((id: string) => {
-    setState((s) => ({ ...s, calendarReminders: s.calendarReminders.filter((r) => r.id !== id) }))
+    setState((s) => ({ ...s, calendarReminders: (s.calendarReminders ?? []).filter((r) => r.id !== id) }))
     if (useApi) apiDeleteCalendarReminder(id)
   }, [useApi])
 
@@ -509,7 +511,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
   const setAutomationEnabled = useCallback((id: string, enabled: boolean) => {
     setState((s) => ({
       ...s,
-      automations: s.automations.map((a) => (a.id === id ? { ...a, enabled } : a)),
+      automations: (s.automations ?? []).map((a) => (a.id === id ? { ...a, enabled } : a)),
     }))
   }, [])
 
@@ -561,17 +563,17 @@ export function AppProvider({ children }: { children: ReactNode }) {
   const removeClientLocally = useCallback((clientId: string) => {
     setState((s) => ({
       ...s,
-      clients: s.clients.filter((c) => c.id !== clientId),
-      projects: s.projects.filter((p) => p.clientId !== clientId),
+      clients: (s.clients ?? []).filter((c) => c.id !== clientId),
+      projects: (s.projects ?? []).filter((p) => p.clientId !== clientId),
     }))
   }, [])
 
   const restoreClientLocally = useCallback((client: Client, projects: Project[]) => {
     setState((s) => ({
       ...s,
-      clients: s.clients.some((c) => c.id === client.id) ? s.clients : [...s.clients, client],
+      clients: (s.clients ?? []).some((c) => c.id === client.id) ? (s.clients ?? []) : [...(s.clients ?? []), client],
       projects: [
-        ...s.projects.filter((p) => p.clientId !== client.id),
+        ...(s.projects ?? []).filter((p) => p.clientId !== client.id),
         ...projects,
       ],
     }))
@@ -615,7 +617,28 @@ export function AppProvider({ children }: { children: ReactNode }) {
       const cloudToLocalClientId: Record<string, string> = {}
       let created = 0
       for (const c of cloudClients) {
-        if (!localClientsSnapshot.some((x) => x.id === c.id)) {
+        const emailLower = (c.email || '').trim().toLowerCase()
+        const existingByEmail = emailLower
+          ? localClientsSnapshot.find((x) => (x.email || '').trim().toLowerCase() === emailLower && x.id !== c.id)
+          : undefined
+        if (existingByEmail) {
+          cloudToLocalClientId[c.id] = existingByEmail.id
+          setState((prev) => {
+            const next = {
+              ...prev,
+              clients: prev.clients.map((x) =>
+                x.id === existingByEmail.id
+                  ? { ...x, name: c.name, email: c.email, phone: c.phone ?? x.phone, partnerName: c.partnerName ?? x.partnerName }
+                  : x
+              ),
+            }
+            saveState(next)
+            return next
+          })
+          localClientsSnapshot = localClientsSnapshot.map((x) =>
+            x.id === existingByEmail.id ? { ...x, name: c.name, email: c.email, phone: c.phone ?? x.phone, partnerName: c.partnerName ?? x.partnerName } : x
+          )
+        } else if (!localClientsSnapshot.some((x) => x.id === c.id)) {
           const clientData = { ...c, createdAt: c.createdAt ?? new Date().toISOString().slice(0, 10) }
           const result = await apiCreateClient(clientData)
           if (result.ok) {
@@ -709,17 +732,13 @@ export function AppProvider({ children }: { children: ReactNode }) {
         const localClientId = cloudToLocalClientId[p.clientId] ?? p.clientId
         const clientExists = localClientsSnapshot.some((c) => c.id === localClientId)
         if (!clientExists) continue
-        // Dedupe by cloud project id so the same inquiry is never added twice; new inquiries get new ids on the server. Fallback to content match for projects synced before cloudProjectId existed.
         const alreadySynced =
           localProjectsSnapshot.some((x) => x.cloudProjectId === p.id) ||
           localProjectsSnapshot.some(
             (x) =>
               x.clientId === localClientId &&
               x.title === p.title &&
-              x.stage === p.stage &&
-              x.weddingDate === p.weddingDate &&
-              (x.notes || '') === (p.notes || '') &&
-              (x.createdAt || '') === (p.createdAt ?? '')
+              x.weddingDate === p.weddingDate
           )
         if (alreadySynced) continue
         const newId = nextId('p', localProjectsSnapshot)
@@ -777,6 +796,8 @@ export function AppProvider({ children }: { children: ReactNode }) {
           created++
         }
       }
+      // NOTE: Do NOT delete local clients missing from Render — they may have been created
+      // manually in the Mac app and were never pushed to the remote server.
       if (created > 0) {
         playNewInquirySound() // play immediately; list already updated via setState above
         // Do not call refreshState() here — it fetches from local server and can overwrite

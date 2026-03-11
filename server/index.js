@@ -1,6 +1,6 @@
 import express from 'express'
 import Stripe from 'stripe'
-import { PDFDocument } from 'pdf-lib'
+import { PDFDocument, StandardFonts, rgb } from 'pdf-lib'
 import nodemailer from 'nodemailer'
 import { readFileSync, writeFileSync, existsSync, mkdirSync, unlinkSync } from 'fs'
 import { fileURLToPath } from 'url'
@@ -29,6 +29,7 @@ import {
   updateInvoice,
   deleteInvoice,
   createExpense,
+  updateExpense,
   deleteExpense,
   createCalendarReminder,
   updateCalendarReminder,
@@ -193,11 +194,20 @@ function readPayments() {
 }
 
 function writePayment(invoiceId, paidAt) {
+  const state = getState()
+  const existingInvoice = state.invoices.find((i) => i.id === invoiceId)
+  const wasAlreadyPaid = Boolean(existingInvoice?.paidAt || existingInvoice?.status === 'paid')
   const payments = readPayments()
   payments[invoiceId] = paidAt
   writeFileSync(PAYMENTS_FILE, JSON.stringify(payments, null, 2))
   try {
     updateInvoice(invoiceId, { status: 'paid', paidAt })
+    ensureSecuredBookingCalendarDates()
+    if (!wasAlreadyPaid) {
+      sendInvoicePaidNotification(invoiceId, paidAt).catch((err) => {
+        logError('SMTP', 'Failed to send invoice paid notification email', err)
+      })
+    }
   } catch (e) {
     logError('API', 'Failed to update invoice after payment', e)
   }
@@ -224,11 +234,13 @@ const allowedOrigins = [
 ].filter(Boolean)
 const publicEndpoints = ['/api/state', '/api/inquiry', '/api/music-selection']
 const clientBulkEndpoints = ['/api/clients/delete-all', '/api/clients/restore-all']
+const desktopSyncEndpoints = ['/api/proposals/sync-for-accept', '/api/proposals']
 app.use((req, res, next) => {
   const origin = req.headers.origin
   const isStateGet = req.method === 'GET' && req.path === '/api/state'
   const isPublicEndpoint = publicEndpoints.some((p) => req.path === p || req.path.startsWith(p + '?'))
   const isClientBulk = req.method === 'POST' && clientBulkEndpoints.includes(req.path)
+  const isDesktopSync = desktopSyncEndpoints.some((p) => req.path === p || req.path.startsWith(p + '/'))
   const allow =
     (origin && (origin.includes('localhost') || origin.includes('127.0.0.1'))) ||
     (origin && allowedOrigins.includes(origin)) ||
@@ -236,11 +248,9 @@ app.use((req, res, next) => {
     (origin && origin.startsWith('https://') && (isStateGet || isPublicEndpoint))
   if (allow) {
     res.setHeader('Access-Control-Allow-Origin', origin)
-  } else if (isStateGet && (!origin || origin === 'null' || origin === 'file://' || !origin.startsWith('https://'))) {
-    // Desktop app (Electron) often sends no origin, "null", or file://; allow so sync can fetch /api/state
+  } else if ((isStateGet || isDesktopSync) && (!origin || origin === 'null' || origin === 'file://' || !origin.startsWith('https://'))) {
     res.setHeader('Access-Control-Allow-Origin', '*')
   } else if (isClientBulk && (!origin || origin === 'null' || origin === 'file://')) {
-    // Mac/Electron app may send null or file origin; allow so Delete all / Restore work
     res.setHeader('Access-Control-Allow-Origin', '*')
   }
   res.setHeader('Access-Control-Allow-Methods', 'GET, POST, PATCH, DELETE, OPTIONS')
@@ -336,6 +346,374 @@ const PACKAGE_PRICES = {
   'grand-atelier-duo': 9950,
 }
 
+const PACKAGE_LABELS = {
+  'signature-aria': 'Signature Aria',
+  'aria-plus': 'Aria +',
+  'grand-atelier': 'Grand Atelier',
+  'signature-aria-duo': 'Signature Aria Duo',
+  'aria-plus-duo': 'Aria + Duo',
+  'grand-atelier-duo': 'Grand Atelier Duo',
+}
+
+function getPackageLabel(packageType) {
+  return PACKAGE_LABELS[packageType] || packageType || ''
+}
+
+function getProposalPackageLabel(proposal, project) {
+  return (
+    String(proposal?.customPackageName || '').trim() ||
+    getPackageLabel(project?.packageType) ||
+    String(project?.title || proposal?.title || '').trim()
+  )
+}
+
+function parseAcceptedEnhancements(raw) {
+  if (!raw) return []
+  try {
+    const parsed = typeof raw === 'string' ? JSON.parse(raw) : raw
+    if (!Array.isArray(parsed)) return []
+    return parsed
+      .map((item) => ({
+        label: String(item?.label || '').trim(),
+        amount: Number(item?.amount) || 0,
+      }))
+      .filter((item) => item.label && item.amount > 0)
+  } catch {
+    return []
+  }
+}
+
+function buildDepositInvoiceLineItems(proposal, project, finalValue) {
+  const packageLabel = getProposalPackageLabel(proposal, project) || 'Performance package'
+  const enhancements = parseAcceptedEnhancements(proposal?.acceptedEnhancements)
+  const enhancementTotal = enhancements.reduce((sum, item) => sum + item.amount, 0)
+  const baseTotal = Math.max(0, Number(finalValue) - enhancementTotal)
+  const sourceItems = [
+    { description: packageLabel, amount: baseTotal },
+    ...enhancements.map((item) => ({ description: item.label, amount: item.amount })),
+  ].filter((item) => item.amount > 0)
+  if (sourceItems.length === 0) {
+    sourceItems.push({ description: packageLabel, amount: Number(finalValue) || 0 })
+  }
+
+  const depositTarget = Math.round((Number(finalValue) || 0) * 0.5)
+  const lineItems = sourceItems.map((item) => ({
+    description: `Retainer (50%) — ${item.description}`,
+    quantity: 1,
+    unitPrice: Math.round(item.amount * 0.5),
+  }))
+  const currentTotal = lineItems.reduce((sum, item) => sum + item.unitPrice, 0)
+  const diff = depositTarget - currentTotal
+  if (diff !== 0 && lineItems.length > 0) {
+    lineItems[0].unitPrice += diff
+  }
+  return lineItems
+}
+
+function buildBalanceInvoiceLineItems(proposal, project, finalValue, depositAmount) {
+  const packageLabel = getProposalPackageLabel(proposal, project) || 'Performance package'
+  const enhancements = parseAcceptedEnhancements(proposal?.acceptedEnhancements)
+  const enhancementTotal = enhancements.reduce((sum, item) => sum + item.amount, 0)
+  const baseTotal = Math.max(0, Number(finalValue) - enhancementTotal)
+  const sourceItems = [
+    { description: packageLabel, amount: baseTotal },
+    ...enhancements.map((item) => ({ description: item.label, amount: item.amount })),
+  ].filter((item) => item.amount > 0)
+  if (sourceItems.length === 0) {
+    sourceItems.push({ description: packageLabel, amount: Number(finalValue) || 0 })
+  }
+
+  const balanceTarget = Math.max(0, Math.round((Number(finalValue) || 0) - (Number(depositAmount) || 0)))
+  const lineItems = sourceItems.map((item) => ({
+    description: `Final balance — ${item.description}`,
+    quantity: 1,
+    unitPrice: Math.max(0, item.amount - Math.round(item.amount * 0.5)),
+  }))
+  const currentTotal = lineItems.reduce((sum, item) => sum + item.unitPrice, 0)
+  const diff = balanceTarget - currentTotal
+  if (diff !== 0 && lineItems.length > 0) {
+    lineItems[0].unitPrice += diff
+  }
+  return lineItems
+}
+
+function daysBetweenIso(a, b) {
+  const aDate = new Date(a)
+  const bDate = new Date(b)
+  if (Number.isNaN(aDate.getTime()) || Number.isNaN(bDate.getTime())) return NaN
+  return Math.round((bDate.getTime() - aDate.getTime()) / (24 * 60 * 60 * 1000))
+}
+
+function shiftIsoDate(dateStr, days) {
+  const date = new Date(dateStr)
+  if (Number.isNaN(date.getTime())) return ''
+  date.setDate(date.getDate() + days)
+  return date.toISOString().slice(0, 10)
+}
+
+function reminderAtForDate(dateStr) {
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(String(dateStr || ''))) return null
+  return `${dateStr}T12:00:00.000Z`
+}
+
+function mergeContractTemplateHtml(html, data) {
+  const replacements = {
+    client_name: data.clientName,
+    client_email: data.clientEmail || '',
+    client_phone: data.clientPhone || '',
+    wedding_date: data.weddingDate || '',
+    venue: data.venue || '',
+    package_type: data.packageType || '',
+    performance_fee: `$${Number(data.value || 0).toLocaleString()}`,
+    project_title: data.title || '',
+    signature_client: 'Signature: _________________________',
+    signature_vendor: 'Signature: _________________________',
+  }
+  let out = String(html || '')
+  for (const [key, value] of Object.entries(replacements)) {
+    out = out.split(`{{${key}}}`).join(value)
+  }
+  return out
+}
+
+function htmlToPlainText(html) {
+  return String(html || '')
+    .replace(/<br\s*\/?>/gi, '\n')
+    .replace(/<\/p>/gi, '\n\n')
+    .replace(/<\/div>/gi, '\n')
+    .replace(/<\/li>/gi, '\n')
+    .replace(/<li[^>]*>/gi, '• ')
+    .replace(/<[^>]+>/g, '')
+    .replace(/&nbsp;/g, ' ')
+    .replace(/&amp;/g, '&')
+    .replace(/&lt;/g, '<')
+    .replace(/&gt;/g, '>')
+    .replace(/&quot;/g, '"')
+    .replace(/&#39;/g, "'")
+    .replace(/\r\n/g, '\n')
+    .replace(/\n{3,}/g, '\n\n')
+    .trim()
+}
+
+function wrapTextLines(text, maxChars = 90) {
+  const out = []
+  const paragraphs = String(text || '').split('\n')
+  for (const paragraph of paragraphs) {
+    const trimmed = paragraph.trim()
+    if (!trimmed) {
+      out.push('')
+      continue
+    }
+    const words = trimmed.split(/\s+/)
+    let line = ''
+    for (const word of words) {
+      const next = line ? `${line} ${word}` : word
+      if (next.length > maxChars) {
+        if (line) out.push(line)
+        line = word
+      } else {
+        line = next
+      }
+    }
+    if (line) out.push(line)
+  }
+  return out
+}
+
+async function createPdfFromEditorTemplate(contentHtml, mergeData) {
+  const mergedHtml = mergeContractTemplateHtml(contentHtml, mergeData)
+  const text = htmlToPlainText(mergedHtml)
+  const pdf = await PDFDocument.create()
+  const font = await pdf.embedStandardFont(StandardFonts.Helvetica)
+  const fontSize = 11
+  const lineHeight = 16
+  const margin = 50
+  const pageWidth = 595
+  const pageHeight = 842
+  let page = pdf.addPage([pageWidth, pageHeight])
+  let y = pageHeight - margin
+  const lines = wrapTextLines(text, 92)
+
+  for (const line of lines) {
+    if (y < margin) {
+      page = pdf.addPage([pageWidth, pageHeight])
+      y = pageHeight - margin
+    }
+    if (line) {
+      page.drawText(line, {
+        x: margin,
+        y,
+        size: fontSize,
+        font,
+        color: rgb(0, 0, 0),
+        maxWidth: pageWidth - margin * 2,
+      })
+    }
+    y -= lineHeight
+  }
+
+  return Buffer.from(await pdf.save())
+}
+
+async function createContractPdfFromTemplate(template, proposal, project, client) {
+  if (!template) return null
+  const mergeData = {
+    clientName: project?.clientName || proposal?.clientName || '',
+    weddingDate: project?.weddingDate || '',
+    venue: project?.venue || '',
+    packageType: getProposalPackageLabel(proposal, project),
+    value: project?.value || proposal?.value || 0,
+    title: project?.title || proposal?.title || '',
+    clientEmail: client?.email || '',
+    clientPhone: client?.phone || '',
+  }
+  if (template.contentHtml) {
+    return createPdfFromEditorTemplate(template.contentHtml, mergeData)
+  }
+  if (template.fileName) {
+    const templatePath = join(TEMPLATES_CONTRACTS_DIR, template.fileName)
+    if (existsSync(templatePath)) {
+      return readFileSync(templatePath)
+    }
+  }
+  return null
+}
+
+function ensureDueFinalInvoices() {
+  let state = getState()
+  const today = new Date().toISOString().slice(0, 10)
+  let created = 0
+
+  for (const project of state.projects || []) {
+    if (project.archivedAt) continue
+    if (project.stage !== 'booked') continue
+    if (!project.weddingDate) continue
+    const daysUntil = daysBetweenIso(today, project.weddingDate)
+    if (!Number.isFinite(daysUntil) || daysUntil < 0 || daysUntil > 30) continue
+
+    const hasFinalInvoice = (state.invoices || []).some((inv) => inv.projectId === project.id && inv.type === 'balance')
+    if (hasFinalInvoice) continue
+
+    const depositInvoice = (state.invoices || []).find((inv) => inv.projectId === project.id && inv.type === 'deposit')
+    const contract = (state.contracts || []).find((c) => c.projectId === project.id)
+    const hasPaidDeposit = Boolean(depositInvoice?.paidAt || depositInvoice?.status === 'paid')
+    const hasSignedContract = contract?.status === 'signed'
+    if (!hasPaidDeposit || !hasSignedContract) continue
+
+    const proposal =
+      (state.proposals || []).find((p) => p.projectId === project.id && p.status === 'accepted') ||
+      (state.proposals || []).find((p) => p.projectId === project.id) ||
+      null
+    const client = (state.clients || []).find((c) => c.id === project.clientId)
+    const totalValue = Number(project.value) || 0
+    const depositAmount = depositInvoice ? Number(depositInvoice.amount) || 0 : Math.round(totalValue * 0.5)
+    const balanceAmount = Math.max(0, totalValue - depositAmount)
+    if (balanceAmount <= 0) continue
+
+    createInvoice({
+      id: nextId('i', state.invoices || []),
+      projectId: project.id,
+      clientName: project.clientName,
+      clientEmail: client?.email || undefined,
+      projectTitle: `${project.title} — Balance`,
+      amount: balanceAmount,
+      status: 'draft',
+      dueDate: project.weddingDate,
+      type: 'balance',
+      lineItems: buildBalanceInvoiceLineItems(proposal, project, totalValue, depositAmount),
+    })
+    created += 1
+    state = getState()
+  }
+
+  return { created }
+}
+
+function ensureSecuredBookingCalendarDates() {
+  let state = getState()
+  let created = 0
+
+  for (const project of state.projects || []) {
+    if (project.archivedAt) continue
+    if (project.stage !== 'booked') continue
+    if (!project.weddingDate) continue
+
+    const contract = (state.contracts || []).find((c) => c.projectId === project.id)
+    const depositInvoice = (state.invoices || []).find((inv) => inv.projectId === project.id && inv.type === 'deposit')
+    const secured = contract?.status === 'signed' && (depositInvoice?.status === 'paid' || !!depositInvoice?.paidAt)
+    if (!secured) continue
+
+    const weddingDate = project.weddingDate
+    const today = new Date().toISOString().slice(0, 10)
+    const targetFinalInvoiceReminderDate = shiftIsoDate(weddingDate, -30)
+    const finalInvoiceReminderDate =
+      targetFinalInvoiceReminderDate && targetFinalInvoiceReminderDate < today
+        ? today
+        : (targetFinalInvoiceReminderDate || today)
+    const existingByProject = (state.calendarReminders || []).filter((r) => r.projectId === project.id)
+    const clientId = project.clientId || undefined
+
+    const reminders = [
+      {
+        kind: 'wedding_day',
+        date: weddingDate,
+        title: `${project.title} — Wedding day`,
+        notes: `${project.clientName}. Wedding date reminder.`,
+        reminderAt: reminderAtForDate(weddingDate),
+      },
+      {
+        kind: 'final_invoice',
+        date: finalInvoiceReminderDate || today,
+        title: `${project.title} — Send final invoice`,
+        notes: 'Send the final invoice now. Final payment is due no later than 15 days before the wedding or the artist may not perform.',
+        reminderAt: reminderAtForDate(finalInvoiceReminderDate || today),
+      },
+    ]
+
+    for (const reminder of reminders) {
+      const existing = existingByProject.find((r) =>
+        reminder.kind === 'wedding_day'
+          ? r.title.endsWith('— Wedding day')
+          : r.title.endsWith('— Send final invoice')
+      )
+      if (existing) {
+        if (
+          existing.date !== reminder.date ||
+          existing.title !== reminder.title ||
+          (existing.notes || '') !== reminder.notes ||
+          (existing.clientId || '') !== (clientId || '') ||
+          (existing.reminderAt || '') !== (reminder.reminderAt || '')
+        ) {
+          updateCalendarReminder(existing.id, {
+            date: reminder.date,
+            title: reminder.title,
+            notes: reminder.notes,
+            clientId,
+            reminderAt: reminder.reminderAt || undefined,
+            sentAt: undefined,
+          })
+          state = getState()
+        }
+        continue
+      }
+      createCalendarReminder({
+        id: nextId('cr', state.calendarReminders || []),
+        date: reminder.date,
+        title: reminder.title,
+        notes: reminder.notes,
+        clientId,
+        projectId: project.id,
+        reminderAt: reminder.reminderAt || undefined,
+        createdAt: new Date().toISOString(),
+      })
+      created += 1
+      state = getState()
+    }
+  }
+
+  return { created }
+}
+
 function nextId(prefix, existing) {
   if (prefix === '') {
     const nums = existing.map((x) => parseInt(String(x.id).replace(/\D/g, ''), 10)).filter((n) => !isNaN(n))
@@ -360,6 +738,92 @@ function isAllowedRedirectUrl(url) {
 }
 
 const INQUIRY_NOTIFY_EMAIL = process.env.INQUIRY_NOTIFY_EMAIL || REMINDER_EMAIL_TO || SMTP_USER
+
+async function sendContractSignedNotification(contractId, signedAt) {
+  if (!reminderTransporter || !INQUIRY_NOTIFY_EMAIL) return
+  const state = getState()
+  const contract = state.contracts.find((c) => c.id === contractId)
+  if (!contract) return
+  const project = state.projects.find((p) => p.id === contract.projectId)
+  const client = project ? state.clients.find((c) => c.id === project.clientId) : null
+  const subject = `Contract signed: ${contract.title}`
+  const lines = [
+    'A client has signed their contract.',
+    '',
+    '— Contract —',
+    `Event: ${contract.title}`,
+    `Client: ${contract.clientName}`,
+    ...(client?.email ? [`Client email: ${client.email}`] : []),
+    ...(project?.weddingDate ? [`Wedding date: ${project.weddingDate}`] : []),
+    ...(project?.venue ? [`Venue: ${project.venue}`] : []),
+    ...(contract.packageType ? [`Package: ${contract.packageType}`] : []),
+    `Signed on: ${signedAt}`,
+  ]
+  await reminderTransporter.sendMail({
+    from: SMTP_FROM,
+    to: INQUIRY_NOTIFY_EMAIL,
+    subject,
+    text: lines.join('\n'),
+  })
+}
+
+async function sendInvoicePaidNotification(invoiceId, paidAt) {
+  if (!reminderTransporter || !INQUIRY_NOTIFY_EMAIL) return
+  const state = getState()
+  const invoice = state.invoices.find((i) => i.id === invoiceId)
+  if (!invoice) return
+  const subject = `Invoice paid: ${invoice.projectTitle}`
+  const lines = [
+    'An invoice has been paid.',
+    '',
+    '— Invoice —',
+    `Title: ${invoice.projectTitle}`,
+    `Client: ${invoice.clientName}`,
+    ...(invoice.clientEmail ? [`Client email: ${invoice.clientEmail}`] : []),
+    `Amount: $${Number(invoice.amount || 0).toLocaleString()}`,
+    ...(invoice.type ? [`Type: ${invoice.type}`] : []),
+    ...(invoice.invoiceNumber ? [`Invoice number: ${invoice.invoiceNumber}`] : []),
+    `Paid on: ${paidAt}`,
+  ]
+  await reminderTransporter.sendMail({
+    from: SMTP_FROM,
+    to: INQUIRY_NOTIFY_EMAIL,
+    subject,
+    text: lines.join('\n'),
+  })
+}
+
+async function sendProposalAcceptedNotification(proposalId) {
+  if (!reminderTransporter || !INQUIRY_NOTIFY_EMAIL) return
+  const state = getState()
+  const proposal = state.proposals.find((p) => p.id === proposalId)
+  if (!proposal) return
+  const project = state.projects.find((p) => p.id === proposal.projectId)
+  const client = project ? state.clients.find((c) => c.id === project.clientId) : null
+  const enhancements = proposal.acceptedEnhancements ? (() => { try { return JSON.parse(proposal.acceptedEnhancements) } catch { return [] } })() : []
+  const subject = `Proposal accepted: ${proposal.title}`
+  const lines = [
+    'A client has accepted their proposal!',
+    '',
+    '— Proposal —',
+    `Event: ${proposal.title}`,
+    `Client: ${proposal.clientName}`,
+    ...(client?.email ? [`Client email: ${client.email}`] : []),
+    ...(project?.weddingDate ? [`Wedding date: ${project.weddingDate}`] : []),
+    ...(project?.venue ? [`Venue: ${project.venue}`] : []),
+    `Value: $${Number(proposal.value || 0).toLocaleString()}`,
+    ...(enhancements.length > 0 ? ['', 'Enhancements:', ...enhancements.map((e) => `  • ${e.label} — $${Number(e.amount || 0).toLocaleString()}`)] : []),
+    '',
+    'Next steps: The contract and retainer invoice have been auto-created. The client will receive signing and payment links.',
+  ]
+  await reminderTransporter.sendMail({
+    from: SMTP_FROM,
+    to: INQUIRY_NOTIFY_EMAIL,
+    subject,
+    text: lines.join('\n'),
+  })
+  console.log('[SMTP] Proposal accepted notification sent for', proposalId)
+}
 
 async function sendInquiryNotification(payload) {
   if (!reminderTransporter || !INQUIRY_NOTIFY_EMAIL) {
@@ -550,6 +1014,8 @@ app.patch('/api/music-selection/:id', (req, res) => {
 // --- SQLite API (full state + CRUD) ---
 app.get('/api/state', (req, res) => {
   try {
+    ensureDueFinalInvoices()
+    ensureSecuredBookingCalendarDates()
     const state = getState()
     res.json({
       ...state,
@@ -563,7 +1029,7 @@ app.get('/api/state', (req, res) => {
 
 // Proxy remote /api/state so the desktop app can sync without CORS (fetch goes to local server, server fetches Render).
 // Timeout 30s so Render cold start has time to wake.
-const PROXY_STATE_TIMEOUT_MS = 30000
+const PROXY_STATE_TIMEOUT_MS = 90000
 app.get('/api/proxy-remote-state', async (req, res) => {
   try {
     const base = (req.query.base || '').toString().trim().replace(/\/$/, '')
@@ -594,15 +1060,90 @@ app.get('/api/proxy-remote-state', async (req, res) => {
   }
 })
 
+app.post('/api/proxy-sync-proposal', async (req, res) => {
+  try {
+    const { base, payload } = req.body || {}
+    const baseUrl = (base || '').toString().trim().replace(/\/$/, '')
+    if (!baseUrl || !baseUrl.startsWith('https://')) {
+      return res.status(400).json({ error: 'Missing or invalid base URL' })
+    }
+    const controller = new AbortController()
+    const timeoutId = setTimeout(() => controller.abort(), PROXY_STATE_TIMEOUT_MS)
+    const response = await fetch(`${baseUrl}/api/proposals/sync-for-accept`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(payload),
+      signal: controller.signal,
+    }).finally(() => clearTimeout(timeoutId))
+    const data = await response.json().catch(() => ({}))
+    if (!response.ok) return res.status(response.status).json(data)
+    res.json(data)
+  } catch (err) {
+    if (err.name === 'AbortError') return res.status(504).json({ error: 'Timeout reaching remote server' })
+    logError('API', 'Proxy sync proposal failed', err)
+    res.status(502).json({ error: err.message || 'Could not reach remote server' })
+  }
+})
+
+app.post('/api/proposals/:id/push-to-render', async (req, res) => {
+  try {
+    const { id } = req.params
+    const baseUrl = ((req.body && req.body.baseUrl) || '').toString().trim().replace(/\/$/, '')
+    if (!baseUrl || !baseUrl.startsWith('http')) {
+      return res.status(400).json({ error: 'Missing or invalid baseUrl' })
+    }
+    const state = getState()
+    const proposal = state.proposals.find((p) => p.id === id)
+    if (!proposal) return res.status(404).json({ error: 'Proposal not found locally' })
+    if (!proposal.acceptToken) return res.status(400).json({ error: 'Proposal has no accept token' })
+    const project = state.projects.find((p) => p.id === proposal.projectId)
+    if (!project) return res.status(404).json({ error: 'Project not found locally' })
+    const client = state.clients.find((c) => c.id === project.clientId)
+    if (!client) return res.status(404).json({ error: 'Client not found locally' })
+    const payload = {
+      client: { id: client.id, name: client.name, email: client.email, phone: client.phone, partnerName: client.partnerName, createdAt: client.createdAt },
+      project: { id: project.id, clientId: project.clientId, clientName: project.clientName, title: project.title, stage: project.stage, value: project.value, weddingDate: project.weddingDate, venue: project.venue, packageType: project.packageType, dueDate: project.dueDate, createdAt: project.createdAt, notes: project.notes, requestedArtist: project.requestedArtist, cloudProjectId: project.cloudProjectId },
+      proposal: { id: proposal.id, projectId: proposal.projectId, clientName: proposal.clientName, title: proposal.title, status: proposal.status, value: proposal.value, sentAt: proposal.sentAt, acceptToken: proposal.acceptToken },
+    }
+    const syncUrl = `${baseUrl}/api/proposals/sync-for-accept`
+    let lastErr = null
+    for (let attempt = 0; attempt < 3; attempt++) {
+      try {
+        const controller = new AbortController()
+        const timeoutId = setTimeout(() => controller.abort(), PROXY_STATE_TIMEOUT_MS)
+        const response = await fetch(syncUrl, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(payload),
+          signal: controller.signal,
+        }).finally(() => clearTimeout(timeoutId))
+        const data = await response.json().catch(() => ({}))
+        if (response.ok) return res.json({ ok: true })
+        lastErr = `Render returned ${response.status}: ${JSON.stringify(data)}`
+        console.error(`[Push] attempt ${attempt + 1}: ${lastErr}`)
+      } catch (e) {
+        lastErr = e.name === 'AbortError' ? 'Timeout' : (e.message || 'Unknown error')
+        console.error(`[Push] attempt ${attempt + 1}: ${lastErr}`)
+      }
+      if (attempt < 2) await new Promise((r) => setTimeout(r, 5000))
+    }
+    res.status(502).json({ error: lastErr || 'Could not reach Render after 3 attempts' })
+  } catch (err) {
+    console.error('[Push] Failed to push proposal to Render:', err.message || err)
+    res.status(502).json({ error: err.message || 'Could not reach Render' })
+  }
+})
+
 app.post('/api/clients', (req, res) => {
   try {
-    const { id, name, phone, partnerName, createdAt } = req.body
+    const { id: requestedId, name, phone, partnerName, createdAt } = req.body
     const email = (req.body.email != null && req.body.email !== '') ? String(req.body.email).trim() : ''
-    if (!id || !name || !createdAt) return res.status(400).json({ error: 'Missing fields (id, name, createdAt required)' })
+    if (!name || !createdAt) return res.status(400).json({ error: 'Missing fields (name, createdAt required)' })
     if (email) {
       const existing = getClientByEmail(email)
       if (existing) return res.status(409).json({ error: 'A contact with this email already exists.' })
     }
+    const id = requestedId && !getClientById(String(requestedId)) ? String(requestedId) : getNextClientId()
     createClient({ id, name, email, phone, partnerName, createdAt })
     res.json({ id })
   } catch (err) {
@@ -825,6 +1366,10 @@ app.post('/api/proposals/sync-for-accept', (req, res) => {
         status: proposal.status || 'draft',
         value: Number(proposal.value) || 0,
         sentAt: proposal.sentAt ?? null,
+        emailBody: proposal.emailBody ?? null,
+        customPackageName: proposal.customPackageName ?? null,
+        customPackageDetails: proposal.customPackageDetails ?? null,
+        customPriceBreakdown: proposal.customPriceBreakdown ?? null,
         acceptToken: proposal.acceptToken,
       })
     } else {
@@ -834,6 +1379,10 @@ app.post('/api/proposals/sync-for-accept', (req, res) => {
         value: Number(proposal.value) || existing.value,
         status: proposal.status || existing.status,
         clientName: String(proposal.clientName || '').trim() || existing.clientName,
+        emailBody: proposal.emailBody ?? existing.emailBody,
+        customPackageName: proposal.customPackageName ?? existing.customPackageName,
+        customPackageDetails: proposal.customPackageDetails ?? existing.customPackageDetails,
+        customPriceBreakdown: proposal.customPriceBreakdown ?? existing.customPriceBreakdown,
       })
     }
     res.json({ ok: true })
@@ -845,9 +1394,62 @@ app.post('/api/proposals/sync-for-accept', (req, res) => {
 
 app.get('/api/proposals/:id/accept-info', (req, res) => {
   try {
-    const { token } = req.query
+    const { token, d } = req.query
     const state = getState()
-    const proposal = state.proposals.find((p) => p.id === req.params.id)
+    let proposal = state.proposals.find((p) => p.id === req.params.id)
+    if (!proposal && d) {
+      try {
+        const decoded = JSON.parse(Buffer.from(String(d), 'base64').toString('utf-8'))
+        if (decoded && decoded.acceptToken === token && decoded.id === req.params.id) {
+          if (decoded.clientId) {
+            const existingClient = getClientById(decoded.clientId)
+            if (!existingClient) {
+              createClient({
+                id: decoded.clientId,
+                name: decoded.clientName || 'Client',
+                email: decoded.clientEmail || 'noreply@example.com',
+                phone: null,
+                partnerName: null,
+                createdAt: new Date().toISOString().slice(0, 10),
+              })
+            }
+          }
+          if (decoded.projectId && !state.projects.find((p) => p.id === decoded.projectId)) {
+            createProject({
+              id: decoded.projectId,
+              clientId: decoded.clientId || 'unknown',
+              clientName: decoded.clientName || 'Client',
+              title: decoded.projectTitle || decoded.title || 'Booking',
+              stage: 'proposal',
+              value: Number(decoded.value) || 0,
+              weddingDate: decoded.weddingDate || new Date().toISOString().slice(0, 10),
+              venue: decoded.venue || null,
+              packageType: null,
+              dueDate: new Date().toISOString().slice(0, 10),
+              createdAt: new Date().toISOString().slice(0, 10),
+              notes: null,
+              requestedArtist: null,
+              cloudProjectId: null,
+            })
+          }
+          createProposal({
+            id: decoded.id,
+            projectId: decoded.projectId,
+            clientName: decoded.clientName || 'Client',
+            title: decoded.title || 'Proposal',
+            status: decoded.status || 'sent',
+            value: Number(decoded.value) || 0,
+            sentAt: decoded.sentAt || null,
+            emailBody: null,
+            customPackageName: null,
+            customPackageDetails: null,
+            customPriceBreakdown: null,
+            acceptToken: decoded.acceptToken,
+          })
+          proposal = getState().proposals.find((p) => p.id === req.params.id)
+        }
+      } catch (_) { /* malformed d param, ignore */ }
+    }
     if (!proposal) return res.status(404).json({ error: 'Proposal not found' })
     if (!token || proposal.acceptToken !== token) return res.status(403).json({ error: 'Invalid or expired link' })
     if (proposal.status === 'accepted') return res.json({ ...proposal, alreadyAccepted: true })
@@ -891,6 +1493,7 @@ app.post('/api/proposals/:id/accept', async (req, res) => {
     project = s.projects.find((p) => p.id === proposal.projectId)
 
     let contract = s.contracts.find((c) => c.projectId === proposal.projectId)
+    const packageLabel = getProposalPackageLabel(proposal, project)
     if (!contract) {
       const template = (s.contractTemplates || [])[0]
       const contractId = nextId('c', s.contracts)
@@ -904,7 +1507,7 @@ app.post('/api/proposals/:id/accept', async (req, res) => {
         value: project.value,
         weddingDate: project.weddingDate || '',
         venue: project.venue,
-        packageType: project.packageType,
+        packageType: packageLabel || project.packageType,
         signedAt: null,
         createdAt: new Date().toISOString().slice(0, 10),
         templateId: template ? template.id : null,
@@ -912,13 +1515,10 @@ app.post('/api/proposals/:id/accept', async (req, res) => {
         clientSignedAt: null,
         lastReminderSentAt: null,
       })
-      if (template && template.fileName) {
-        const templatePath = join(TEMPLATES_CONTRACTS_DIR, template.fileName)
-        if (existsSync(templatePath)) {
-          ensureContractsDir()
-          const buf = readFileSync(templatePath)
-          writeFileSync(join(CONTRACTS_DIR, `${contractId}.pdf`), buf)
-        }
+      const contractPdf = await createContractPdfFromTemplate(template, proposal, project, client)
+      if (contractPdf) {
+        ensureContractsDir()
+        writeFileSync(join(CONTRACTS_DIR, `${contractId}.pdf`), contractPdf)
       }
       s = getState()
       contract = s.contracts.find((c) => c.id === contractId)
@@ -928,8 +1528,8 @@ app.post('/api/proposals/:id/accept', async (req, res) => {
       s = getState()
       contract = s.contracts.find((c) => c.id === contract.id)
     }
-    if (contract && contract.value !== finalValue) {
-      updateContract(contract.id, { value: finalValue })
+    if (contract && (contract.value !== finalValue || contract.packageType !== (packageLabel || project.packageType))) {
+      updateContract(contract.id, { value: finalValue, packageType: packageLabel || project.packageType })
       s = getState()
       contract = s.contracts.find((c) => c.id === contract.id)
     }
@@ -939,6 +1539,7 @@ app.post('/api/proposals/:id/accept', async (req, res) => {
 
     let invoice = (s.invoices || []).find((inv) => inv.projectId === proposal.projectId && (inv.type === 'deposit' || inv.type === 'other'))
     const retainer = Math.round((proposal?.value ?? finalValue) * 0.5)
+    const lineItems = buildDepositInvoiceLineItems(proposal, project, proposal?.value ?? finalValue)
     if (!invoice) {
       const invoiceId = nextId('i', s.invoices || [])
       createInvoice({
@@ -946,22 +1547,32 @@ app.post('/api/proposals/:id/accept', async (req, res) => {
         projectId: project.id,
         clientName: project.clientName,
         clientEmail: clientEmail || undefined,
-        projectTitle: project.title,
+        projectTitle: `${project.title} — Retainer`,
         amount: retainer,
         status: 'sent',
         dueDate: new Date(Date.now() + 30 * 24 * 60 * 60 * 1000).toISOString().slice(0, 10),
         type: 'deposit',
+        lineItems,
       })
       s = getState()
       invoice = s.invoices.find((i) => i.id === invoiceId)
-    } else if (invoice.type === 'deposit' && !invoice.paidAt && invoice.status !== 'paid' && invoice.amount !== retainer) {
-      updateInvoice(invoice.id, { amount: retainer })
+    } else if (invoice.type === 'deposit' && !invoice.paidAt && invoice.status !== 'paid') {
+      updateInvoice(invoice.id, {
+        amount: retainer,
+        clientEmail: clientEmail || undefined,
+        projectTitle: `${project.title} — Retainer`,
+        lineItems,
+      })
       s = getState()
       invoice = s.invoices.find((i) => i.id === invoice.id)
     }
     const invoiceViewUrl = invoice && baseUrl
       ? `${baseUrl.replace(/\/$/, '')}/invoices/view/${invoice.id}`
       : ''
+
+    sendProposalAcceptedNotification(id).catch((err) => {
+      logError('SMTP', 'Failed to send proposal accepted notification', err)
+    })
 
     res.json({
       ok: true,
@@ -1113,6 +1724,9 @@ app.post('/api/contracts/:id/sign-client', async (req, res) => {
     const signedPdf = await stampSignature(buf, signatureDataUrl, `${contract.clientName} (Client)`, clientSignedAt)
     writeFileSync(join(CONTRACTS_DIR, `${contract.id}.pdf`), signedPdf)
     updateContract(contract.id, { clientSignedAt })
+    sendContractSignedNotification(contract.id, clientSignedAt).catch((err) => {
+      logError('SMTP', 'Failed to send contract signed notification email', err)
+    })
     res.json({ ok: true, clientSignedAt })
   } catch (err) {
     logError('API', 'Failed to sign (client)', err)
@@ -1135,6 +1749,7 @@ app.post('/api/contracts/:id/sign-vendor', async (req, res) => {
     const signedPdf = await stampSignature(buf, signatureDataUrl, 'Aurora Sonnet (Vendor)', signedAt)
     writeFileSync(join(CONTRACTS_DIR, `${contract.id}.pdf`), signedPdf)
     updateContract(contract.id, { status: 'signed', signedAt })
+    ensureSecuredBookingCalendarDates()
     res.json({ ok: true, signedAt })
   } catch (err) {
     logError('API', 'Failed to sign (vendor)', err)
@@ -1235,6 +1850,7 @@ app.post('/api/invoices', (req, res) => {
 
 app.patch('/api/invoices/:id', (req, res) => {
   try {
+    const previousInvoice = getState().invoices.find((i) => i.id === req.params.id)
     const updates = { ...req.body }
     if (updates.amount != null) {
       const amount = Number(updates.amount)
@@ -1254,6 +1870,16 @@ app.patch('/api/invoices/:id', (req, res) => {
       }
     }
     updateInvoice(req.params.id, updates)
+    if (updates.status === 'paid' || updates.paidAt) {
+      ensureSecuredBookingCalendarDates()
+      const wasAlreadyPaid = Boolean(previousInvoice?.paidAt || previousInvoice?.status === 'paid')
+      if (!wasAlreadyPaid) {
+        const paidAt = typeof updates.paidAt === 'string' && updates.paidAt ? updates.paidAt : new Date().toISOString().slice(0, 10)
+        sendInvoicePaidNotification(req.params.id, paidAt).catch((err) => {
+          logError('SMTP', 'Failed to send invoice paid notification email', err)
+        })
+      }
+    }
     res.json({ ok: true })
   } catch (err) {
     logError('DB', 'Failed to update invoice', err)
@@ -1354,6 +1980,22 @@ app.post('/api/expenses', (req, res) => {
   } catch (err) {
     logError('DB', 'Failed to create expense', err)
     res.status(500).json({ error: 'Failed to create expense' })
+  }
+})
+
+app.patch('/api/expenses/:id', (req, res) => {
+  try {
+    const { date, description, amount, category } = req.body || {}
+    if (date !== undefined && typeof date !== 'string') return res.status(400).json({ error: 'Invalid date' })
+    if (description !== undefined && typeof description !== 'string') return res.status(400).json({ error: 'Invalid description' })
+    if (amount !== undefined && (typeof amount !== 'number' || isNaN(amount) || amount <= 0)) return res.status(400).json({ error: 'Invalid amount' })
+    if (category !== undefined && typeof category !== 'string') return res.status(400).json({ error: 'Invalid category' })
+    const updated = updateExpense(req.params.id, { date, description, amount, category })
+    if (!updated) return res.status(404).json({ error: 'Expense not found' })
+    res.json({ ok: true })
+  } catch (err) {
+    logError('DB', 'Failed to update expense', err)
+    res.status(500).json({ error: 'Failed to update expense' })
   }
 })
 
@@ -1951,11 +2593,95 @@ if (existsSync(distPath)) {
   })
 }
 
+/** Poll Render for proposal status changes (e.g. client accepted) and update local DB.
+ *  Only runs on non-Render instances (Mac app / local dev) so it doesn't poll itself. */
+async function pollRemoteProposalStatuses() {
+  if (isRender) return { updated: 0 }
+  const remoteBase = (process.env.APP_URL || 'https://aurora-sonnet-1.onrender.com').replace(/\/$/, '')
+  if (!remoteBase || remoteBase.startsWith('http://localhost')) return { updated: 0 }
+  try {
+    const controller = new AbortController()
+    const timeoutId = setTimeout(() => controller.abort(), 15000)
+    const res = await fetch(`${remoteBase}/api/state`, {
+      headers: { Accept: 'application/json' },
+      signal: controller.signal,
+    }).finally(() => clearTimeout(timeoutId))
+    if (!res.ok) return { updated: 0 }
+    const remote = await res.json()
+    const remoteProposals = remote.proposals || []
+    const local = getState()
+    let updated = 0
+    for (const rp of remoteProposals) {
+      const lp = (local.proposals || []).find((p) => p.id === rp.id)
+      if (!lp) continue
+      if (lp.status !== 'accepted' && rp.status === 'accepted') {
+        updateProposal(lp.id, {
+          status: 'accepted',
+          value: rp.value ?? lp.value,
+          acceptedEnhancements: rp.acceptedEnhancements ?? lp.acceptedEnhancements,
+        })
+        if (lp.projectId) {
+          updateProject(lp.projectId, { value: rp.value ?? lp.value })
+        }
+        updated++
+        console.log(`[Sync] Proposal ${lp.id} marked as accepted (from remote)`)
+      }
+    }
+    return { updated }
+  } catch {
+    return { updated: 0 }
+  }
+}
+
+/** One-time migration: remove static "Date: ____" lines from contract template HTML (signature date is captured at sign time). */
+function stripDateLinesFromContractTemplates() {
+  const state = getState()
+  for (const t of state.contractTemplates || []) {
+    const html = t.contentHtml
+    if (!html || typeof html !== 'string') continue
+    const cleaned = html.replace(/<p>Date:\s*[_.\s\-]+<\/p>/gi, '').replace(/(<p>\s*<\/p>){2,}/g, '<p></p>').trim()
+    if (cleaned !== html) {
+      updateContractTemplate(t.id, { contentHtml: cleaned })
+    }
+  }
+}
+
 app.listen(PORT, () => {
   console.log(`Aurora Sonnet API running on http://localhost:${PORT}`)
   if (existsSync(distPath)) console.log('Serving frontend from /dist')
   if (!stripeSecret) console.log('Warning: STRIPE_SECRET_KEY not set. Payment endpoints will return 503.')
   logSmtpStatus()
+  stripDateLinesFromContractTemplates()
+  const initialFinalInvoices = ensureDueFinalInvoices()
+  if (initialFinalInvoices.created > 0) {
+    console.log(`Created ${initialFinalInvoices.created} final invoice(s) due within 30 days`)
+  }
+  const initialCalendarDates = ensureSecuredBookingCalendarDates()
+  if (initialCalendarDates.created > 0) {
+    console.log(`Created ${initialCalendarDates.created} secured-booking calendar reminder(s)`)
+  }
+  const FINAL_INVOICE_INTERVAL_MS = 24 * 60 * 60 * 1000
+  setInterval(() => {
+    const { created } = ensureDueFinalInvoices()
+    if (created > 0) console.log(`Created ${created} final invoice(s) due within 30 days`)
+  }, FINAL_INVOICE_INTERVAL_MS)
+  console.log('Final invoice automation: will check every 24 hours')
+  setInterval(() => {
+    const { created } = ensureSecuredBookingCalendarDates()
+    if (created > 0) console.log(`Created ${created} secured-booking calendar reminder(s)`)
+  }, FINAL_INVOICE_INTERVAL_MS)
+  console.log('Secured booking calendar automation: will check every 24 hours')
+  // Poll Render for accepted proposals every 60 seconds (Mac app only)
+  if (!isRender) {
+    const PROPOSAL_POLL_MS = 60 * 1000
+    pollRemoteProposalStatuses().then(({ updated }) => {
+      if (updated > 0) console.log(`[Sync] Updated ${updated} proposal(s) from remote on startup`)
+    }).catch(() => {})
+    setInterval(() => {
+      pollRemoteProposalStatuses().catch(() => {})
+    }, PROPOSAL_POLL_MS)
+    console.log('Proposal status sync: polling remote every 60 seconds')
+  }
   // Send due calendar reminder emails every 15 minutes when SMTP is configured
   if (reminderTransporter) {
     const REMINDER_INTERVAL_MS = 15 * 60 * 1000

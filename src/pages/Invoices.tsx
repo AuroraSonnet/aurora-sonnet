@@ -20,7 +20,7 @@ const defaultScratchLineItems = (): InvoiceLineItem[] =>
 export default function Invoices() {
   const { state, actions } = useApp()
   const { pushUndo } = useUndo()
-  const { invoices, projects, clients, invoiceTemplates } = state
+  const { invoices, projects, clients, invoiceTemplates, contracts } = state
   const [searchParams, setSearchParams] = useSearchParams()
   const [createFromProjectId, setCreateFromProjectId] = useState<string | null>(null)
   const [createFromScratch, setCreateFromScratch] = useState(false)
@@ -138,6 +138,10 @@ export default function Invoices() {
   const bookedOrCompleted = projects.filter((p) => p.stage === 'booked' || p.stage === 'completed')
 
   const clientEmailForProject = (clientId: string) => clients.find((c) => c.id === clientId)?.email
+  const linkedContractForInvoice = (invoice: (typeof invoices)[0]) =>
+    invoice.projectId ? (contracts ?? []).find((c) => c.projectId === invoice.projectId) ?? null : null
+  const mustSendWithContract = (invoice: (typeof invoices)[0]) =>
+    invoice.type === 'deposit' && !!linkedContractForInvoice(invoice) && linkedContractForInvoice(invoice)!.status !== 'signed'
 
   const pushInvoiceUndo = (invoiceId: string, title: string) => {
     pushUndo({
@@ -643,6 +647,7 @@ export default function Invoices() {
             {invoices.map((i) => {
               const status = effectiveStatus(i)
               const canPay = status === 'sent' || status === 'overdue'
+              const sendWithContract = mustSendWithContract(i)
               return (
               <tr key={i.id}>
                 <td className={styles.invoiceNum}>{i.invoiceNumber ?? '—'}</td>
@@ -676,14 +681,24 @@ export default function Invoices() {
                     >
                       Delete
                     </button>
-                    <button
-                      type="button"
-                      className={styles.smallBtn}
-                      onClick={() => { setActionError(null); openSendModal(i) }}
-                      aria-label="Send invoice by email"
-                    >
-                      Send
-                    </button>
+                    {sendWithContract ? (
+                      <Link
+                        to={`/contracts?projectId=${i.projectId}`}
+                        className={styles.smallBtn}
+                        aria-label="Send contract and invoice together"
+                      >
+                        Send with contract
+                      </Link>
+                    ) : (
+                      <button
+                        type="button"
+                        className={styles.smallBtn}
+                        onClick={() => { setActionError(null); openSendModal(i) }}
+                        aria-label="Send invoice by email"
+                      >
+                        Send
+                      </button>
+                    )}
                     {i.templateId && (invoiceTemplates ?? []).some((t) => t.id === i.templateId) && (
                       <a
                         href={getInvoiceTemplateFileUrl(i.templateId!)}
@@ -694,7 +709,7 @@ export default function Invoices() {
                         View PDF
                       </a>
                     )}
-                    {i.status === 'draft' && (
+                    {i.status === 'draft' && !sendWithContract && (
                       <button
                         type="button"
                         className={styles.smallBtn}

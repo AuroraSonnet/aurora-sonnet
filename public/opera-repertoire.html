@@ -1,0 +1,200 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Opera Singer Repertoire — Aurora Sonnet</title>
+<link href="https://fonts.googleapis.com/css2?family=Playfair+Display:wght@400;500;600&family=Inter:wght@300;400;500;600&display=swap" rel="stylesheet">
+<style>
+*,*::before,*::after{box-sizing:border-box;margin:0;padding:0}
+body{min-height:100vh;background:#f5ebe0;padding:2rem 1.5rem 3rem;font-family:'Inter',system-ui,sans-serif;color:#241a14}
+.container{max-width:640px;margin:0 auto;background:#fdfaf7;border-radius:12px;box-shadow:0 4px 24px rgba(36,26,20,.08);border:1px solid #e8dfd6;overflow:hidden}
+.header{position:sticky;top:0;z-index:10;background:#fdfaf7;padding:1.5rem 2rem;text-align:center;border-bottom:1px solid #e8dfd6}
+.header h1{font-family:'Playfair Display',Georgia,serif;font-size:.875rem;font-weight:500;letter-spacing:.06em;margin:0 0 .25rem}
+.header .range{font-family:'Playfair Display',Georgia,serif;font-size:1.75rem;font-weight:600;margin:0 0 .25rem}
+.header .sub{font-size:.8125rem;margin:0;opacity:.85}
+.divider{display:flex;align-items:center;gap:1rem;padding:0 2rem;margin:1.25rem 0 .75rem}
+.divider::before,.divider::after{content:'';flex:1;height:1px;background:#e0d6ce}
+.divider h2{font-family:'Playfair Display',Georgia,serif;font-size:.75rem;font-weight:500;letter-spacing:.2em;text-transform:uppercase;margin:0}
+.playlist{border-bottom:1px solid #e8dfd6}
+.playlist:last-of-type{border-bottom:none}
+.playlist-header{display:flex;align-items:center;justify-content:space-between;width:100%;padding:.875rem 2rem;background:0 0;border:none;cursor:pointer;font-family:inherit;font-size:.9375rem;color:#241a14;text-align:left}
+.playlist-header:hover{background:rgba(36,26,20,.04)}
+.playlist-header span{font-weight:400}
+.chevron{flex-shrink:0;width:20px;height:20px;transition:transform .2s ease}
+.chevron.open{transform:rotate(180deg)}
+.tracks{padding:0 2rem .75rem;display:none}
+.tracks.open{display:block}
+.track{display:flex;align-items:center;gap:.75rem;padding:.5rem 0;border-bottom:1px solid #ebe2da}
+.track:last-child{border-bottom:none}
+.track input[type=checkbox]{width:18px;height:18px;flex-shrink:0;accent-color:#241a14;cursor:pointer}
+.track label{flex:1;min-width:0;font-size:.9375rem;cursor:pointer}
+.play-btn{flex-shrink:0;width:32px;height:32px;border-radius:50%;border:1px solid #c4b8ac;background:#fff;color:#241a14;cursor:pointer;display:flex;align-items:center;justify-content:center;padding:0}
+.play-btn:hover{background:#f5ebe0;border-color:#241a14}
+.play-btn svg{width:12px;height:12px;margin-left:2px}
+.selected-section{padding:1.5rem 2rem 2rem}
+.selected-card{background:#fff;border-radius:8px;padding:1.25rem 1.5rem;margin-top:.75rem;box-shadow:0 2px 12px rgba(36,26,20,.06);border:1px solid #e8dfd6}
+.selected-cat{font-size:.8125rem;font-weight:600;text-transform:uppercase;letter-spacing:.05em;margin:0 0 .75rem}
+.selected-cat:not(:first-child){margin-top:1.25rem}
+.selected-track{display:flex;align-items:center;gap:.5rem;padding:.4rem 0;font-size:.9375rem}
+.selected-track::before{content:'';width:16px;height:16px;flex-shrink:0;background:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%23241a14' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M20 6L9 17l-5-5'/%3E%3C/svg%3E") center/contain no-repeat}
+.empty{font-size:.875rem;margin:.5rem 0 0;opacity:.8}
+.footer-note{text-align:center;font-size:.8125rem;margin:1.5rem 0 1.25rem;padding:0 1rem;line-height:1.5;opacity:.9}
+.submit-btn{display:block;margin:0 auto;padding:.75rem 2.5rem;font-family:'Playfair Display',Georgia,serif;font-size:.9375rem;font-weight:500;color:#241a14;background:linear-gradient(180deg,#ebe2da 0%,#e0d6ce 100%);border:1px solid #c4b8ac;border-radius:999px;cursor:pointer;box-shadow:0 1px 2px rgba(36,26,20,.08)}
+.submit-btn:hover{background:linear-gradient(180deg,#e0d6ce 0%,#d4c8be 100%)}
+@media(max-width:640px){body{padding:1rem 1rem 2rem}.header,.playlist-header,.tracks,.selected-section{padding-left:1.25rem;padding-right:1.25rem}.divider{padding-left:1.25rem;padding-right:1.25rem}}
+</style>
+</head>
+<body>
+
+<div class="container" id="app">
+  <div class="header">
+    <h1>Estimated Live Performance Time</h1>
+    <p class="range" id="timeRange">0 min</p>
+    <p class="sub" id="timeSub">0 songs selected</p>
+  </div>
+
+  <div class="divider"><h2>Ceremony</h2></div>
+  <div id="ceremony-playlists"></div>
+
+  <div class="divider"><h2>Reception</h2></div>
+  <div id="reception-playlists"></div>
+
+  <div class="divider"><h2>Your Selected Songs</h2></div>
+  <div class="selected-section">
+    <div class="selected-card" id="selected-card">
+      <p class="empty" id="empty-msg">No songs selected yet. Choose from the playlists above.</p>
+    </div>
+    <p class="footer-note">Final selections are kindly requested 21 days prior to your event to allow time for thoughtful preparation.</p>
+    <button type="button" class="submit-btn" id="submit-btn">Submit Selections</button>
+  </div>
+</div>
+
+<script>
+const PLAYLISTS = [
+  { id:'op-ga', title:'Guest Arrival | Prelude', cat:'ceremony', tracks:[
+    {id:'op-ga-1',name:'Ave Maria',artist:'Schubert',url:'https://open.spotify.com/track/46DZCruzZuDWYinEI25UPo'},
+    {id:'op-ga-2',name:'Nella Fantasia',artist:'Morricone',url:'https://open.spotify.com/track/2zKdobJbYRXtEJ9V6g4MTB'},
+    {id:'op-ga-3',name:'Ombra Mai Fu',artist:'Handel',url:'https://open.spotify.com/track/4wrLflj8Wx0MX95GLHoC4M'},
+    {id:'op-ga-4',name:'Laudate Dominum',artist:'Mozart',url:'https://open.spotify.com/track/0rLNlmlBu09jmo5jFUiMX2'},
+    {id:'op-ga-5',name:'Pie Jesu',artist:'Fauré',url:'https://open.spotify.com/track/0hRh3LBZh2xwt0lz7iwOD0'},
+    {id:'op-ga-6',name:'Ave Maria',artist:'Bach / Gounod',url:'https://open.spotify.com/track/3u6UxbqZGBnnAQFYJFg7U4'},
+  ]},
+  { id:'op-pr', title:'Processional | Recessional', cat:'ceremony', tracks:[
+    {id:'op-pr-1',name:'O Mio Babbino Caro',artist:'Puccini',url:'https://open.spotify.com/track/1utyEW4Qf1F5jeqhJSLT6g'},
+    {id:'op-pr-2',name:"Lascia Ch'io Pianga",artist:'Handel',url:'https://open.spotify.com/track/6FZfM0IatK4g8zFebCXI0m'},
+    {id:'op-pr-3',name:'Flower Duet',artist:'Delibes',url:'https://open.spotify.com/track/2xORus0TIDTVKatLletu1B'},
+    {id:'op-pr-4',name:'Alleluia',artist:'Mozart',url:'https://open.spotify.com/track/0SyplLJ970zjJwJBxmi94L'},
+    {id:'op-pr-5',name:"The Lord's Prayer",artist:'Malotte',url:'https://open.spotify.com/track/6FIIUfFP8C88y51k1zi5O3'},
+    {id:'op-pr-6',name:'Una Furtiva Lagrima',artist:'Donizetti',url:'https://open.spotify.com/track/7DKv6FjD4xxeT4ZmEdec9W'},
+  ]},
+  { id:'op-ch', title:'Cocktail Hour', cat:'reception', tracks:[
+    {id:'op-ch-1',name:"Quando Me'n Vo",artist:'Puccini',url:'https://open.spotify.com/track/7Eg5cn0RZSdttryjTaylnh'},
+    {id:'op-ch-2',name:'Non Ti Scordar Di Me',artist:'De Curtis',url:'https://open.spotify.com/track/42My9HbN4tnqIzhMZF7Qag'},
+    {id:'op-ch-3',name:'Ideale',artist:'Tosti',url:'https://open.spotify.com/track/2UwWuJ4fqsl0LGOnU5dowr'},
+    {id:'op-ch-4',name:'Musica Proibita',artist:'Gastaldon',url:'https://open.spotify.com/track/5mQSU4PmUU68k80c82XrRZ'},
+    {id:'op-ch-5',name:'Deh Vieni Non Tardar',artist:'Mozart',url:'https://open.spotify.com/track/3ivUxiiLHnB5QyYRelvdtH'},
+  ]},
+  { id:'op-ds', title:'Dinner Serenade', cat:'reception', tracks:[
+    {id:'op-ds-1',name:'The Prayer',artist:'Bocelli / Celine Dion',url:'https://open.spotify.com/track/6zlY4xmlgqvn4LxjzoS2mz'},
+    {id:'op-ds-2',name:'Time to Say Goodbye',artist:'Bocelli',url:'https://open.spotify.com/track/3VAICuY2ax2yCLT7EhNeZE'},
+    {id:'op-ds-3',name:'You Raise Me Up',artist:'Josh Groban',url:'https://open.spotify.com/track/4TbNLKRLKlxZDlS0pu7Lsy'},
+    {id:'op-ds-4',name:'Casta Diva',artist:'Bellini',url:'https://open.spotify.com/track/3Ia9cMRJU5XG9mzmu9colm'},
+    {id:'op-ds-5',name:'Caro Mio Ben',artist:'Giordani',url:'https://open.spotify.com/track/27uGtazwGTJ1XPhvPUjaGX'},
+    {id:'op-ds-6',name:'A Vucchella',artist:'Tosti',url:'https://open.spotify.com/track/62Mq4PMuKont9j1cwR2U81'},
+  ]},
+  { id:'op-sm', title:'Signature Moments', cat:'reception', tracks:[
+    {id:'op-sm-1',name:'Nessun Dorma',artist:'Puccini',url:'https://open.spotify.com/track/2XeYlM8XKFCP6DYsKWZdh2'},
+    {id:'op-sm-2',name:"Can't Help Falling in Love",artist:'Elvis Presley',url:'https://open.spotify.com/track/44AyOl4qVkzS48vBsbNXaC'},
+    {id:'op-sm-3',name:"Libiamo ne' lieti calici",artist:'Verdi',url:'https://open.spotify.com/track/41ujv4mhxlqR8nlnieDpDp'},
+    {id:'op-sm-4',name:'Un Bel Di Vedremo',artist:'Puccini',url:'https://open.spotify.com/track/69EKwvg7nkdOO3RmeUMJZG'},
+    {id:'op-sm-5',name:'O Sole Mio',artist:'Di Capua',url:'https://open.spotify.com/track/42SXU1x4wUVaFovkvjABt7'},
+  ]},
+];
+
+const selected = new Set();
+const openPls = new Set([PLAYLISTS[0].id]);
+
+function esc(s){return s.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;')}
+
+function renderPlaylists(){
+  const cer = PLAYLISTS.filter(p=>p.cat==='ceremony');
+  const rec = PLAYLISTS.filter(p=>p.cat==='reception');
+  document.getElementById('ceremony-playlists').innerHTML = cer.map(renderPlaylist).join('');
+  document.getElementById('reception-playlists').innerHTML = rec.map(renderPlaylist).join('');
+}
+
+function renderPlaylist(pl){
+  const isOpen = openPls.has(pl.id);
+  return `<div class="playlist">
+    <button type="button" class="playlist-header" onclick="togglePl('${pl.id}')">
+      <span>${esc(pl.title.toUpperCase())}</span>
+      <svg class="chevron ${isOpen?'open':''}" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M6 9l6 6 6-6"/></svg>
+    </button>
+    <div class="tracks ${isOpen?'open':''}">
+      ${pl.tracks.map(t=>`<div class="track">
+        <input type="checkbox" id="t-${t.id}" ${selected.has(t.id)?'checked':''} onchange="toggleTrack('${t.id}')">
+        <label for="t-${t.id}">${esc(t.name)} — ${esc(t.artist)}</label>
+        <button type="button" class="play-btn" onclick="window.open('${t.url}','_blank','noopener,noreferrer,width=480,height=640')" title="Open in Spotify">
+          <svg viewBox="0 0 24 24" fill="currentColor"><path d="M8 5v14l11-7z"/></svg>
+        </button>
+      </div>`).join('')}
+    </div>
+  </div>`;
+}
+
+function updateSummary(){
+  const c = selected.size;
+  const min = c*3, max = c*4;
+  document.getElementById('timeRange').textContent = c===0?'0 min':`${min}–${max} min`;
+  document.getElementById('timeSub').textContent = c===0?'0 songs selected':`${c} song${c===1?'':'s'} selected · ~3–4 min each`;
+}
+
+function updateSelected(){
+  const card = document.getElementById('selected-card');
+  if(selected.size===0){
+    card.innerHTML='<p class="empty">No songs selected yet. Choose from the playlists above.</p>';
+    return;
+  }
+  let html='';
+  for(const pl of PLAYLISTS){
+    const tracks = pl.tracks.filter(t=>selected.has(t.id));
+    if(!tracks.length) continue;
+    html+=`<h3 class="selected-cat">${esc(pl.title)}</h3>`;
+    for(const t of tracks) html+=`<div class="selected-track">${esc(t.name)} — ${esc(t.artist)}</div>`;
+  }
+  card.innerHTML=html;
+}
+
+function togglePl(id){
+  if(openPls.has(id)) openPls.delete(id); else openPls.add(id);
+  renderPlaylists();
+}
+
+function toggleTrack(id){
+  if(selected.has(id)) selected.delete(id); else selected.add(id);
+  updateSummary();
+  updateSelected();
+  renderPlaylists();
+}
+
+document.getElementById('submit-btn').addEventListener('click',function(){
+  if(selected.size===0){alert('Please select at least one song.');return;}
+  const lines = [];
+  for(const pl of PLAYLISTS){
+    const tracks = pl.tracks.filter(t=>selected.has(t.id));
+    if(!tracks.length) continue;
+    lines.push(pl.title+':');
+    for(const t of tracks) lines.push('  • '+t.name+' — '+t.artist);
+    lines.push('');
+  }
+  const subject = encodeURIComponent('Opera Repertoire Selections — Aurora Sonnet');
+  const body = encodeURIComponent('Here are my opera repertoire selections:\n\n'+lines.join('\n')+'\nTotal: '+selected.size+' song(s)');
+  window.location.href = 'mailto:contact@aurorasonnet.com?subject='+subject+'&body='+body;
+});
+
+renderPlaylists();
+updateSummary();
+</script>
+</body>
+</html>

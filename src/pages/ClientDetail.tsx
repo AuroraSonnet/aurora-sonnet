@@ -114,9 +114,15 @@ export default function ClientDetail() {
   const { id } = useParams<{ id: string }>()
   const navigate = useNavigate()
   const { state, actions } = useApp()
-  const { clients, projects, invoices, musicSelections } = state
+  const { clients, projects, proposals, invoices, musicSelections } = state
   const client = clients.find((c) => c.id === id)
   const clientProjects = projects.filter((p) => p.clientId === id)
+  const clientProjectIds = new Set(clientProjects.map((p) => p.id))
+  const acceptedProposals = proposals.filter(
+    (p) =>
+      p.status === 'accepted' &&
+      (clientProjectIds.has(p.projectId) || p.clientName === client?.name)
+  )
   const clientInvoices = invoices.filter((i) => client && i.clientName.includes(client.name))
   const clientMusicSelections = (musicSelections ?? []).filter((m) => m.clientId === id)
 
@@ -397,6 +403,47 @@ export default function ClientDetail() {
             </ul>
           )}
         </section>
+
+        {acceptedProposals.length > 0 && (
+          <section className={styles.card}>
+            <h2>Accepted proposal{acceptedProposals.length > 1 ? 's' : ''}</h2>
+            <div className={styles.acceptedList}>
+              {acceptedProposals.map((ap) => {
+                let enhancements: { id: string; label: string; amount: number }[] = []
+                try { enhancements = ap.acceptedEnhancements ? JSON.parse(ap.acceptedEnhancements) : [] } catch { /* ignore */ }
+                return (
+                  <div key={ap.id} className={styles.acceptedBlock}>
+                    <div className={styles.acceptedHead}>
+                      <strong>{ap.title}</strong>
+                      <span className={styles.acceptedValue}>${ap.value.toLocaleString()}</span>
+                    </div>
+                    {ap.sentAt && (
+                      <p className={styles.meta}>
+                        Sent {new Date(ap.sentAt).toLocaleDateString()}
+                      </p>
+                    )}
+                    {enhancements.length > 0 && (
+                      <div className={styles.enhSection}>
+                        <p className={styles.enhTitle}>Selected enhancements</p>
+                        <ul className={styles.enhList}>
+                          {enhancements.map((e) => (
+                            <li key={e.id}>
+                              <span>{e.label}</span>
+                              <span className={styles.enhAmount}>${e.amount.toLocaleString()}</span>
+                            </li>
+                          ))}
+                        </ul>
+                      </div>
+                    )}
+                    {enhancements.length === 0 && (
+                      <p className={styles.meta} style={{ marginTop: '0.35rem' }}>No enhancements selected</p>
+                    )}
+                  </div>
+                )
+              })}
+            </div>
+          </section>
+        )}
 
         <section className={styles.card}>
           <div className={styles.cardHeader}>

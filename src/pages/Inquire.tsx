@@ -20,7 +20,7 @@ export default function Inquire() {
 
   const ARTISTS = [
     { id: 'eli-liv', name: 'Eli & Liv' },
-    { id: 'riley-richard', name: 'Riley & Richard' },
+    { id: 'riley-richard', name: 'Riley & Lu' },
     { id: 'garrett-tamara', name: 'Garrett & Tamara' },
   ] as const
 

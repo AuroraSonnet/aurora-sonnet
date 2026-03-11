@@ -9,7 +9,7 @@ export default function InquireDuo() {
   const { actions } = useApp()
   const ARTISTS = [
     { id: 'eli-liv', name: 'Eli & Liv' },
-    { id: 'riley-richard', name: 'Riley & Richard' },
+    { id: 'riley-richard', name: 'Riley & Lu' },
     { id: 'garrett-tamara', name: 'Garrett & Tamara' },
   ] as const
 

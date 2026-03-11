@@ -5,7 +5,10 @@ import {
   type MusicTrack,
   type Category,
 } from '../data/weddingMusicPlaylists'
+import { OPERA_MUSIC_PLAYLISTS } from '../data/operaMusicPlaylists'
 import styles from './WeddingMusicSelection.module.css'
+
+type RepertoireTab = 'duo' | 'opera'
 
 function getSelectedGrouped(
   playlists: MusicPlaylist[],
@@ -21,6 +24,7 @@ function getSelectedGrouped(
 }
 
 export default function WeddingMusicSelection() {
+  const [tab, setTab] = useState<RepertoireTab>('duo')
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set())
   const [openIds, setOpenIds] = useState<Set<string>>(new Set([WEDDING_MUSIC_PLAYLISTS[0]?.id ?? '']))
 
@@ -55,9 +59,10 @@ export default function WeddingMusicSelection() {
     window.open(url, '_blank', 'noopener,noreferrer,width=480,height=640')
   }, [])
 
-  const grouped = getSelectedGrouped(WEDDING_MUSIC_PLAYLISTS, selectedIds)
-  const ceremonyPlaylists = WEDDING_MUSIC_PLAYLISTS.filter((p) => p.category === 'ceremony')
-  const receptionPlaylists = WEDDING_MUSIC_PLAYLISTS.filter((p) => p.category === 'reception')
+  const activePlaylists = tab === 'duo' ? WEDDING_MUSIC_PLAYLISTS : OPERA_MUSIC_PLAYLISTS
+  const grouped = getSelectedGrouped(activePlaylists, selectedIds)
+  const ceremonyPlaylists = activePlaylists.filter((p) => p.category === 'ceremony')
+  const receptionPlaylists = activePlaylists.filter((p) => p.category === 'reception')
 
   const handleSubmit = () => {
     // Wire to your API or mailto when embedding
@@ -75,6 +80,23 @@ export default function WeddingMusicSelection() {
           <p className={styles.timeSummarySub}>{timeSub}</p>
         </header>
 
+        <div className={styles.tabBar}>
+          <button
+            type="button"
+            className={`${styles.tabBtn} ${tab === 'duo' ? styles.tabBtnActive : ''}`}
+            onClick={() => { setTab('duo'); setSelectedIds(new Set()); setOpenIds(new Set([WEDDING_MUSIC_PLAYLISTS[0]?.id ?? ''])) }}
+          >
+            Duo Repertoire
+          </button>
+          <button
+            type="button"
+            className={`${styles.tabBtn} ${tab === 'opera' ? styles.tabBtnActive : ''}`}
+            onClick={() => { setTab('opera'); setSelectedIds(new Set()); setOpenIds(new Set([OPERA_MUSIC_PLAYLISTS[0]?.id ?? ''])) }}
+          >
+            Opera Singer
+          </button>
+        </div>
+
         <div className={styles.sectionDivider}>
           <h2 className={styles.sectionTitle}>Ceremony</h2>
         </div>
@@ -87,7 +109,7 @@ export default function WeddingMusicSelection() {
               aria-expanded={openIds.has(pl.id)}
             >
               <span className={styles.playlistHeaderLabel}>
-                {pl.title.toUpperCase()} – Ceremony
+                {pl.title.toUpperCase()}{tab === 'duo' ? ' – Ceremony' : ''}
               </span>
               <svg
                 className={`${styles.chevron} ${openIds.has(pl.id) ? styles.chevronOpen : ''}`}
@@ -142,7 +164,7 @@ export default function WeddingMusicSelection() {
               aria-expanded={openIds.has(pl.id)}
             >
               <span className={styles.playlistHeaderLabel}>
-                {pl.title.toUpperCase()} – Reception
+                {pl.title.toUpperCase()}{tab === 'duo' ? ' – Reception' : ''}
               </span>
               <svg
                 className={`${styles.chevron} ${openIds.has(pl.id) ? styles.chevronOpen : ''}`}

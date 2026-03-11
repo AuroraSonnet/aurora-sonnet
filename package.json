@@ -16,7 +16,7 @@
     "start": "node server/index.js",
     "server": "node server/index.js",
     "electron": "npx electron .",
-    "build:mac": "npm run build && node scripts/download-node.cjs && node scripts/rebuild-for-bundled-node.cjs && electron-builder --mac",
+    "build:mac": "npm run build && electron-builder --mac zip",
     "build:win": "npm run build && electron-builder --win",
     "copy-env-to-app": "node scripts/copy-env-to-app-support.cjs"
   },

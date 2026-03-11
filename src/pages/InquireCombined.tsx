@@ -22,7 +22,7 @@ const SOLO_ARTISTS = [
 
 const DUOS = [
   { id: 'eli-liv' as const, name: 'Eli & Liv', group: 'Duo' },
-  { id: 'riley-richard' as const, name: 'Riley & Richard', group: 'Duo' },
+  { id: 'riley-richard' as const, name: 'Riley & Lu', group: 'Duo' },
   { id: 'garrett-tamara' as const, name: 'Garrett & Tamara', group: 'Duo' },
 ] as const
 

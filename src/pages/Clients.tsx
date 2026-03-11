@@ -4,6 +4,7 @@ import { useApp } from '../context/AppContext'
 import { useUndo } from '../context/UndoContext'
 import { apiDeleteClient, apiDeleteClientOnRemote, apiDeleteAllClients, apiDeleteAllClientsOnRemote, apiRestoreAllClients, apiRestoreAllClientsOnRemote } from '../api/db'
 import { getInquiryApiBaseUrl } from '../utils/inquiryApiUrl'
+import { addDeletedClientId, addDeletedClientIds, clearDeletedClientIds } from '../utils/syncFilters'
 import styles from './Clients.module.css'
 
 export default function Clients() {
@@ -60,6 +61,7 @@ export default function Clients() {
           if (ok) {
             const base = getInquiryApiBaseUrl()
             if (base) await apiDeleteClientOnRemote(base, clientId)
+            addDeletedClientId(clientId)
             actions.removeClientLocally(clientId)
           }
         },
@@ -83,23 +85,17 @@ export default function Clients() {
       const base = getInquiryApiBaseUrl()
       let ok = false
       let reason: string | undefined
+      // Always delete on local server first
+      const localResult = await apiDeleteAllClients()
+      ok = localResult.ok
+      // Also delete on remote (Render) so sync doesn't bring them back
       if (base) {
         try {
-          const apiOrigin = new URL(base).origin
-          if (typeof window !== 'undefined' && window.location?.origin === apiOrigin) {
-            ok = (await apiDeleteAllClients()).ok
-          } else {
-            const result = await apiDeleteAllClientsOnRemote(base)
-            ok = result.ok
-            reason = result.reason
-          }
+          const remoteResult = await apiDeleteAllClientsOnRemote(base)
+          if (!remoteResult.ok) reason = remoteResult.reason
         } catch {
-          const result = await apiDeleteAllClientsOnRemote(base)
-          ok = result.ok
-          reason = result.reason
+          // Remote delete failed but local succeeded — localStorage blocklist will prevent re-sync
         }
-      } else {
-        ok = (await apiDeleteAllClients()).ok
       }
       if (!ok) {
         setDeletingAll(false)
@@ -112,6 +108,7 @@ export default function Clients() {
         window.alert(hint)
         return
       }
+      addDeletedClientIds(clients.map((c) => c.id))
       for (const c of clients) actions.removeClientLocally(c.id)
     } finally {
       setDeletingAll(false)
@@ -123,15 +120,21 @@ export default function Clients() {
     setRestoringAll(true)
     try {
       const base = getInquiryApiBaseUrl()
-      const result = base
-        ? await apiRestoreAllClientsOnRemote(base)
-        : await apiRestoreAllClients()
-      if (!result.ok) {
+      const localResult = await apiRestoreAllClients()
+      let restored = localResult.restored ?? 0
+      if (base) {
+        try {
+          const remoteResult = await apiRestoreAllClientsOnRemote(base)
+          if (remoteResult.restored && remoteResult.restored > restored) restored = remoteResult.restored
+        } catch { /* remote restore is best-effort */ }
+      }
+      if (!localResult.ok) {
         window.alert('Restore failed. Is the server URL correct in Settings?')
         return
       }
+      clearDeletedClientIds()
       await actions.refreshState()
-      if ((result.restored ?? 0) > 0) window.alert(`Restored ${result.restored} client(s).`)
+      if (restored > 0) window.alert(`Restored ${restored} client(s).`)
     } finally {
       setRestoringAll(false)
     }

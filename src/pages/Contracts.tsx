@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useState, lazy, Suspense } from 'react'
 import { useSearchParams } from 'react-router-dom'
 import { useApp } from '../context/AppContext'
 import { useUndo } from '../context/UndoContext'
@@ -6,6 +6,8 @@ import {
   apiDeleteContract,
   apiUpdateContract,
   apiDeleteInvoice,
+  apiCreateInvoice,
+  apiUpdateInvoice,
   apiSignContractVendor,
   apiSendContractReminder,
   getContractFileUrl,
@@ -16,8 +18,8 @@ import { mergeContractTemplate } from '../utils/mergeContractTemplate'
 import { htmlToPdfBase64 } from '../utils/htmlToPdf'
 import type { ContractStatus } from '../data/mock'
 import { getPackageLabel } from '../data/packages'
-import { getInquiryApiBaseUrl } from '../utils/inquiryApiUrl'
-import TemplatesSection from '../components/TemplatesSection'
+import { getInquiryApiBaseUrl, DEFAULT_INQUIRY_API_URL } from '../utils/inquiryApiUrl'
+const TemplatesSection = lazy(() => import('../components/TemplatesSection'))
 import SignaturePad from '../components/SignaturePad'
 import styles from './Contracts.module.css'
 
@@ -34,13 +36,18 @@ const statusLabels: Record<ContractStatus, string> = {
 export default function Contracts() {
   const { state, actions } = useApp()
   const { pushUndo } = useUndo()
-  const { contracts, projects, contractTemplates } = state
+  const contracts = state.contracts ?? []
+  const projects = state.projects ?? []
+  const contractTemplates = state.contractTemplates ?? []
+  const clients = state.clients ?? []
+  const invoices = state.invoices ?? []
   const [creatingFrom, setCreatingFrom] = useState<string | null>(null)
   const [selectedTemplateId, setSelectedTemplateId] = useState<string>('')
   const [signingContractId, setSigningContractId] = useState<string | null>(null)
   const [vendorSigningInProgress, setVendorSigningInProgress] = useState(false)
   const [vendorAgreed, setVendorAgreed] = useState(false)
   const [reminderSendingId, setReminderSendingId] = useState<string | null>(null)
+  const [packageSendingId, setPackageSendingId] = useState<string | null>(null)
   const [generatePdfError, setGeneratePdfError] = useState<string | null>(null)
 
   const [searchParams] = useSearchParams()
@@ -48,13 +55,108 @@ export default function Contracts() {
 
   const projectById = (id: string) => projects.find((p) => p.id === id)
   const hasContract = (projectId: string) => contracts.some((c) => c.projectId === projectId)
-  const contractReminderBaseUrl =
+  const rawClientBaseUrl =
     (state.config?.publicAppUrl || '').trim() || getInquiryApiBaseUrl() || (typeof window !== 'undefined' ? window.location.origin : '')
+  const clientFacingBaseUrl =
+    typeof window !== 'undefined' &&
+    (rawClientBaseUrl.startsWith('http://localhost') || rawClientBaseUrl.startsWith('file:'))
+      ? DEFAULT_INQUIRY_API_URL
+      : rawClientBaseUrl || DEFAULT_INQUIRY_API_URL
+  const contractReminderBaseUrl = clientFacingBaseUrl
 
-  const canDeleteContract = (contract: (typeof contracts)[0]) => {
-    // Allow delete when there are no signatures yet (draft, or sent but unsigned)
-    const hasAnySignature = Boolean((contract as { clientSignedAt?: string }).clientSignedAt || contract.signedAt)
-    return !hasAnySignature
+  const getDepositInvoiceForProject = (projectId: string) =>
+    invoices.find((i) => i.projectId === projectId && (i.type === 'deposit' || i.type === 'other' || !i.type)) ?? null
+
+  const handleSendContractAndInvoice = async (contract: (typeof contracts)[0]) => {
+    if (packageSendingId) return
+    let project = projects.find((p) => p.id === contract.projectId)
+    if (!project) {
+      project = projects.find((p) => p.clientName === contract.clientName && p.title === contract.title)
+      if (project) {
+        await apiUpdateContract(contract.id, { projectId: project.id })
+        actions.updateContract(contract.id, { projectId: project.id })
+      }
+    }
+    if (!project) {
+      alert('Project not found for this contract. Create a booking for this client first.')
+      return
+    }
+    const client = clients.find((c) => c.id === project.clientId)
+    const toEmail = (client?.email || '').trim()
+    if (!toEmail) {
+      alert('Add the client email first so the contract and invoice can be sent together.')
+      return
+    }
+
+    setPackageSendingId(contract.id)
+    try {
+      let signToken = (contract as { signToken?: string }).signToken || randomToken()
+      if (contract.status !== 'sent' || !(contract as { signToken?: string }).signToken) {
+        const ok = await apiUpdateContract(contract.id, { status: 'sent', signToken })
+        if (!ok) throw new Error('Could not prepare the contract for sending.')
+        actions.updateContract(contract.id, { status: 'sent', signToken })
+      }
+
+      const retainer = Math.round(contract.value * 0.5)
+      const packageLabel = getPackageLabel(contract.packageType) || project.title
+      const lineItems = [{ description: `Retainer (50%) — ${packageLabel}`, quantity: 1, unitPrice: retainer }]
+      let invoice = getDepositInvoiceForProject(project.id)
+      if (!invoice) {
+        const dueDate = new Date(Date.now() + 30 * 24 * 60 * 60 * 1000).toISOString().slice(0, 10)
+        const invoiceId = `i-${Date.now()}-${Math.random().toString(36).slice(2, 9)}`
+        const result = await apiCreateInvoice({
+          id: invoiceId,
+          projectId: project.id,
+          clientName: contract.clientName,
+          clientEmail: toEmail,
+          projectTitle: `${project.title} — Retainer`,
+          amount: retainer,
+          status: 'sent',
+          dueDate,
+          type: 'deposit',
+          lineItems,
+        })
+        if (!result.ok) throw new Error('Could not create the retainer invoice.')
+        invoice = {
+          id: invoiceId,
+          projectId: project.id,
+          clientName: contract.clientName,
+          clientEmail: toEmail,
+          projectTitle: `${project.title} — Retainer`,
+          amount: retainer,
+          status: 'sent',
+          dueDate,
+          type: 'deposit',
+          lineItems,
+        } as (typeof invoices)[0]
+      } else if (!invoice.paidAt && (invoice.status !== 'sent' || invoice.amount !== retainer || invoice.clientEmail !== toEmail)) {
+        const ok = await apiUpdateInvoice(invoice.id, {
+          amount: retainer,
+          clientEmail: toEmail,
+          projectTitle: `${project.title} — Retainer`,
+          lineItems,
+          status: 'sent',
+        })
+        if (!ok) throw new Error('Could not prepare the retainer invoice.')
+      }
+
+      const signUrl = `${clientFacingBaseUrl.replace(/\/$/, '')}/sign/${contract.id}?token=${encodeURIComponent(signToken)}`
+      const invoiceUrl = `${clientFacingBaseUrl.replace(/\/$/, '')}/invoices/view/${invoice.id}`
+      const firstName = (contract.clientName || '').split(/\s+/)[0] || 'there'
+      const subject = `Your agreement and retainer — ${contract.title} | Aurora Sonnet`
+      const body =
+        `Hi ${firstName},\n\nThank you for moving forward with ${contract.title}. Please sign your agreement and pay your retainer to secure your date.\n\n` +
+        `Sign your agreement: ${signUrl}\n\n` +
+        `View and pay your retainer: ${invoiceUrl}\n\n` +
+        `Best,\nAurora Sonnet`
+
+      await actions.refreshState()
+      window.location.href = `mailto:${encodeURIComponent(toEmail)}?subject=${encodeURIComponent(subject)}&body=${encodeURIComponent(body)}`
+    } catch (err) {
+      alert(err instanceof Error ? err.message : 'Failed to prepare the contract and invoice.')
+    } finally {
+      setPackageSendingId(null)
+    }
   }
 
   const handleSendContractReminder = async (contract: (typeof contracts)[0]) => {
@@ -71,10 +173,12 @@ export default function Contracts() {
   }
 
   const handleDeleteContractRow = async (contract: (typeof contracts)[0]) => {
-    if (!canDeleteContract(contract)) return
+    const isSigned = Boolean((contract as { clientSignedAt?: string }).clientSignedAt || contract.signedAt)
     if (
       !confirm(
-        'Delete this contract? This removes the contract and its PDF. This cannot be undone (existing signed copies will be lost).'
+        isSigned
+          ? 'Delete this signed contract? This permanently removes the contract and its PDF. This does not delete any related invoice. This cannot be undone.'
+          : 'Delete this contract? This removes the contract and its PDF. This cannot be undone.'
       )
     ) {
       return
@@ -121,7 +225,7 @@ export default function Contracts() {
 
       if (editorTemplate && contentHtml) {
         try {
-          const client = state.clients.find((c) => c.id === p.clientId)
+          const client = clients.find((c) => c.id === p.clientId)
           const merged = mergeContractTemplate(contentHtml, {
             clientName: p.clientName,
             weddingDate: p.weddingDate,
@@ -153,36 +257,6 @@ export default function Contracts() {
     }
   }
 
-  const handleStatusChange = (contract: (typeof contracts)[0], status: ContractStatus) => {
-    const previous = {
-      status: contract.status,
-      signedAt: contract.signedAt,
-      signToken: (contract as { signToken?: string }).signToken,
-    }
-    if (status === 'sent') {
-      const signToken = randomToken()
-      actions.updateContract(contract.id, { status: 'sent', signToken })
-      pushUndo({
-        id: `contract-sent-${contract.id}`,
-        label: `Contract "${contract.title}" marked sent`,
-        undo: async () => {
-          await apiUpdateContract(contract.id, previous)
-          await actions.refreshState()
-        },
-      })
-    } else {
-      actions.updateContract(contract.id, { status })
-      pushUndo({
-        id: `contract-status-${contract.id}`,
-        label: `Contract status changed to ${status}`,
-        undo: async () => {
-          await apiUpdateContract(contract.id, previous)
-          await actions.refreshState()
-        },
-      })
-    }
-  }
-
   const handleVendorSign = async (contractId: string, dataUrl: string) => {
     const contract = contracts.find((c) => c.id === contractId)
     if (!contract || vendorSigningInProgress) return
@@ -192,10 +266,10 @@ export default function Contracts() {
       const signedAt = new Date().toISOString().slice(0, 10)
       actions.updateContract(contractId, { status: 'signed', signedAt })
       let newInvoiceId: string | null = null
-      if (!state.invoices.some((i) => i.projectId === contract.projectId && i.type === 'deposit')) {
+      if (!invoices.some((i) => i.projectId === contract.projectId && i.type === 'deposit')) {
         const deposit = Math.round(contract.value * 0.5)
-        const project = state.projects.find((p) => p.id === contract.projectId)
-        const client = project ? state.clients.find((c) => c.id === project.clientId) : undefined
+        const project = projects.find((p) => p.id === contract.projectId)
+        const client = project ? clients.find((c) => c.id === project.clientId) : undefined
         newInvoiceId = actions.addInvoice({
           projectId: contract.projectId,
           clientName: contract.clientName,
@@ -241,7 +315,9 @@ export default function Contracts() {
         </p>
       </header>
 
-      <TemplatesSection />
+      <Suspense fallback={<p className={styles.subtitle}>Loading templates…</p>}>
+        <TemplatesSection />
+      </Suspense>
 
       <section className={styles.card}>
         <h2>Create from booking</h2>
@@ -350,9 +426,10 @@ export default function Contracts() {
                         <button
                           type="button"
                           className={styles.smallBtn}
-                          onClick={() => handleStatusChange(c, 'sent')}
+                          onClick={() => handleSendContractAndInvoice(c)}
+                          disabled={packageSendingId !== null}
                         >
-                          Mark sent
+                          {packageSendingId === c.id ? 'Sending…' : 'Send contract + invoice'}
                         </button>
                       )}
                       {c.status === 'sent' && (
@@ -367,6 +444,14 @@ export default function Contracts() {
                             </button>
                           ) : (
                             <>
+                              <button
+                                type="button"
+                                className={styles.smallBtn}
+                                onClick={() => handleSendContractAndInvoice(c)}
+                                disabled={packageSendingId !== null}
+                              >
+                                {packageSendingId === c.id ? 'Sending…' : 'Email package'}
+                              </button>
                               <button
                                 type="button"
                                 className={styles.smallBtn}
@@ -406,17 +491,14 @@ export default function Contracts() {
                       {c.status === 'signed' && c.signedAt && (
                         <span className={styles.signedDate}>Signed {c.signedAt}</span>
                       )}
-                      {canDeleteContract(c) ? (
-                        <button
-                          type="button"
-                          className={styles.smallBtn}
-                          onClick={() => handleDeleteContractRow(c)}
-                        >
-                          Delete
-                        </button>
-                      ) : (
-                        <span className={styles.muted}>Delete</span>
-                      )}
+                      <button
+                        type="button"
+                        className={styles.smallBtn}
+                        onClick={() => handleDeleteContractRow(c)}
+                        title={c.status === 'signed' ? 'Permanently delete signed contract' : undefined}
+                      >
+                        Delete
+                      </button>
                     </div>
                   </td>
                 </tr>
@@ -430,7 +512,7 @@ export default function Contracts() {
       </section>
 
       <p className={styles.tip}>
-        <strong>Tip:</strong> Mark sent to get a signing link. Send the link to your client; they sign first. After they sign, click Sign to add your signature. A deposit invoice is created when both have signed.
+        <strong>Tip:</strong> Send the contract and retainer together from here. Use <strong>Email package</strong> to resend both links together if needed. After the client signs, click <strong>Sign</strong> to add your signature.
       </p>
 
       {signingContractId && (

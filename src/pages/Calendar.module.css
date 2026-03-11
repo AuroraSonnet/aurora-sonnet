@@ -72,7 +72,7 @@
   padding: 0.4rem 0.75rem;
   font-size: 1.1rem;
   cursor: pointer;
-  color: var(--text);
+  color: var(--text-primary);
 }
 
 .navBtn:hover {
@@ -129,7 +129,7 @@
   border-radius: var(--radius-sm);
   cursor: pointer;
   font-size: 0.9rem;
-  color: var(--text);
+  color: var(--text-primary);
   text-align: center;
 }
 
@@ -248,7 +248,7 @@
 .smallBtn {
   background: var(--bg-card);
   border: 1px solid var(--border);
-  color: var(--text);
+  color: var(--text-primary);
 }
 
 .smallBtn:hover {

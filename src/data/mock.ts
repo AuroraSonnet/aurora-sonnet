@@ -52,6 +52,8 @@ export interface Proposal {
   customPackageDetails?: string
   /** Custom package: price breakdown (e.g. "Ceremony — $1,500\nReception — $2,000"). */
   customPriceBreakdown?: string
+  /** JSON array of enhancements the client selected when accepting (e.g. DJ, saxophone). */
+  acceptedEnhancements?: string
 }
 
 export interface InvoiceLineItem {

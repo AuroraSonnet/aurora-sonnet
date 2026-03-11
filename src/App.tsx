@@ -1,6 +1,7 @@
 import { Routes, Route, Navigate, useLocation } from 'react-router-dom'
 import Layout from './components/Layout'
 import Dashboard from './pages/Dashboard'
+import MonthlyTargets from './pages/MonthlyTargets'
 import Clients from './pages/Clients'
 import ClientDetail from './pages/ClientDetail'
 import Projects from './pages/Projects'
@@ -52,6 +53,7 @@ export default function App() {
       <Route path="/invoices/view/:id" element={<InvoiceView />} />
       <Route path="/" element={<LayoutOrRestricted />}>
         <Route index element={<Dashboard />} />
+        <Route path="monthly-targets" element={<MonthlyTargets />} />
         <Route path="clients" element={<Clients />} />
         <Route path="clients/:id" element={<ClientDetail />} />
         <Route path="newsletter" element={<Newsletter />} />

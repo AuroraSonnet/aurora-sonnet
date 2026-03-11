@@ -471,7 +471,7 @@
   background: var(--bg-app);
   border: 1px solid var(--border);
   border-radius: var(--radius-sm);
-  color: var(--text);
+  color: var(--text-primary);
   cursor: pointer;
 }
 

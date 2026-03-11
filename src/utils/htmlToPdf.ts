@@ -1,13 +1,15 @@
 /**
  * Render HTML to a PDF and return the file as base64.
- * Uses html2canvas to capture the content and jspdf to build the PDF (single or multiple pages).
+ * Loads the heavy PDF libraries only when the user actually exports.
  */
-import html2canvas from 'html2canvas'
-import { jsPDF } from 'jspdf'
 
 const MARGIN = 40
 
 export async function htmlToPdfBase64(html: string): Promise<string> {
+  const [{ default: html2canvas }, { jsPDF }] = await Promise.all([
+    import('html2canvas'),
+    import('jspdf'),
+  ])
   const container = document.createElement('div')
   container.style.position = 'absolute'
   container.style.left = '-9999px'

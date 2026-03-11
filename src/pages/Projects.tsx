@@ -50,7 +50,9 @@ export default function Projects() {
   const navigate = useNavigate()
   const { state, actions } = useApp()
   const { pushUndo } = useUndo()
-  const { projects, clients, pipelineStages: stateStages } = state
+  const projects = state.projects ?? []
+  const clients = state.clients ?? []
+  const stateStages = state.pipelineStages
   const stages = (stateStages && stateStages.length > 0 ? stateStages : defaultStages).slice().sort((a, b) => a.sortOrder - b.sortOrder)
   const firstStageId = stages[0]?.id ?? 'inquiry'
   const lastStageId = stages.length > 0 ? stages[stages.length - 1].id : undefined
@@ -86,6 +88,7 @@ export default function Projects() {
 
   const [sortBy, setSortBy] = useState<SortBy>('recent')
   const [showArchiveView, setShowArchiveView] = useState(false)
+  const [toast, setToast] = useState<string | null>(null)
 
   const clientIdFromState = (location.state as { openNewInquiryForClientId?: string } | null)?.openNewInquiryForClientId
   useEffect(() => {
@@ -137,7 +140,14 @@ export default function Projects() {
       venue: '',
       title: '',
     })
+    setToast('Inquiry added.')
   }
+
+  useEffect(() => {
+    if (!toast) return
+    const t = setTimeout(() => setToast(null), 3000)
+    return () => clearTimeout(t)
+  }, [toast])
 
   const sortedByStage = useMemo(() => {
     const grouped: Record<string, Project[]> = {}
@@ -298,6 +308,7 @@ export default function Projects() {
 
   return (
     <div className={styles.page}>
+      {toast && <p className={styles.toast} role="status">{toast}</p>}
       <header className={styles.header}>
         <h1>Bookings</h1>
         <p className={styles.subtitle}>{showArchiveView ? 'Archived bookings' : 'Pipeline of weddings and events.'}</p>

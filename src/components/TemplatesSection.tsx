@@ -1,5 +1,5 @@
 import { useState, useRef, useCallback } from 'react'
-import { PDFDocument, StandardFonts } from 'pdf-lib'
+import type { PDFDocument } from 'pdf-lib'
 import { useApp } from '../context/AppContext'
 import { useUndo } from '../context/UndoContext'
 import {
@@ -22,6 +22,10 @@ import ContractTemplateEditor from './ContractTemplateEditor'
 import styles from '../pages/Templates.module.css'
 
 type PdfFormField = { name: string; type: 'text' | 'checkbox'; value: string | boolean }
+
+async function loadPdfLib() {
+  return import('pdf-lib')
+}
 
 function bytesToBase64(bytes: Uint8Array): Promise<string> {
   return new Promise((resolve, reject) => {
@@ -179,8 +183,9 @@ export default function TemplatesSection() {
   }
 
   const openViewer = (type: 'contract' | 'invoice', id: string, name: string) => {
-    setViewingTemplate({ type, id, name })
+    setEditError('')
     setReplaceError('')
+    setViewingTemplate({ type, id, name })
   }
 
   const isEditorContractTemplate = (t: { fileName?: string; contentHtml?: string | null }) =>
@@ -271,9 +276,25 @@ export default function TemplatesSection() {
         const res = await fetch(`${url}?t=${Date.now()}`)
         if (!res.ok) throw new Error('Failed to load PDF')
         const ab = await res.arrayBuffer()
+        const { PDFDocument } = await loadPdfLib()
         const pdfDoc = await PDFDocument.load(ab)
         editPdfDocRef.current = pdfDoc
-        const fields = extractPdfFormFields(pdfDoc)
+        let fields: PdfFormField[]
+        try {
+          fields = extractPdfFormFields(pdfDoc)
+        } catch (extractErr) {
+          // Some PDFs have form/appearance data pdf-lib can't read (e.g. "a.toHex is not a function")
+          setEditError(
+            type === 'contract'
+              ? "This PDF's form fields couldn't be read. Use \"Convert to editor\" below or replace the PDF."
+              : "This PDF's form fields couldn't be read. You can still replace the PDF."
+          )
+          setEditFormFields([])
+          setEditAddedTexts([])
+          setEditNewText('')
+          setEditLoading(false)
+          return
+        }
 
         if (type === 'contract' && fields.length === 0) {
           setEditLoading(false)
@@ -396,9 +417,10 @@ export default function TemplatesSection() {
       try {
         form.updateFieldAppearances()
       } catch {
-        // continue
+        // continue — some PDFs have form colors pdf-lib can't handle (e.g. toHex)
       }
       if (editAddedTexts.length > 0) {
+        const { StandardFonts } = await loadPdfLib()
         const font = await pdfDoc.embedStandardFont(StandardFonts.Helvetica)
         const pages = pdfDoc.getPages()
         if (pages.length > 0) {
@@ -411,7 +433,8 @@ export default function TemplatesSection() {
           }
         }
       }
-      const bytes = await pdfDoc.save()
+      // Avoid pdf-lib's default appearance update during save (can throw "a.toHex is not a function" on some PDFs)
+      const bytes = await pdfDoc.save({ updateFieldAppearances: false })
       const base64 = await bytesToBase64(bytes)
       if (viewingTemplate.type === 'contract') {
         await apiReplaceContractTemplateFile(viewingTemplate.id, base64)
@@ -752,7 +775,7 @@ export default function TemplatesSection() {
                 <button
                   type="button"
                   onClick={() => replaceInputRef.current?.click()}
-                  disabled={replacingFile || editFormFields !== null}
+                  disabled={replacingFile || (editFormFields !== null && editFormFields.length > 0)}
                   className={styles.replaceBtn}
                 >
                   {replacingFile ? 'Replacing…' : 'Replace PDF'}
@@ -760,7 +783,7 @@ export default function TemplatesSection() {
                 <button
                   type="button"
                   onClick={handleDownloadAsWord}
-                  disabled={downloadingWord || editFormFields !== null}
+                  disabled={downloadingWord || (editFormFields !== null && editFormFields.length > 0)}
                   className={styles.replaceBtn}
                 >
                   {downloadingWord ? 'Exporting…' : 'Download as Word'}

@@ -30,7 +30,6 @@
   .as-duo-form .as-btn:hover { background: #2d2620; }
   .as-duo-form .as-btn:disabled { opacity: 0.7; cursor: not-allowed; }
   .as-duo-form .as-err { font-size: 0.9rem; color: #c00; margin-top: 0.75rem; display: none; }
-  .as-duo-form .as-sending-hint { font-size: 0.8rem; color: #666; margin-top: 0.5rem; display: none; }
 </style>
 <div class="as-duo-wrap">
   <div class="as-duo-form" id="as-duo-box">
@@ -77,7 +76,6 @@
       </div>
       <p id="as-duo-err" class="as-err" role="alert"></p>
       <button type="submit" class="as-btn" id="as-duo-btn">Send Inquiry</button>
-      <p id="as-duo-sending-hint" class="as-sending-hint" aria-live="polite">This may take up to a minute when our server is waking up.</p>
     </form>
   </div>
 </div>
@@ -123,9 +121,6 @@
       return;
     }
     btn.disabled = true;
-    btn.textContent = 'Sending…';
-    var sendingHint = document.getElementById('as-duo-sending-hint');
-    if (sendingHint) sendingHint.style.display = 'block';
     var r = form.querySelector('input[name="packageId"]:checked');
     var payload = {
       name: (form.name && form.name.value) ? form.name.value.trim() : '',
@@ -140,15 +135,8 @@
     fetch(APP_URL + '/api/inquiry', { method: 'POST', headers: { 'Content-Type': 'application/json', 'Accept': 'application/json' }, body: JSON.stringify(payload) })
       .then(function(res){
         if (res.ok) {
-          btn.textContent = 'Thank you! Redirecting…';
-          function goThankYou() {
-            try { if (window.top && window.top.location) { window.top.location.replace(THANK_YOU); return; } } catch (_) {}
-            try { window.location.replace(THANK_YOU); } catch (e) {
-              if (errEl) { errEl.innerHTML = 'Thank you! <a href="' + THANK_YOU + '" target="_top">Click here</a> if you\'re not redirected.'; errEl.style.display = 'block'; errEl.style.color = '#333'; }
-            }
-          }
-          goThankYou();
-          setTimeout(function(){ if (errEl && !errEl.querySelector('a')) goThankYou(); }, 800);
+          try { if (window.top && window.top.location) { window.top.location.replace(THANK_YOU); return; } } catch (_) {}
+          try { window.location.replace(THANK_YOU); } catch (_) {}
           return;
         }
         return res.text().then(function(t){
@@ -160,7 +148,6 @@
         });
       })
       .catch(function(err){
-        if (sendingHint) sendingHint.style.display = 'none';
         if (errEl) { errEl.textContent = (err && err.message) ? err.message : 'Something went wrong. Please try again.'; errEl.style.display = 'block'; }
         btn.disabled = false;
         btn.textContent = 'Send Inquiry';

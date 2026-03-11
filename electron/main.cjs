@@ -1,11 +1,8 @@
-const { app, BrowserWindow, dialog, ipcMain } = require('electron')
+const { app, BrowserWindow, dialog } = require('electron')
 const path = require('path')
 const net = require('net')
 const { spawn } = require('child_process')
 const fs = require('fs')
-
-const BACKUPS_DIR_NAME = 'backups'
-const BACKUPS_RETAIN_DAYS = 30
 
 const DEFAULT_PORT = 3001
 let serverProcess = null
@@ -47,10 +44,13 @@ function startServer(port) {
     const serverPath = path.join(appPath, 'server', 'index.js')
     let serverStderr = ''
 
+    // extraResources copies node_modules to server/node_modules (see package.json build.extraResources)
+    const nodeModulesPath = path.join(appPath, 'server', 'node_modules')
     const env = {
       ...process.env,
       PORT: String(port),
       DATA_DIR: userData,
+      ...(app.isPackaged && nodeModulesPath ? { NODE_PATH: nodeModulesPath } : {}),
     }
 
     const nodeCmd = getNodePath()
@@ -58,9 +58,8 @@ function startServer(port) {
       reject(new Error('Bundled Node.js not found. Rebuild the app with npm run build:mac.'))
       return
     }
-    const serverNodeModules = path.join(appPath, 'server', 'node_modules')
-    if (app.isPackaged && !fs.existsSync(serverNodeModules)) {
-      reject(new Error('App is missing server/node_modules. Reinstall from the DMG or run npm run build:mac again.'))
+    if (app.isPackaged && !fs.existsSync(nodeModulesPath)) {
+      reject(new Error('App is missing node_modules. Reinstall from the DMG or run npm run build:mac again.'))
       return
     }
     serverProcess = spawn(nodeCmd, [serverPath], {
@@ -95,39 +94,6 @@ function startServer(port) {
   })
 }
 
-function setupBackupHandlers() {
-  const userData = app.getPath('userData')
-  const backupsDir = path.join(userData, BACKUPS_DIR_NAME)
-
-  ipcMain.handle('get-backups-dir', () => backupsDir)
-
-  ipcMain.handle('save-backup', (_event, data) => {
-    if (data == null || (typeof data === 'string' && data.trim() === '')) {
-      return { ok: false, error: 'No data to save' }
-    }
-    if (!fs.existsSync(backupsDir)) fs.mkdirSync(backupsDir, { recursive: true })
-    const date = new Date().toISOString().slice(0, 10)
-    const name = `aurora-backup-${date}.json`
-    const filePath = path.join(backupsDir, name)
-    const content = typeof data === 'string' ? data : JSON.stringify(data, null, 2)
-    fs.writeFileSync(filePath, content, 'utf8')
-    // Prune backups older than BACKUPS_RETAIN_DAYS
-    try {
-      const files = fs.readdirSync(backupsDir)
-      const cutoff = Date.now() - BACKUPS_RETAIN_DAYS * 24 * 60 * 60 * 1000
-      for (const f of files) {
-        if (!f.endsWith('.json')) continue
-        const full = path.join(backupsDir, f)
-        const stat = fs.statSync(full)
-        if (stat.mtimeMs < cutoff) fs.unlinkSync(full)
-      }
-    } catch {
-      // ignore prune errors
-    }
-    return { ok: true, path: filePath }
-  })
-}
-
 function createWindow(port) {
   const win = new BrowserWindow({
     width: 1200,
@@ -138,7 +104,6 @@ function createWindow(port) {
     webPreferences: {
       nodeIntegration: false,
       contextIsolation: true,
-      preload: path.join(__dirname, 'preload.cjs'),
     },
   })
 
@@ -155,7 +120,6 @@ function createWindow(port) {
 const isDev = process.env.ELECTRON_DEV === '1'
 
 app.whenReady().then(() => {
-  setupBackupHandlers()
   if (isDev) {
     // Dev mode: load Vite dev server (hot reload). API server must be running separately.
     createWindow(5173)

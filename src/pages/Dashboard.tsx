@@ -6,7 +6,8 @@ import styles from './Dashboard.module.css'
 
 export default function Dashboard() {
   const { state } = useApp()
-  const { clients, projects, invoices, proposals, contracts, automations } = state
+  const { clients, projects, invoices, proposals, contracts } = state
+  const automations = state.automations ?? []
   const paidInvoices = invoices.filter((i) => i.status === 'paid')
   const totalRevenue = paidInvoices.reduce((s, i) => s + i.amount, 0)
   const activeBookings = projects.filter((p) => p.stage === 'proposal' || p.stage === 'booked').length

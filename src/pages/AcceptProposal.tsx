@@ -87,13 +87,16 @@ export default function AcceptProposal() {
     }
   )
 
+  const encodedData = searchParams.get('d')
+
   useEffect(() => {
     if (!proposalId || !token) {
       setError('Invalid link')
       setLoading(false)
       return
     }
-    fetch(`/api/proposals/${proposalId}/accept-info?token=${encodeURIComponent(token)}`)
+    const url = `/api/proposals/${proposalId}/accept-info?token=${encodeURIComponent(token)}${encodedData ? `&d=${encodeURIComponent(encodedData)}` : ''}`
+    fetch(url)
       .then((res) => res.json().then((data) => ({ ok: res.ok, data })))
       .then(({ ok, data }) => {
         if (!ok || data.error) throw new Error(data?.error || 'Invalid or expired link')
@@ -101,7 +104,7 @@ export default function AcceptProposal() {
       })
       .catch((err) => setError(err instanceof Error ? err.message : 'Failed to load'))
       .finally(() => setLoading(false))
-  }, [proposalId, token])
+  }, [proposalId, token, encodedData])
 
   const baseValue = info?.value ?? 0
   const selectedEnhancements = ELEVATED_ENHANCEMENTS.filter((e) => selectedEnhancementIds.has(e.id))

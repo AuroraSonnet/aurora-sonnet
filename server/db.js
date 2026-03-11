@@ -899,6 +899,19 @@ export function createExpense(expense) {
   return expense.id
 }
 
+export function updateExpense(id, updates) {
+  const { date, description, amount, category } = updates
+  if (date == null && description == null && amount == null && category == null) return false
+  const row = db.prepare('SELECT * FROM expenses WHERE id = ?').get(id)
+  if (!row) return false
+  const d = date !== undefined ? date : row.date
+  const desc = description !== undefined ? description : row.description
+  const amt = amount !== undefined ? amount : row.amount
+  const cat = category !== undefined ? category : row.category
+  db.prepare('UPDATE expenses SET date = ?, description = ?, amount = ?, category = ? WHERE id = ?').run(d, desc, amt, cat, id)
+  return true
+}
+
 export function deleteExpense(id) {
   db.prepare('DELETE FROM expenses WHERE id = ?').run(id)
 }

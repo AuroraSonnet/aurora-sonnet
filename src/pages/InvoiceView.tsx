@@ -1,7 +1,5 @@
 import { useState, useRef } from 'react'
 import { Link, useParams } from 'react-router-dom'
-import html2canvas from 'html2canvas'
-import { jsPDF } from 'jspdf'
 import { useApp } from '../context/AppContext'
 import { createCheckoutSession } from '../api/stripe'
 import styles from './InvoiceView.module.css'
@@ -9,7 +7,8 @@ import styles from './InvoiceView.module.css'
 export default function InvoiceView() {
   const { id } = useParams<{ id: string }>()
   const { state } = useApp()
-  const invoice = state.invoices.find((i) => i.id === id)
+  const invoices = state.invoices ?? []
+  const invoice = invoices.find((i) => i.id === id)
   const cardRef = useRef<HTMLDivElement>(null)
   const [payLoading, setPayLoading] = useState(false)
   const [payError, setPayError] = useState<string | null>(null)
@@ -21,6 +20,10 @@ export default function InvoiceView() {
     setPdfError(null)
     setPdfLoading(true)
     try {
+      const [{ default: html2canvas }, { jsPDF }] = await Promise.all([
+        import('html2canvas'),
+        import('jspdf'),
+      ])
       const canvas = await html2canvas(cardRef.current, {
         scale: 2,
         backgroundColor: '#ffffff',
@@ -70,7 +73,7 @@ export default function InvoiceView() {
   }
 
   if (!invoice) {
-    const maybeLoading = id && state.invoices.length === 0
+    const maybeLoading = id && invoices.length === 0
     return (
       <div className={styles.page}>
         <div className={styles.card}>

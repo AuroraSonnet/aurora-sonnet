@@ -27,10 +27,11 @@ const nav = [
   { to: '/music-selection', label: 'Repertoire', icon: '♪' },
   { to: '/newsletter', label: 'Newsletter', icon: '✉' },
   { to: '/bookkeeping', label: 'Bookkeeping', icon: '◈' },
+  { to: '/monthly-targets', label: 'Monthly Targets', icon: '◌' },
   { to: '/automations', label: 'Automations', icon: '⚡' },
   { to: '/settings', label: 'Settings', icon: '⚙' },
 ]
-const navBeforeLeadForms = 9 // Dashboard through Repertoire, then Lead forms
+const navBeforeLeadForms = 10 // Dashboard through Repertoire, then Lead forms
 
 export default function Layout() {
   const location = useLocation()

@@ -1,24 +1,48 @@
-import { useState } from 'react'
+import { useState, useEffect } from 'react'
 import { useApp } from '../context/AppContext'
 import { useUndo } from '../context/UndoContext'
-import { apiDeleteExpense, apiCreateExpense } from '../api/db'
+import { apiDeleteExpense, apiCreateExpense, apiUpdateExpense } from '../api/db'
 import styles from './Bookkeeping.module.css'
 
 export default function Bookkeeping() {
   const { state, actions } = useApp()
   const { pushUndo } = useUndo()
-  const { invoices, expenses } = state
+  const invoices = state.invoices ?? []
+  const expenses = state.expenses ?? []
   const [showAddExpense, setShowAddExpense] = useState(false)
+  const [editingExpense, setEditingExpense] = useState<(typeof expenses)[0] | null>(null)
   const [newExpense, setNewExpense] = useState({ date: '', description: '', amount: 0, category: 'Materials' })
+  const [toast, setToast] = useState<string | null>(null)
+  const [saving, setSaving] = useState(false)
 
   const paidInvoices = invoices.filter((i) => i.status === 'paid')
   const totalIncome = paidInvoices.reduce((s, i) => s + i.amount, 0)
   const totalExpenses = expenses.reduce((s, e) => s + e.amount, 0)
   const net = totalIncome - totalExpenses
 
-  const handleAddExpense = (e: React.FormEvent) => {
+  const handleSaveExpense = async (e: React.FormEvent) => {
     e.preventDefault()
     if (!newExpense.date || !newExpense.description || newExpense.amount <= 0) return
+    if (editingExpense) {
+      setSaving(true)
+      const ok = await apiUpdateExpense(editingExpense.id, {
+        date: newExpense.date,
+        description: newExpense.description,
+        amount: newExpense.amount,
+        category: newExpense.category,
+      })
+      setSaving(false)
+      if (ok) {
+        await actions.refreshState()
+        setEditingExpense(null)
+        setNewExpense({ date: '', description: '', amount: 0, category: 'Materials' })
+        setShowAddExpense(false)
+        setToast('Expense updated.')
+      } else {
+        setToast('Failed to update expense.')
+      }
+      return
+    }
     const expenseId = actions.addExpense({
       date: newExpense.date,
       description: newExpense.description,
@@ -35,7 +59,26 @@ export default function Bookkeeping() {
     })
     setNewExpense({ date: '', description: '', amount: 0, category: 'Materials' })
     setShowAddExpense(false)
+    setToast('Expense saved.')
   }
+
+  const openEditExpense = (e: (typeof expenses)[0]) => {
+    setEditingExpense(e)
+    setNewExpense({ date: e.date, description: e.description, amount: e.amount, category: e.category })
+    setShowAddExpense(true)
+  }
+
+  const cancelExpenseForm = () => {
+    setShowAddExpense(false)
+    setEditingExpense(null)
+    setNewExpense({ date: '', description: '', amount: 0, category: 'Materials' })
+  }
+
+  useEffect(() => {
+    if (!toast) return
+    const t = setTimeout(() => setToast(null), 3000)
+    return () => clearTimeout(t)
+  }, [toast])
 
   const handleExportCSV = () => {
     const rows: string[][] = [
@@ -54,6 +97,7 @@ export default function Bookkeeping() {
 
   return (
     <div className={styles.page}>
+      {toast && <p className={styles.toast} role="status">{toast}</p>}
       <header className={styles.header}>
         <h1>Bookkeeping</h1>
         <p className={styles.subtitle}>
@@ -63,7 +107,7 @@ export default function Bookkeeping() {
           <button
             type="button"
             className={styles.addBtn}
-            onClick={() => setShowAddExpense(!showAddExpense)}
+            onClick={() => (showAddExpense ? cancelExpenseForm() : setShowAddExpense(true))}
           >
             {showAddExpense ? 'Cancel' : 'Add expense'}
           </button>
@@ -91,8 +135,8 @@ export default function Bookkeeping() {
       </div>
 
       {showAddExpense && (
-        <form className={styles.card} onSubmit={handleAddExpense}>
-          <h2>Add expense</h2>
+        <form className={styles.card} onSubmit={handleSaveExpense}>
+          <h2>{editingExpense ? 'Edit expense' : 'Add expense'}</h2>
           <div className={styles.formRow}>
             <label>
               Date
@@ -142,8 +186,8 @@ export default function Bookkeeping() {
               className={styles.input}
             />
           </label>
-          <button type="submit" className={styles.primaryBtn}>
-            Save expense
+          <button type="submit" className={styles.primaryBtn} disabled={saving}>
+            {saving ? 'Saving…' : editingExpense ? 'Update expense' : 'Save expense'}
           </button>
         </form>
       )}
@@ -173,6 +217,14 @@ export default function Bookkeeping() {
                 <span className={styles.date}>{e.date}</span>
                 <span>{e.description}</span>
                 <span className={styles.amountNeg}>-${e.amount.toLocaleString()}</span>
+                <button
+                  type="button"
+                  className={styles.editBtn}
+                  onClick={() => openEditExpense(e)}
+                  aria-label="Edit"
+                >
+                  Edit
+                </button>
                 <button
                   type="button"
                   className={styles.deleteBtn}

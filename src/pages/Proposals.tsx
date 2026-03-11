@@ -3,11 +3,22 @@ import { createPortal } from 'react-dom'
 import { Link } from 'react-router-dom'
 import { useApp } from '../context/AppContext'
 import { useUndo } from '../context/UndoContext'
-import { apiDeleteProposal, apiCreateProposal, apiEnsureProposalAcceptToken, apiSyncProposalForAccept } from '../api/db'
+import {
+  apiDeleteProposal,
+  apiCreateProposal,
+  apiCreateContract,
+  apiCreateInvoice,
+  apiEnsureProposalAcceptToken,
+  apiSyncProposalForAccept,
+  apiUploadContractFile,
+  fetchContractTemplateFileAsBase64,
+} from '../api/db'
 import { getInquiryApiBaseUrl, DEFAULT_INQUIRY_API_URL } from '../utils/inquiryApiUrl'
-import { ALL_PACKAGES, getPackageOrDuoPrice } from '../data/packages'
+import { ALL_PACKAGES, getPackageOrDuoLabel, getPackageOrDuoPrice } from '../data/packages'
 import type { Proposal } from '../data/mock'
 import { EMAIL_SIGNATURE } from '../utils/emailSignature'
+import { mergeContractTemplate } from '../utils/mergeContractTemplate'
+import { htmlToPdfBase64 } from '../utils/htmlToPdf'
 import styles from './Proposals.module.css'
 
 const DEFAULT_EMAIL_BODY = `Dear [Client],
@@ -124,7 +135,7 @@ function getDefaultEmailBody(
 export default function Proposals() {
   const { state, actions } = useApp()
   const { pushUndo } = useUndo()
-  const { proposals, projects, clients, contracts, invoices, experiences = [] } = state
+  const { proposals, projects, clients, contracts, invoices, experiences = [], contractTemplates = [] } = state
   const [showCreate, setShowCreate] = useState(false)
   const [selectedPackage, setSelectedPackage] = useState<Record<string, string>>({})
   const [customPackageByProject, setCustomPackageByProject] = useState<
@@ -240,6 +251,136 @@ export default function Proposals() {
     return { project, client: client ?? null }
   }
 
+  const randomToken = () => Math.random().toString(36).slice(2, 15) + Math.random().toString(36).slice(2, 15)
+
+  const ensureAgreementAndInvoice = async (p: Proposal) => {
+    const pair = getClientForProposal(p)
+    const project = pair?.project
+    const client = pair?.client
+    if (!project) throw new Error('Project not found for this proposal.')
+
+    let contract = (contracts ?? []).find((c) => c.projectId === p.projectId)
+    const packageLabel = p.customPackageName?.trim() || getPackageOrDuoLabel(project.packageType) || project.title
+    const template =
+      (contract?.templateId ? contractTemplates.find((t) => t.id === contract?.templateId) : null) ||
+      contractTemplates[0] ||
+      null
+    const templateContentHtml = template && 'contentHtml' in template ? (template as { contentHtml?: string | null }).contentHtml : null
+
+    if (!contract) {
+      const createdAt = new Date().toISOString().slice(0, 10)
+      const contractId = `c-${Date.now()}-${Math.random().toString(36).slice(2, 9)}`
+      const signToken = randomToken()
+      const ok = await apiCreateContract({
+        id: contractId,
+        projectId: project.id,
+        clientName: project.clientName,
+        title: project.title,
+        status: 'sent',
+        value: project.value,
+        weddingDate: project.weddingDate || '',
+        venue: project.venue,
+        packageType: packageLabel || (project.packageType ?? undefined),
+        createdAt,
+        templateId: template?.id,
+        signToken,
+        clientSignedAt: undefined,
+        lastReminderSentAt: undefined,
+      })
+      if (!ok) throw new Error('Could not create agreement.')
+      contract = {
+        id: contractId,
+        projectId: project.id,
+        clientName: project.clientName,
+        title: project.title,
+        status: 'sent',
+        value: project.value,
+        weddingDate: project.weddingDate || '',
+        venue: project.venue,
+        packageType: packageLabel || (project.packageType ?? undefined),
+        createdAt,
+        templateId: template?.id,
+        signToken,
+        clientSignedAt: undefined,
+        lastReminderSentAt: undefined,
+      } as (typeof contracts)[0]
+    }
+
+    if (contract.status !== 'sent' || !contract.signToken) {
+      const signToken = contract.signToken || randomToken()
+      actions.updateContract(contract.id, { status: 'sent', signToken })
+      contract = { ...contract, status: 'sent', signToken } as (typeof contracts)[0]
+    }
+
+    if (!template) {
+      throw new Error('No contract template found. Add a contract template first.')
+    }
+
+    if (templateContentHtml?.trim()) {
+      const merged = mergeContractTemplate(templateContentHtml, {
+        clientName: project.clientName,
+        weddingDate: project.weddingDate,
+        venue: project.venue,
+        packageType: project.packageType,
+        value: project.value,
+        title: project.title,
+        clientEmail: client?.email,
+        clientPhone: client?.phone,
+      })
+      const base64 = await htmlToPdfBase64(merged)
+      await apiUploadContractFile(contract.id, base64)
+    } else if (template.fileName) {
+      const base64 = await fetchContractTemplateFileAsBase64(template.id)
+      await apiUploadContractFile(contract.id, base64)
+    }
+
+    let invoice =
+      (invoices ?? []).find((i) => i.projectId === p.projectId && (i.type === 'deposit' || i.type === 'other' || !i.type)) ||
+      null
+    const retainer = Math.round(p.value * 0.5)
+    const lineItems = [{ description: `Retainer (50%) — ${packageLabel}`, quantity: 1, unitPrice: retainer }]
+    if (!invoice) {
+      const dueDate = new Date(Date.now() + 30 * 24 * 60 * 60 * 1000).toISOString().slice(0, 10)
+      const invoiceId = `i-${Date.now()}-${Math.random().toString(36).slice(2, 9)}`
+      const result = await apiCreateInvoice({
+        id: invoiceId,
+        projectId: project.id,
+        clientName: project.clientName,
+        clientEmail: client?.email,
+        projectTitle: `${project.title} — Retainer`,
+        amount: retainer,
+        status: 'sent',
+        dueDate,
+        type: 'deposit',
+        lineItems,
+      })
+      if (!result.ok) throw new Error('Could not create retainer invoice.')
+      invoice = {
+        id: invoiceId,
+        projectId: project.id,
+        clientName: project.clientName,
+        clientEmail: client?.email,
+        projectTitle: `${project.title} — Retainer`,
+        amount: retainer,
+        status: 'sent',
+        dueDate,
+        type: 'deposit',
+        lineItems,
+      } as (typeof invoices)[0]
+    } else if (!invoice.paidAt && invoice.status !== 'paid' && (invoice.amount !== retainer || invoice.status === 'draft')) {
+      actions.updateInvoice(invoice.id, {
+        amount: retainer,
+        projectTitle: `${project.title} — Retainer`,
+        lineItems,
+        status: 'sent',
+      })
+      invoice = { ...invoice, amount: retainer, projectTitle: `${project.title} — Retainer`, lineItems, status: 'sent' } as (typeof invoices)[0]
+    }
+
+    await actions.refreshState()
+    return { contract, invoice }
+  }
+
   const getClientEmailForProposal = (proposal: Proposal): string => {
     const pair = getClientForProposal(proposal)
     return pair?.client?.email ?? ''
@@ -271,18 +412,72 @@ export default function Proposals() {
       if (result) acceptToken = result.acceptToken
       else await actions.refreshState()
     }
-    // When the accept link points to a remote server (e.g. Render), sync proposal + project + client there so the link works.
-    if (baseUrl && acceptToken && pair?.client && pair?.project && baseUrl !== (typeof window !== 'undefined' ? window.location.origin : '')) {
-      await apiSyncProposalForAccept(baseUrl, {
-        client: { id: pair.client.id, name: pair.client.name, email: pair.client.email, phone: pair.client.phone, partnerName: pair.client.partnerName, createdAt: pair.client.createdAt },
-        project: { id: pair.project.id, clientId: pair.project.clientId, clientName: pair.project.clientName, title: pair.project.title, stage: pair.project.stage, value: pair.project.value, weddingDate: pair.project.weddingDate, venue: pair.project.venue, packageType: pair.project.packageType, dueDate: pair.project.dueDate, createdAt: pair.project.createdAt, notes: pair.project.notes, requestedArtist: pair.project.requestedArtist, cloudProjectId: pair.project.cloudProjectId },
-        proposal: { id: p.id, projectId: p.projectId, clientName: p.clientName, title: p.title, status: p.status, value: p.value, sentAt: p.sentAt, acceptToken },
-      })
+    // Sync proposal + project + client to the public site so the accept link always works there.
+    if (baseUrl && acceptToken && pair?.client && pair?.project) {
+      const payload = {
+        client: {
+          id: pair.client.id,
+          name: pair.client.name,
+          email: pair.client.email,
+          phone: pair.client.phone,
+          partnerName: pair.client.partnerName,
+          createdAt: pair.client.createdAt,
+        },
+        project: {
+          id: pair.project.id,
+          clientId: pair.project.clientId,
+          clientName: pair.project.clientName,
+          title: pair.project.title,
+          stage: pair.project.stage,
+          value: pair.project.value,
+          weddingDate: pair.project.weddingDate,
+          venue: pair.project.venue,
+          packageType: pair.project.packageType,
+          dueDate: pair.project.dueDate,
+          createdAt: pair.project.createdAt,
+          notes: pair.project.notes,
+          requestedArtist: pair.project.requestedArtist,
+          cloudProjectId: pair.project.cloudProjectId,
+        },
+        proposal: {
+          id: p.id,
+          projectId: p.projectId,
+          clientName: p.clientName,
+          title: p.title,
+          status: p.status,
+          value: p.value,
+          sentAt: p.sentAt,
+          acceptToken,
+        },
+      }
+      let syncOk = await apiSyncProposalForAccept(baseUrl, payload)
+      if (!syncOk && baseUrl !== DEFAULT_INQUIRY_API_URL) {
+        syncOk = await apiSyncProposalForAccept(DEFAULT_INQUIRY_API_URL, payload)
+      }
+      if (!syncOk) {
+        alert('Warning: Could not sync proposal to Render after multiple attempts. The proposal link will not work.\n\nMake sure your Render server (aurora-sonnet-1.onrender.com) is running, then try sending this proposal again.')
+      }
     }
-    const acceptProposalUrl =
-      baseUrl && acceptToken
-        ? `${baseUrl.replace(/\/$/, '')}/accept-proposal/${p.id}?token=${encodeURIComponent(acceptToken)}`
-        : undefined
+    let acceptProposalUrl: string | undefined
+    if (baseUrl && acceptToken) {
+      const proposalData = {
+        id: p.id,
+        title: p.title,
+        clientName: p.clientName,
+        value: p.value,
+        projectId: p.projectId,
+        status: p.status,
+        sentAt: p.sentAt,
+        acceptToken,
+        clientId: pair?.client?.id,
+        clientEmail: pair?.client?.email,
+        projectTitle: project?.title,
+        weddingDate: project?.weddingDate,
+        venue: project?.venue,
+      }
+      const d = btoa(JSON.stringify(proposalData))
+      acceptProposalUrl = `${baseUrl.replace(/\/$/, '')}/accept-proposal/${p.id}?token=${encodeURIComponent(acceptToken)}&d=${encodeURIComponent(d)}`
+    }
     const experienceName =
       p.customPackageName?.trim() || project?.packageType?.trim() || p.title
     const experienceBullets = getExperienceBulletsFallback(p, presetExperiences)
@@ -314,13 +509,20 @@ export default function Proposals() {
     setSendModal(null)
   }
 
-  const openEmailAgreementAndInvoice = (p: Proposal) => {
+  const openEmailAgreementAndInvoice = async (p: Proposal) => {
     const pair = getClientForProposal(p)
     const client = pair?.client
-    const contract = (contracts ?? []).find((c) => c.projectId === p.projectId) as { id: string; status: string; signToken?: string } | undefined
-    const invoice = (invoices ?? []).find(
+    let ensured
+    try {
+      ensured = await ensureAgreementAndInvoice(p)
+    } catch (err) {
+      showToast(err instanceof Error ? err.message : 'Could not prepare agreement and retainer.')
+      return
+    }
+    const contract = ensured.contract as { id: string; status: string; signToken?: string } | undefined
+    const invoice = ensured.invoice ?? ((invoices ?? []).find(
       (i) => i.projectId === p.projectId && (i.type === 'deposit' || i.type === 'other' || !i.type)
-    ) ?? (invoices ?? []).find((i) => i.projectId === p.projectId)
+    ) ?? (invoices ?? []).find((i) => i.projectId === p.projectId))
     const baseUrl =
       (state.config?.publicAppUrl || '').trim() ||
       getInquiryApiBaseUrl() ||
@@ -396,10 +598,26 @@ export default function Proposals() {
       (rawBase.startsWith('http://localhost') || rawBase.startsWith('file:'))
         ? DEFAULT_INQUIRY_API_URL
         : rawBase || DEFAULT_INQUIRY_API_URL
-    const acceptProposalUrl =
-      baseUrl && p.acceptToken
-        ? `${baseUrl.replace(/\/$/, '')}/accept-proposal/${p.id}?token=${encodeURIComponent(p.acceptToken)}`
-        : undefined
+    let acceptProposalUrl: string | undefined
+    if (baseUrl && p.acceptToken) {
+      const proposalData = {
+        id: p.id,
+        title: p.title,
+        clientName: p.clientName,
+        value: p.value,
+        projectId: p.projectId,
+        status: p.status,
+        sentAt: p.sentAt,
+        acceptToken: p.acceptToken,
+        clientId: pair?.client?.id,
+        clientEmail: pair?.client?.email,
+        projectTitle: project?.title,
+        weddingDate: project?.weddingDate,
+        venue: project?.venue,
+      }
+      const d = btoa(JSON.stringify(proposalData))
+      acceptProposalUrl = `${baseUrl.replace(/\/$/, '')}/accept-proposal/${p.id}?token=${encodeURIComponent(p.acceptToken)}&d=${encodeURIComponent(d)}`
+    }
     const experienceName =
       p.customPackageName?.trim() || project?.packageType?.trim() || p.title
     const experienceBullets = getExperienceBulletsFallback(p, presetExperiences)
@@ -434,16 +652,35 @@ export default function Proposals() {
   const saveEdit = async () => {
     if (!editingId) return
     const current = proposals.find((pr) => pr.id === editingId)
+    if (!current) return
+    const prev = {
+      title: current.title,
+      value: current.value,
+      status: current.status,
+      emailBody: current.emailBody,
+      customPackageName: current.customPackageName,
+      customPackageDetails: current.customPackageDetails,
+      customPriceBreakdown: current.customPriceBreakdown,
+    }
     const title = editForm.title.trim()
     setSavingProposalId(editingId)
     await actions.updateProposal(editingId, {
-      title: title || (current?.title ?? ''),
+      title: title || (current.title ?? ''),
       value: editForm.value,
       status: editForm.status,
       emailBody: editForm.emailBody.trim() || undefined,
       customPackageName: editForm.customPackageName.trim() || undefined,
       customPackageDetails: editForm.customPackageDetails.trim() || undefined,
       customPriceBreakdown: editForm.customPriceBreakdown.trim() || undefined,
+    })
+    const savedId = editingId
+    pushUndo({
+      id: `proposal-edit-${savedId}-${Date.now()}`,
+      label: `Proposal "${title || current.title}" edited`,
+      undo: async () => {
+        await actions.updateProposal(savedId, prev as Record<string, unknown>)
+        await actions.refreshState()
+      },
     })
     setSavingProposalId(null)
     setEditingId(null)
@@ -453,8 +690,18 @@ export default function Proposals() {
   const markAsSent = async (p: Proposal) => {
     setMenuOpenId(null)
     setMenuTriggerRect(null)
+    const prevStatus = p.status
+    const prevSentAt = p.sentAt
     setSavingProposalId(p.id)
     await actions.updateProposal(p.id, { status: 'sent', sentAt: new Date().toISOString().slice(0, 10) })
+    pushUndo({
+      id: `proposal-sent-${p.id}-${Date.now()}`,
+      label: `Proposal "${p.title}" marked as sent`,
+      undo: async () => {
+        await actions.updateProposal(p.id, { status: prevStatus, sentAt: prevSentAt || null } as Record<string, unknown>)
+        await actions.refreshState()
+      },
+    })
     setSavingProposalId(null)
     showToast('Marked as sent')
   }
@@ -462,10 +709,21 @@ export default function Proposals() {
   const markAsAccepted = async (p: Proposal) => {
     setMenuOpenId(null)
     setMenuTriggerRect(null)
+    const prevStatus = p.status
+    const project = projects.find((x) => x.id === p.projectId)
+    const prevStage = project?.stage
     setSavingProposalId(p.id)
     await actions.updateProposal(p.id, { status: 'accepted' })
-    const project = projects.find((x) => x.id === p.projectId)
     if (project) actions.updateProject(project.id, { stage: 'booked' })
+    pushUndo({
+      id: `proposal-accepted-${p.id}-${Date.now()}`,
+      label: `Proposal "${p.title}" marked as accepted`,
+      undo: async () => {
+        await actions.updateProposal(p.id, { status: prevStatus } as Record<string, unknown>)
+        if (project && prevStage) actions.updateProject(project.id, { stage: prevStage })
+        await actions.refreshState()
+      },
+    })
     setSavingProposalId(null)
     showToast('Marked as accepted')
   }

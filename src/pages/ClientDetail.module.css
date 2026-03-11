@@ -71,7 +71,7 @@
 
 .secBtn {
   background: var(--bg-card);
-  color: var(--text-primary);
+  color: var(--text);
   border: 1px solid var(--border);
   padding: 0.6rem 1.1rem;
   border-radius: var(--radius-sm);
@@ -139,7 +139,7 @@
 
 .confirmActions .cancelBtn {
   background: var(--bg-card);
-  color: var(--text);
+  color: var(--text-primary);
   border: 1px solid var(--border);
   padding: 0.5rem 1rem;
   border-radius: var(--radius-sm);
@@ -169,7 +169,7 @@
   font-size: 0.95rem;
   border: 1px solid var(--border);
   border-radius: var(--radius-sm);
-  background: var(--bg);
+  background: var(--bg-card);
   box-sizing: border-box;
 }
 
@@ -383,4 +383,73 @@
   margin-bottom: 0.2rem;
   border: none;
   padding: 0;
+}
+
+.acceptedList {
+  display: flex;
+  flex-direction: column;
+  gap: 1.25rem;
+}
+
+.acceptedBlock {
+  padding-bottom: 1rem;
+  border-bottom: 1px solid var(--border);
+}
+
+.acceptedBlock:last-child {
+  padding-bottom: 0;
+  border-bottom: none;
+}
+
+.acceptedHead {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.5rem;
+}
+
+.acceptedHead strong {
+  font-size: 0.95rem;
+}
+
+.acceptedValue {
+  font-size: 0.95rem;
+  font-weight: 600;
+  color: var(--accent);
+}
+
+.enhSection {
+  margin-top: 0.5rem;
+}
+
+.enhTitle {
+  font-size: 0.8rem;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  color: var(--text-muted);
+  margin: 0 0 0.4rem 0;
+}
+
+.enhList {
+  list-style: none;
+  padding: 0;
+  margin: 0;
+}
+
+.enhList li {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 0.35rem 0;
+  font-size: 0.9rem;
+  border-bottom: 1px solid var(--border);
+}
+
+.enhList li:last-child {
+  border-bottom: none;
+}
+
+.enhAmount {
+  font-size: 0.85rem;
+  color: var(--text-secondary);
 }

@@ -85,12 +85,12 @@ export async function seedDatabase(): Promise<AppState | null> {
   }
 }
 
-export async function apiCreateClient(client: { id: string; name: string; email: string; phone?: string; partnerName?: string; createdAt: string }): Promise<{ ok: true } | { ok: false; error: string }> {
+export async function apiCreateClient(client: { id?: string; name: string; email: string; phone?: string; partnerName?: string; createdAt: string }): Promise<{ ok: true; id: string } | { ok: false; error: string }> {
   try {
     const res = await fetch(`${API}/clients`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(client) })
     const body = await res.json().catch(() => ({}))
     const msg = (body && typeof body.error === 'string') ? body.error : 'Failed to create client'
-    if (res.ok) return { ok: true }
+    if (res.ok) return { ok: true, id: typeof body.id === 'string' ? body.id : String(client.id || '') }
     return { ok: false, error: res.status === 409 ? msg : msg }
   } catch {
     return { ok: false, error: 'Network error' }
@@ -210,6 +210,22 @@ export async function apiSendInvoiceReminder(invoiceId: string, baseUrl?: string
 export async function apiCreateExpense(expense: Record<string, unknown>): Promise<boolean> {
   try {
     const res = await fetch(`${API}/expenses`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(expense) })
+    return res.ok
+  } catch {
+    return false
+  }
+}
+
+export async function apiUpdateExpense(
+  id: string,
+  updates: { date?: string; description?: string; amount?: number; category?: string }
+): Promise<boolean> {
+  try {
+    const res = await fetch(`${API}/expenses/${id}`, {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(updates),
+    })
     return res.ok
   } catch {
     return false
@@ -338,22 +354,69 @@ export async function apiEnsureProposalAcceptToken(proposalId: string): Promise<
   }
 }
 
-/** Sync proposal + project + client to a remote API (e.g. Render) so the accept link works there. */
+/** Wake Render from cold sleep by hitting a lightweight endpoint and waiting for a response. */
+async function warmUpRender(publicBaseUrl: string): Promise<boolean> {
+  const base = publicBaseUrl.replace(/\/$/, '')
+  for (let i = 0; i < 3; i++) {
+    try {
+      const controller = new AbortController()
+      const tid = setTimeout(() => controller.abort(), 30000)
+      const res = await fetch(`${base}/api/state`, { signal: controller.signal }).finally(() => clearTimeout(tid))
+      if (res.ok || res.status < 500) return true
+    } catch { /* still waking */ }
+    if (i < 2) await new Promise((r) => setTimeout(r, 5000))
+  }
+  return false
+}
+
+/** Push a proposal to Render so the public accept link works.
+ *  Warms up Render first, then tries server-side push, proxy, and direct. */
 export async function apiSyncProposalForAccept(
   publicBaseUrl: string,
   payload: { client: { id: string; name: string; email: string; phone?: string; partnerName?: string; createdAt?: string }; project: { id: string; clientId: string; clientName: string; title: string; stage?: string; value: number; weddingDate?: string; venue?: string; packageType?: string; dueDate?: string; createdAt?: string; notes?: string; requestedArtist?: string; cloudProjectId?: string }; proposal: { id: string; projectId: string; clientName: string; title: string; status: string; value: number; sentAt?: string; acceptToken: string } }
 ): Promise<boolean> {
-  try {
-    const base = publicBaseUrl.replace(/\/$/, '')
-    const res = await fetch(`${base}/api/proposals/sync-for-accept`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(payload),
-    })
-    return res.ok
-  } catch {
-    return false
+  await warmUpRender(publicBaseUrl)
+
+  // Method 1: server-side push (reads local DB, pushes to Render — no CORS)
+  for (let attempt = 0; attempt < 2; attempt++) {
+    try {
+      const res = await fetch(`${API}/proposals/${payload.proposal.id}/push-to-render`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ baseUrl: publicBaseUrl }),
+      })
+      if (res.ok) return true
+      console.warn(`[Sync] push-to-render attempt ${attempt + 1} status=${res.status}`)
+    } catch { /* endpoint unavailable */ }
+    if (attempt < 1) await new Promise((r) => setTimeout(r, 3000))
   }
+  // Method 2: proxy with payload
+  for (let attempt = 0; attempt < 2; attempt++) {
+    try {
+      const res = await fetch(`${API}/proxy-sync-proposal`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ base: publicBaseUrl, payload }),
+      })
+      if (res.ok) return true
+      console.warn(`[Sync] proxy attempt ${attempt + 1} status=${res.status}`)
+    } catch { /* proxy unavailable */ }
+    if (attempt < 1) await new Promise((r) => setTimeout(r, 3000))
+  }
+  // Method 3: direct browser→Render (last resort)
+  for (let attempt = 0; attempt < 2; attempt++) {
+    try {
+      const res = await fetch(`${publicBaseUrl.replace(/\/$/, '')}/api/proposals/sync-for-accept`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(payload),
+      })
+      if (res.ok) return true
+      console.warn(`[Sync] direct attempt ${attempt + 1} status=${res.status}`)
+    } catch { /* direct failed */ }
+    if (attempt < 1) await new Promise((r) => setTimeout(r, 3000))
+  }
+  return false
 }
 
 export async function apiDeleteContract(id: string): Promise<boolean> {

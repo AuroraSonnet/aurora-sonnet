@@ -34,7 +34,8 @@ export default function Calendar() {
   const location = useLocation()
   const navigate = useNavigate()
   const { state, actions } = useApp()
-  const { calendarReminders, clients } = state
+  const calendarReminders = state.calendarReminders ?? []
+  const clients = state.clients ?? []
   const today = new Date()
   const [viewYear, setViewYear] = useState(today.getFullYear())
   const [viewMonth, setViewMonth] = useState(today.getMonth())
@@ -81,28 +82,42 @@ export default function Calendar() {
 
   const handleSaveNew = () => {
     if (!modalDate || !form.title.trim()) return
+    let reminderAt: string | undefined
+    if (form.reminderAt) {
+      const d = new Date(form.reminderAt)
+      reminderAt = Number.isNaN(d.getTime()) ? undefined : d.toISOString()
+    }
     actions.addCalendarReminder({
       date: modalDate,
       title: form.title.trim(),
       notes: form.notes.trim() || undefined,
       clientId: form.clientId || undefined,
-      reminderAt: form.reminderAt ? new Date(form.reminderAt).toISOString() : undefined,
+      reminderAt,
       createdAt: new Date().toISOString(),
     })
     setForm({ title: '', notes: '', clientId: '', reminderAt: '' })
+    setReminderToast('Reminder saved.')
   }
 
   const handleUpdate = (id: string) => {
     const r = calendarReminders.find((x) => x.id === id)
     if (!r) return
+    const title = editingForm.title.trim()
+    if (!title) return
+    let reminderAt: string | undefined
+    if (editingForm.reminderAt) {
+      const d = new Date(editingForm.reminderAt)
+      reminderAt = Number.isNaN(d.getTime()) ? undefined : d.toISOString()
+    }
     actions.updateCalendarReminder(id, {
-      title: editingForm.title.trim() || r.title,
+      title,
       notes: editingForm.notes.trim() || undefined,
       clientId: editingForm.clientId || undefined,
-      reminderAt: editingForm.reminderAt ? new Date(editingForm.reminderAt).toISOString() : undefined,
+      reminderAt,
     })
     setEditingId(null)
     setEditingForm({ title: '', notes: '', clientId: '', reminderAt: '' })
+    setReminderToast('Reminder saved.')
   }
 
   const startEdit = (r: CalendarReminder) => {
@@ -129,7 +144,7 @@ export default function Calendar() {
     } else setViewMonth((m) => m + 1)
   }
 
-  const clientName = (id: string) => clients.find((c) => c.id === id)?.name ?? id
+  const clientName = (id: string) => clients.find((c) => c.id === id)?.name ?? 'Unknown contact'
 
   const [sendingReminders, setSendingReminders] = useState(false)
   const [reminderToast, setReminderToast] = useState<string | null>(null)
@@ -143,8 +158,17 @@ export default function Calendar() {
     setSendingReminders(true)
     try {
       const res = await fetch('/api/calendar-reminders/send-due', { method: 'POST' })
-      const data = res.ok ? await res.json() : null
-      const sent = data?.sent ?? 0
+      const data = await res.json().catch(() => null)
+      if (!res.ok) {
+        const msg = (data?.error as string) || 'Failed to send reminders.'
+        setReminderToast(res.status === 503 ? (msg.includes('SMTP') ? 'Configure SMTP in Settings to send reminder emails.' : msg) : msg)
+        return
+      }
+      const sent = Number(data?.sent) ?? 0
+      if (data?.error && sent === 0) {
+        setReminderToast(data.error.includes('SMTP') ? 'Configure SMTP in Settings to send reminder emails.' : data.error)
+        return
+      }
       if (sent > 0) {
         setReminderToast(`Sent ${sent} reminder email(s) to you.`)
         actions.refreshState()
@@ -271,7 +295,7 @@ export default function Calendar() {
                         />
                       </label>
                       <div className={styles.inlineActions}>
-                        <button type="button" className={styles.primaryBtn} onClick={() => handleUpdate(r.id)}>
+                        <button type="button" className={styles.primaryBtn} onClick={() => handleUpdate(r.id)} disabled={!editingForm.title.trim()}>
                           Save
                         </button>
                         <button type="button" className={styles.linkBtn} onClick={() => { setEditingId(null); setEditingForm({ title: '', notes: '', clientId: '', reminderAt: '' }) }}>

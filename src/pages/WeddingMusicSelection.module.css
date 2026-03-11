@@ -51,6 +51,45 @@
   opacity: 0.85;
 }
 
+/* Tab bar */
+.tabBar {
+  display: flex;
+  justify-content: center;
+  gap: 0;
+  padding: 1rem 2rem 0;
+  background: #fdfaf7;
+}
+
+.tabBtn {
+  flex: 1;
+  max-width: 200px;
+  padding: 0.65rem 1rem;
+  font-family: 'Playfair Display', serif;
+  font-size: 0.95rem;
+  font-weight: 500;
+  letter-spacing: 0.04em;
+  border: 1px solid #d5cec6;
+  background: transparent;
+  color: #6b5b52;
+  cursor: pointer;
+  transition: all 0.2s;
+}
+
+.tabBtn:first-child {
+  border-radius: 6px 0 0 6px;
+}
+
+.tabBtn:last-child {
+  border-radius: 0 6px 6px 0;
+  border-left: none;
+}
+
+.tabBtnActive {
+  background: #382e27;
+  color: #fdfaf7;
+  border-color: #382e27;
+}
+
 /* Section divider with ornament */
 .sectionDivider {
   display: flex;

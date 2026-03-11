@@ -1,5 +1,10 @@
 import type { Project, Proposal, Invoice } from '../data/mock'
 
+/**
+ * Automation suggestions: one per event (one per project/proposal/invoice that needs action).
+ * Read-only: no server execution, no emails sent. Dashboard shows cards; user performs actions manually.
+ * Events in scope: inquiry_received → send proposal; proposal_sent (5+ days) → contract; overdue invoice → payment; wedding_week → view booking.
+ */
 const today = () => new Date().toISOString().slice(0, 10)
 
 function daysBetween(a: string, b: string): number {

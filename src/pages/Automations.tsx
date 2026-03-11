@@ -22,7 +22,7 @@ const ACTION_LABELS: Record<AutomationAction, string> = {
 
 export default function Automations() {
   const { state, actions } = useApp()
-  const workflows = state.automations
+  const workflows = state.automations ?? []
 
   const onCount = useMemo(() => workflows.filter((a) => a.enabled).length, [workflows])
 
@@ -50,8 +50,18 @@ export default function Automations() {
             <span className={styles.arrow} aria-hidden>→</span>
             <span className={styles.pill}>Create deposit invoice</span>
           </div>
+          <div className={styles.builtInFlow} style={{ marginTop: '0.75rem' }}>
+            <span className={styles.pill}>30 days before wedding</span>
+            <span className={styles.arrow} aria-hidden>→</span>
+            <span className={styles.pill}>Create final invoice draft</span>
+          </div>
+          <div className={styles.builtInFlow} style={{ marginTop: '0.75rem' }}>
+            <span className={styles.pill}>Contract signed + retainer paid</span>
+            <span className={styles.arrow} aria-hidden>→</span>
+            <span className={styles.pill}>Add 2 calendar dates</span>
+          </div>
           <p className={styles.builtInNote}>
-            When you mark a contract as signed in Contracts, a 50% deposit invoice is created for that booking if one doesn’t exist.
+            When you mark a contract as signed in Contracts, a 50% deposit invoice is created for that booking if one doesn’t exist. Final invoices are auto-created as drafts 30 days before the wedding for secured bookings, and secured bookings also get calendar dates for the wedding day and the final-invoice reminder. If SMTP is configured, those built-in dates also email you on the day.
           </p>
         </div>
       </section>

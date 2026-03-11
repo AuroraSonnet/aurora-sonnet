@@ -46,25 +46,89 @@ function spansToPlaceholders(html: string): string {
 }
 
 const DEFAULT_CONTENT = `<p style="text-align: center;"><strong>AURORA SONNET</strong></p>
-<p style="text-align: center;">ARTIST-AGENCY AGREEMENT</p>
-<p>This Artist-Agency Agreement ("Agreement") is between Aurora Sonnet ("Agency") and the undersigned performer ("Artist"). This Agreement becomes effective only upon acceptance by Aurora Sonnet (including countersignature or written confirmation).</p>
-<p><strong>1. Representation &amp; Scope</strong></p>
-<p>The Agency will represent the Artist for the purpose of marketing and negotiating bookings for live performances within New York State and the surrounding metro area.</p>
-<p><strong>2. Bookings &amp; Commission</strong></p>
-<p>The Agency retains 20% of the Performance Fee; the Artist receives 80%. "Performance Fee" means the total fee for the engagement. The Agency will collect payment from the client and disburse the Artist's share within 14 days of receipt.</p>
-<p><strong>3. Performance Standards</strong></p>
-<p>The Artist agrees to be punctual, professionally attired, communicative, and to maintain consistent performance quality. The Artist will promptly notify the Agency of any issues that may affect a booking.</p>
-<p>Artist details:</p>
-<p>Full Legal Name: {{client_name}}</p>
+<p style="text-align: center;"><strong>ARTIST AGENCY AGREEMENT</strong></p>
+<p>This Agreement is entered into between Aurora Sonnet ("Agency") and the undersigned Artist or Artist's legal entity ("Artist").</p>
+<p>The purpose of this Agreement is to establish a professional relationship in which Aurora Sonnet represents the Artist for live performance opportunities including weddings and private events.</p>
+<p><strong>1. Representation</strong></p>
+<p>The Artist appoints Aurora Sonnet as a non-exclusive booking agency for live performance engagements.</p>
+<p>The Artist remains free to pursue and accept independent bookings outside of the Agency.</p>
+<p><strong>2. Commission</strong></p>
+<p>Aurora Sonnet will receive a twenty percent (20%) commission on all engagements secured, negotiated, or introduced by the Agency.</p>
+<p>The Artist will receive the remaining eighty percent (80%) of the Performance Fee.</p>
+<p>"Performance Fee" means the agreed performance price. For events located more than 50 miles from New York City, travel, lodging, equipment rentals, and similar expenses may be treated separately from the Performance Fee unless otherwise agreed.</p>
+<p><strong>3. Booking Confirmation</strong></p>
+<p>Before the Agency confirms a booking, the Artist must confirm availability and acceptance.</p>
+<p>The Agency will disclose the identity of the client when requesting the Artist's confirmation.</p>
+<p>The Agency will not finalize a booking without the Artist's confirmation.</p>
+<p>The Artist agrees to respond to booking inquiries within a reasonable timeframe. If the Artist does not respond in time, the Agency may offer the engagement to another artist.</p>
+<p><strong>4. Client Payment Structure</strong></p>
+<p>Clients booking through Aurora Sonnet must pay:</p>
+<ul>
+<li>a 50% non-refundable retainer to secure the booking</li>
+<li>the remaining 50% no later than 15 days before the event</li>
+</ul>
+<p>If the final payment is not received on time, the Agency may cancel the engagement and the Artist will not be required to perform.</p>
+<p><strong>5. Artist Payment</strong></p>
+<p>After the engagement is completed and the client has paid in full, the Agency will pay the Artist their 80% share of the Performance Fee.</p>
+<p>Payment will be issued within three (3) business days after the engagement is completed.</p>
+<p><strong>6. Travel &amp; Expenses</strong></p>
+<p>For events requiring travel beyond the local area, the Agency will provide an approved travel budget.</p>
+<p>The Artist may arrange travel and lodging within that budget.</p>
+<p>After the engagement, the Artist may submit receipts for reimbursement. The Agency will reimburse approved expenses once receipts are received.</p>
+<p>If travel costs are expected to exceed the approved budget, the Artist must contact the Agency before booking.</p>
+<p>The Artist is responsible for planning travel so they arrive with enough time to prepare and perform as scheduled.</p>
+<p><strong>7. Cancellations</strong></p>
+<p>Client cancellations follow the terms of the Client Agreement, including the 50% non-refundable retainer.</p>
+<p>If a client cancels and the Agency retains any portion of the Performance Fee, the Artist will receive 80% of the retained Performance Fee.</p>
+<p>In the rare and unfortunate event that the client receives a full refund, no Artist payment is owed.</p>
+<p>If the Artist cancels a confirmed engagement without a legitimate emergency, the Agency may secure a replacement artist. The cancelling Artist may be responsible for reasonable, documented costs directly incurred by the Agency in securing a replacement, but not exceeding the Artist's expected share of the Performance Fee.</p>
+<p>If an engagement cannot take place due to circumstances beyond the control of the parties — including natural disasters, government restrictions, venue closure, or serious illness — the Agency and Artist will work together in good faith to reschedule or otherwise resolve the engagement.</p>
+<p><strong>8. Media &amp; Promotional Content</strong></p>
+<p>Photos and videos created or produced by Aurora Sonnet for promotional purposes remain the property of the Agency.</p>
+<p>The Artist may use these photos and videos for personal promotion, including their website and social media, but may not provide, license, or allow another agency or representation company to use them without the Agency's written consent.</p>
+<p>Clients may not use the Artist's name, likeness, or performance footage for commercial purposes without the Artist's prior written consent. Personal, non-commercial sharing is permitted.</p>
+<p>The Artist may not record, film, or publish content from a private event without the client's written consent.</p>
+<p>If the Artist is no longer represented by Aurora Sonnet and requests in writing that their photos or videos be removed, the Agency will remove such materials from its website, social media, and any other platforms used by the Agency to promote the Artist within a reasonable timeframe.</p>
+<p>⸻</p>
+<p><strong>9. Non-Circumvention</strong></p>
+<p>The Artist agrees not to bypass the Agency for bookings introduced, negotiated, or secured by Aurora Sonnet.</p>
+<p>This protection applies for twelve (12) months following the introduction or performance, whichever occurs later.</p>
+<p>If a client introduced by the Agency books the Artist directly within that period, the Agency remains entitled to its 20% commission.</p>
+<p><strong>10. Excluded Client List</strong></p>
+<p>Before signing this Agreement, the Artist may provide an Excluded Client List.</p>
+<p>Clients on that list:</p>
+<ul>
+<li>are not subject to Agency commission</li>
+<li>may continue booking the Artist independently</li>
+</ul>
+<p>If any client on the Excluded Client List contacts the Agency directly, the Agency is not obligated to offer the Artist for that engagement and may instead refer another artist represented by the Agency.</p>
+<p><strong>11. Independent Contractor, Insurance, Equipment &amp; Conduct</strong></p>
+<p>The Artist is engaged as an independent contractor, not as an employee of Aurora Sonnet.</p>
+<p>The Artist is responsible for their own taxes, insurance, permits, business expenses, and performance equipment.</p>
+<p>Any additional equipment, rentals, or special requirements requested by the client must be approved in advance and paid by the client.</p>
+<p>If a venue requires proof of insurance, the Agency may arrange coverage for that engagement. Otherwise, the Artist is responsible for maintaining any required insurance.</p>
+<p>The Artist agrees to maintain professional conduct and discretion regarding client information and private events and to deliver a professional performance consistent with the style and quality represented to the Agency and the client.</p>
+<p><strong>12. Term &amp; Termination</strong></p>
+<p>Either party may terminate this Agreement with 30 days written notice.</p>
+<p>Bookings confirmed before termination remain subject to this Agreement.</p>
+<p>This Agreement is governed by the laws of the State of New York.</p>
+<p><br></p>
+<p><strong><em>ARTIST INFORMATION</em></strong></p>
+<p>Artist / Company Legal Name: {{client_name}}</p>
+<p>Stage Name (if applicable): __________________________</p>
+<p>Authorized Representative (if company): __________________________</p>
+<p>Address: __________________________</p>
 <p>Email: {{client_email}}</p>
 <p>Phone: {{client_phone}}</p>
-<p>Wedding/Event Date: {{wedding_date}}</p>
-<p>Venue: {{venue}}</p>
-<p>Package: {{package_type}} — Performance Fee: {{performance_fee}}</p>
-<p>{{signature_client}}</p>
-<p>AURORA SONNET (AGENCY)</p>
-<p>Authorized Representative: Lisa Dubocquet — Founder &amp; Director</p>
-<p>{{signature_vendor}}</p>`
+<p><br></p>
+<p><strong><em>AURORA SONNET (AGENCY)</em></strong></p>
+<p>Aurora Sonnet LLC</p>
+<p>Authorized Representative: Lisa Dubocquet</p>
+<p>Title: Founder &amp; Director</p>
+<p><br></p>
+<p>Artist Signature: {{signature_client}}</p>
+<p><br></p>
+<p>Agency Signature: {{signature_vendor}}</p>`
 
 export type ContractTemplateEditorProps = {
   templateId: string
