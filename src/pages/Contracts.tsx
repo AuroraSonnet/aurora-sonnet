@@ -179,14 +179,12 @@ export default function Contracts() {
       }))
       const signUrl = `${clientFacingBaseUrl.replace(/\/$/, '')}/sign/${contract.id}?token=${encodeURIComponent(signToken)}&d=${encodeURIComponent(d)}`
 
-      void apiSyncContractForSign(clientFacingBaseUrl, contract.id).then((ok) => {
-        if (ok) console.log('[ContractSync] Synced to Render')
-        else console.warn('[ContractSync] Sync failed (link has fallback data)')
-      })
-      void apiSyncInvoiceForView(clientFacingBaseUrl, invoice.id).then((ok) => {
-        if (ok) console.log('[InvoiceSync] Synced to Render')
-        else console.warn('[InvoiceSync] Sync failed')
-      })
+      const contractSyncOk = await apiSyncContractForSign(clientFacingBaseUrl, contract.id)
+      if (contractSyncOk) console.log('[ContractSync] Synced to Render')
+      else console.warn('[ContractSync] Sync failed (link has fallback data)')
+      const invoiceSyncOk = await apiSyncInvoiceForView(clientFacingBaseUrl, invoice.id)
+      if (invoiceSyncOk) console.log('[InvoiceSync] Synced to Render')
+      else console.warn('[InvoiceSync] Sync failed (invoice link may not work)')
 
       const invoiceUrl = `${clientFacingBaseUrl.replace(/\/$/, '')}/invoices/view/${invoice.id}`
       const firstName = (contract.clientName || '').split(/\s+/)[0] || 'there'

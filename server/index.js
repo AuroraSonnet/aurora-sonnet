@@ -2103,6 +2103,17 @@ app.delete('/api/contracts/:id', (req, res) => {
   }
 })
 
+app.get('/api/invoices/:id', (req, res) => {
+  try {
+    const inv = getState().invoices.find((i) => i.id === req.params.id)
+    if (!inv) return res.status(404).json({ error: 'Invoice not found' })
+    res.json(inv)
+  } catch (err) {
+    logError('API', 'Failed to get invoice', err)
+    res.status(500).json({ error: err.message || 'Failed to get invoice' })
+  }
+})
+
 app.post('/api/invoices', (req, res) => {
   try {
     const i = req.body

@@ -1,4 +1,4 @@
-import { useState, useRef } from 'react'
+import { useState, useRef, useEffect } from 'react'
 import { Link, useParams } from 'react-router-dom'
 import { useApp } from '../context/AppContext'
 import { createCheckoutSession } from '../api/stripe'
@@ -8,7 +8,18 @@ export default function InvoiceView() {
   const { id } = useParams<{ id: string }>()
   const { state } = useApp()
   const invoices = state.invoices ?? []
-  const invoice = invoices.find((i) => i.id === id)
+  const [fetchedInvoice, setFetchedInvoice] = useState<typeof invoices[0] | null>(null)
+  const invoice = invoices.find((i) => i.id === id) ?? fetchedInvoice
+
+  useEffect(() => {
+    if (!id || invoices.some((i) => i.id === id)) return
+    fetch(`/api/invoices/${id}`)
+      .then((res) => (res.ok ? res.json() : null))
+      .then((data) => data && setFetchedInvoice(data))
+      .catch(() => {})
+  }, [id, invoices])
+
+  const isClientView = typeof window !== 'undefined' && !['localhost', '127.0.0.1'].includes(window.location.hostname)
   const cardRef = useRef<HTMLDivElement>(null)
   const [payLoading, setPayLoading] = useState(false)
   const [payError, setPayError] = useState<string | null>(null)
@@ -73,7 +84,7 @@ export default function InvoiceView() {
   }
 
   if (!invoice) {
-    const maybeLoading = id && invoices.length === 0
+    const maybeLoading = id && invoices.length === 0 && !fetchedInvoice
     return (
       <div className={styles.page}>
         <div className={styles.card}>
@@ -87,7 +98,7 @@ export default function InvoiceView() {
               <>
                 <h1>Invoice not found</h1>
                 <p>This invoice may have been removed or the link is invalid.</p>
-                <Link to="/invoices" className={styles.backLink}>← Back to Invoices</Link>
+                {!isClientView && <Link to="/invoices" className={styles.backLink}>← Back to Invoices</Link>}
               </>
             )}
           </div>
@@ -101,7 +112,7 @@ export default function InvoiceView() {
   return (
     <div className={styles.page}>
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '0.75rem', marginBottom: '1rem' }}>
-        <Link to="/invoices" className={styles.backLink}>← Back to Invoices</Link>
+        {!isClientView && <Link to="/invoices" className={styles.backLink}>← Back to Invoices</Link>}
         <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem', marginLeft: 'auto' }}>
           {pdfError && <span className={styles.payHint} style={{ color: 'var(--warning, #9a7b4f)', fontSize: '0.875rem' }}>{pdfError}</span>}
           <button
