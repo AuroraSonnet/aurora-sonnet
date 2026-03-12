@@ -1886,7 +1886,15 @@ app.get('/api/contracts/:id/sign-info', async (req, res) => {
     if (contract.clientSignedAt) {
       return res.json({ ...contract, awaiting: 'vendor', message: 'Client has signed. Awaiting vendor signature.' })
     }
-    const pdfBuf = loadContractPdfBuffer(contract, state)
+    let pdfBuf = loadContractPdfBuffer(contract, state)
+    if (!pdfBuf) {
+      try {
+        const proj = state.projects.find((p) => p.id === contract.projectId)
+        const basicHtml = `<h1>Performance Agreement</h1><p>Client: ${contract.clientName}</p><p>Event: ${contract.title}</p><p>Date: ${contract.weddingDate || 'TBD'}</p><p>Venue: ${contract.venue || 'TBD'}</p><p>Investment: $${(contract.value || 0).toLocaleString()}</p><p>Package: ${contract.packageType || proj?.packageType || 'Standard'}</p>`
+        pdfBuf = await createPdfFromEditorTemplate(basicHtml, { clientName: contract.clientName, weddingDate: contract.weddingDate, venue: contract.venue, packageType: contract.packageType, value: contract.value, title: contract.title })
+        if (pdfBuf) { ensureContractsDir(); writeFileSync(join(CONTRACTS_DIR, `${contract.id}.pdf`), pdfBuf) }
+      } catch (_) {}
+    }
     if (!pdfBuf) {
       return res.status(400).json({ error: 'Contract PDF not available. Please ask the sender to generate the contract first.' })
     }
