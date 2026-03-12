@@ -1400,13 +1400,29 @@ app.get('/api/proposals/:id/accept-info', (req, res) => {
     let proposal = state.proposals.find((p) => p.id === req.params.id)
     if (!proposal && d) {
       try {
-        const decoded = JSON.parse(Buffer.from(String(d), 'base64').toString('utf-8'))
-        console.log(`[accept-info] decoded d: id=${decoded.id} tokenMatch=${decoded.acceptToken === token}`)
-        if (decoded && decoded.acceptToken === token && decoded.id === req.params.id) {
+        const raw = JSON.parse(Buffer.from(String(d), 'base64').toString('utf-8'))
+        // Support both short keys (t,n,v,p,ci,ce,w,ve) and legacy long keys
+        const decoded = {
+          title: raw.t || raw.title || 'Proposal',
+          clientName: raw.n || raw.clientName || 'Client',
+          value: Number(raw.v ?? raw.value) || 0,
+          projectId: raw.p || raw.projectId,
+          clientId: raw.ci || raw.clientId,
+          clientEmail: raw.ce || raw.clientEmail,
+          weddingDate: raw.w || raw.weddingDate,
+          venue: raw.ve || raw.venue,
+          projectTitle: raw.projectTitle,
+          status: raw.status,
+          sentAt: raw.sentAt,
+        }
+        const proposalId = req.params.id
+        const acceptToken = String(token)
+        console.log(`[accept-info] decoded d: title=${decoded.title} projectId=${decoded.projectId}`)
+        if (decoded) {
           if (decoded.clientId) {
             const existingClient = getClientById(decoded.clientId)
             if (!existingClient) {
-              try { createClient({ id: decoded.clientId, name: decoded.clientName || 'Client', email: decoded.clientEmail || 'noreply@example.com', phone: null, partnerName: null, createdAt: new Date().toISOString().slice(0, 10) }) } catch (_) { /* may already exist soft-deleted */ }
+              try { createClient({ id: decoded.clientId, name: decoded.clientName, email: decoded.clientEmail || 'noreply@example.com', phone: null, partnerName: null, createdAt: new Date().toISOString().slice(0, 10) }) } catch (_) { /* may already exist soft-deleted */ }
               try { restoreClient(decoded.clientId) } catch (_) {}
             }
           }
@@ -1414,20 +1430,18 @@ app.get('/api/proposals/:id/accept-info', (req, res) => {
             const projectExists = state.projects.find((p) => p.id === decoded.projectId)
             if (!projectExists) {
               try {
-                createProject({ id: decoded.projectId, clientId: decoded.clientId || 'unknown', clientName: decoded.clientName || 'Client', title: decoded.projectTitle || decoded.title || 'Booking', stage: 'proposal', value: Number(decoded.value) || 0, weddingDate: decoded.weddingDate || new Date().toISOString().slice(0, 10), venue: decoded.venue || null, packageType: null, dueDate: new Date().toISOString().slice(0, 10), createdAt: new Date().toISOString().slice(0, 10), notes: null, requestedArtist: null, cloudProjectId: null })
+                createProject({ id: decoded.projectId, clientId: decoded.clientId || 'unknown', clientName: decoded.clientName, title: decoded.projectTitle || decoded.title, stage: 'proposal', value: decoded.value, weddingDate: decoded.weddingDate || new Date().toISOString().slice(0, 10), venue: decoded.venue || null, packageType: null, dueDate: new Date().toISOString().slice(0, 10), createdAt: new Date().toISOString().slice(0, 10), notes: null, requestedArtist: null, cloudProjectId: null })
               } catch (_) {
-                // Project exists but soft-deleted — restore and update it
-                try { updateProject(decoded.projectId, { deletedAt: null, clientId: decoded.clientId || 'unknown', clientName: decoded.clientName || 'Client', title: decoded.projectTitle || decoded.title || 'Booking', stage: 'proposal', value: Number(decoded.value) || 0 }) } catch (_) {}
+                try { updateProject(decoded.projectId, { deletedAt: null, clientId: decoded.clientId || 'unknown', clientName: decoded.clientName, title: decoded.projectTitle || decoded.title, stage: 'proposal', value: decoded.value }) } catch (_) {}
               }
             }
           }
           try {
-            createProposal({ id: decoded.id, projectId: decoded.projectId, clientName: decoded.clientName || 'Client', title: decoded.title || 'Proposal', status: decoded.status || 'sent', value: Number(decoded.value) || 0, sentAt: decoded.sentAt || null, emailBody: null, customPackageName: null, customPackageDetails: null, customPriceBreakdown: null, acceptToken: decoded.acceptToken })
+            createProposal({ id: proposalId, projectId: decoded.projectId, clientName: decoded.clientName, title: decoded.title, status: decoded.status || 'sent', value: decoded.value, sentAt: decoded.sentAt || null, emailBody: null, customPackageName: null, customPackageDetails: null, customPriceBreakdown: null, acceptToken })
           } catch (_) {
-            // Proposal might exist but wasn't returned by getState — update it
-            try { updateProposal(decoded.id, { acceptToken: decoded.acceptToken, status: decoded.status || 'sent', value: Number(decoded.value) || 0, clientName: decoded.clientName || 'Client', title: decoded.title || 'Proposal' }) } catch (_) {}
+            try { updateProposal(proposalId, { acceptToken, status: decoded.status || 'sent', value: decoded.value, clientName: decoded.clientName, title: decoded.title }) } catch (_) {}
           }
-          proposal = getState().proposals.find((p) => p.id === req.params.id)
+          proposal = getState().proposals.find((p) => p.id === proposalId)
         }
       } catch (err) { console.error('[accept-info] d param error:', err.message || err) }
     }

@@ -460,22 +460,11 @@ export default function Proposals() {
     }
     let acceptProposalUrl: string | undefined
     if (baseUrl && acceptToken) {
-      const proposalData = {
-        id: p.id,
-        title: p.title,
-        clientName: p.clientName,
-        value: p.value,
-        projectId: p.projectId,
-        status: p.status,
-        sentAt: p.sentAt,
-        acceptToken,
-        clientId: pair?.client?.id,
-        clientEmail: pair?.client?.email,
-        projectTitle: project?.title,
-        weddingDate: project?.weddingDate,
-        venue: project?.venue,
-      }
-      const d = btoa(JSON.stringify(proposalData))
+      const d = btoa(JSON.stringify({
+        t: p.title, n: p.clientName, v: p.value, p: p.projectId,
+        ci: pair?.client?.id, ce: pair?.client?.email,
+        w: project?.weddingDate, ve: project?.venue,
+      }))
       acceptProposalUrl = `${baseUrl.replace(/\/$/, '')}/accept-proposal/${p.id}?token=${encodeURIComponent(acceptToken)}&d=${encodeURIComponent(d)}`
     }
     const experienceName =
@@ -605,22 +594,11 @@ export default function Proposals() {
         : rawBase || DEFAULT_INQUIRY_API_URL
     let acceptProposalUrl: string | undefined
     if (baseUrl && p.acceptToken) {
-      const proposalData = {
-        id: p.id,
-        title: p.title,
-        clientName: p.clientName,
-        value: p.value,
-        projectId: p.projectId,
-        status: p.status,
-        sentAt: p.sentAt,
-        acceptToken: p.acceptToken,
-        clientId: pair?.client?.id,
-        clientEmail: pair?.client?.email,
-        projectTitle: project?.title,
-        weddingDate: project?.weddingDate,
-        venue: project?.venue,
-      }
-      const d = btoa(JSON.stringify(proposalData))
+      const d = btoa(JSON.stringify({
+        t: p.title, n: p.clientName, v: p.value, p: p.projectId,
+        ci: pair?.client?.id, ce: pair?.client?.email,
+        w: project?.weddingDate, ve: project?.venue,
+      }))
       acceptProposalUrl = `${baseUrl.replace(/\/$/, '')}/accept-proposal/${p.id}?token=${encodeURIComponent(p.acceptToken)}&d=${encodeURIComponent(d)}`
     }
     const experienceName =
