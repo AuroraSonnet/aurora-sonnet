@@ -40,7 +40,7 @@ export default function PdfViewer({ blob, className }: PdfViewerProps) {
           canvas.width = viewport.width
           canvas.className = styles.pageCanvas
           container.appendChild(canvas)
-          return page.render({ canvasContext: ctx, viewport }).promise
+          return page.render({ canvasContext: ctx, canvas, viewport }).promise
         })
       }
       return Promise.all(
