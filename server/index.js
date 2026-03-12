@@ -1496,7 +1496,7 @@ app.post('/api/proposals/:id/accept', async (req, res) => {
     let contract = s.contracts.find((c) => c.projectId === proposal.projectId)
     const packageLabel = getProposalPackageLabel(proposal, project)
     if (!contract) {
-      const template = (s.contractTemplates || [])[0]
+      const template = (s.contractTemplates || []).find((t) => /performance/i.test(t.name)) || (s.contractTemplates || [])[0]
       const contractId = nextId('c', s.contracts)
       const signToken = randomAcceptToken()
       createContract({
@@ -1684,13 +1684,203 @@ app.put('/api/contracts/:id/file', (req, res) => {
   }
 })
 
-app.get('/api/contracts/:id/sign-info', (req, res) => {
+app.post('/api/contracts/sync-for-sign', async (req, res) => {
   try {
-    const { token } = req.query
+    const { client, project, contract, template } = req.body || {}
+    if (!contract || !contract.id) return res.status(400).json({ error: 'contract required' })
+    const now = new Date().toISOString().slice(0, 10)
     const state = getState()
-    const contract = state.contracts.find((c) => c.id === req.params.id)
+
+    if (client && client.id) {
+      if (!getClientById(client.id)) {
+        try { createClient({ id: client.id, name: client.name || 'Client', email: client.email || '', phone: client.phone ?? null, partnerName: client.partnerName ?? null, createdAt: client.createdAt || now }) } catch (_) {}
+      }
+      try { restoreClient(client.id) } catch (_) {}
+    }
+    if (project && project.id) {
+      if (!getState().projects.find((p) => p.id === project.id)) {
+        try { createProject({ id: project.id, clientId: project.clientId || client?.id || 'unknown', clientName: project.clientName || '', title: project.title || '', stage: project.stage || 'booked', value: Number(project.value) || 0, weddingDate: project.weddingDate || now, venue: project.venue ?? null, packageType: project.packageType ?? null, dueDate: project.dueDate || now, createdAt: project.createdAt || now, notes: project.notes ?? null, requestedArtist: project.requestedArtist ?? null, cloudProjectId: project.cloudProjectId ?? null }) } catch (_) {}
+      }
+      try { restoreProject(project.id) } catch (_) {}
+    }
+
+    if (template && template.id) {
+      const existingT = getState().contractTemplates.find((t) => t.id === template.id)
+      if (!existingT) {
+        try { createContractTemplate({ id: template.id, name: template.name || 'Performance Agreement', fileName: template.fileName || '', createdAt: template.createdAt || now, contentHtml: template.contentHtml ?? null }) } catch (_) {}
+      } else if (template.contentHtml && !existingT.contentHtml) {
+        try { updateContractTemplate(template.id, { name: template.name || existingT.name, contentHtml: template.contentHtml }) } catch (_) {}
+      }
+    }
+
+    const existing = getState().contracts.find((c) => c.id === contract.id)
+    if (!existing) {
+      createContract({
+        id: contract.id, projectId: contract.projectId, clientName: contract.clientName || '', title: contract.title || '',
+        status: contract.status || 'sent', value: Number(contract.value) || 0, weddingDate: contract.weddingDate || '',
+        venue: contract.venue ?? null, packageType: contract.packageType ?? null, signedAt: contract.signedAt ?? null,
+        createdAt: contract.createdAt || now, templateId: contract.templateId ?? template?.id ?? null,
+        signToken: contract.signToken ?? null, clientSignedAt: contract.clientSignedAt ?? null, lastReminderSentAt: null,
+      })
+    } else {
+      updateContract(contract.id, {
+        signToken: contract.signToken || existing.signToken,
+        status: contract.status || existing.status,
+        value: Number(contract.value) || existing.value,
+        clientName: contract.clientName || existing.clientName,
+        title: contract.title || existing.title,
+        templateId: contract.templateId ?? template?.id ?? existing.templateId,
+        weddingDate: contract.weddingDate || existing.weddingDate,
+        venue: contract.venue ?? existing.venue,
+        packageType: contract.packageType ?? existing.packageType,
+      })
+    }
+
+    if (template && template.contentHtml) {
+      const c = getState().contracts.find((x) => x.id === contract.id)
+      if (c) {
+        const t = getState().contractTemplates.find((x) => x.id === c.templateId)
+        if (t) {
+          const proj = getState().projects.find((p) => p.id === c.projectId)
+          const proposal = getState().proposals.find((p) => p.projectId === c.projectId)
+          const cl = client?.id ? getClientById(client.id) : null
+          const pdfBuf = await createContractPdfFromTemplate(t, proposal, proj, cl)
+          if (pdfBuf) {
+            ensureContractsDir()
+            writeFileSync(join(CONTRACTS_DIR, `${c.id}.pdf`), pdfBuf)
+          }
+        }
+      }
+    }
+
+    res.json({ ok: true })
+  } catch (err) {
+    logError('DB', 'Failed to sync contract for sign', err)
+    res.status(500).json({ error: err.message || 'Failed to sync' })
+  }
+})
+
+app.post('/api/contracts/:id/push-to-render', async (req, res) => {
+  try {
+    const { id } = req.params
+    const baseUrl = ((req.body && req.body.baseUrl) || '').toString().trim().replace(/\/$/, '')
+    if (!baseUrl || !baseUrl.startsWith('http')) return res.status(400).json({ error: 'Missing or invalid baseUrl' })
+    const state = getState()
+    const contract = state.contracts.find((c) => c.id === id)
+    if (!contract) return res.status(404).json({ error: 'Contract not found locally' })
+    const project = state.projects.find((p) => p.id === contract.projectId)
+    const client = project ? state.clients.find((c) => c.id === project.clientId) : null
+    const template = contract.templateId ? state.contractTemplates.find((t) => t.id === contract.templateId) : (state.contractTemplates || [])[0]
+    const payload = {
+      client: client ? { id: client.id, name: client.name, email: client.email, phone: client.phone, partnerName: client.partnerName, createdAt: client.createdAt } : undefined,
+      project: project ? { id: project.id, clientId: project.clientId, clientName: project.clientName, title: project.title, stage: project.stage, value: project.value, weddingDate: project.weddingDate, venue: project.venue, packageType: project.packageType, dueDate: project.dueDate, createdAt: project.createdAt, notes: project.notes, requestedArtist: project.requestedArtist, cloudProjectId: project.cloudProjectId } : undefined,
+      contract: { id: contract.id, projectId: contract.projectId, clientName: contract.clientName, title: contract.title, status: contract.status, value: contract.value, weddingDate: contract.weddingDate, venue: contract.venue, packageType: contract.packageType, signedAt: contract.signedAt, createdAt: contract.createdAt, templateId: contract.templateId, signToken: contract.signToken, clientSignedAt: contract.clientSignedAt },
+      template: template ? { id: template.id, name: template.name, fileName: template.fileName, createdAt: template.createdAt, contentHtml: template.contentHtml } : undefined,
+    }
+    const syncUrl = `${baseUrl}/api/contracts/sync-for-sign`
+    let lastErr = null
+    for (let attempt = 0; attempt < 3; attempt++) {
+      try {
+        const controller = new AbortController()
+        const timeoutId = setTimeout(() => controller.abort(), PROXY_STATE_TIMEOUT_MS)
+        const response = await fetch(syncUrl, {
+          method: 'POST', headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(payload), signal: controller.signal,
+        }).finally(() => clearTimeout(timeoutId))
+        const data = await response.json().catch(() => ({}))
+        if (response.ok) return res.json({ ok: true })
+        lastErr = `Render returned ${response.status}: ${JSON.stringify(data)}`
+        console.error(`[ContractPush] attempt ${attempt + 1}: ${lastErr}`)
+      } catch (e) {
+        lastErr = e.name === 'AbortError' ? 'Timeout' : (e.message || 'Unknown error')
+        console.error(`[ContractPush] attempt ${attempt + 1}: ${lastErr}`)
+      }
+      if (attempt < 2) await new Promise((r) => setTimeout(r, 5000))
+    }
+    res.status(502).json({ error: lastErr || 'Could not reach Render after 3 attempts' })
+  } catch (err) {
+    console.error('[ContractPush] Failed:', err.message || err)
+    res.status(502).json({ error: err.message || 'Could not reach Render' })
+  }
+})
+
+app.get('/api/contracts/:id/sign-info', async (req, res) => {
+  try {
+    const { token, d } = req.query
+    let state = getState()
+    let contract = state.contracts.find((c) => c.id === req.params.id)
+
+    if ((!contract || contract.signToken !== String(token)) && d) {
+      try {
+        const raw = JSON.parse(Buffer.from(String(d), 'base64').toString('utf-8'))
+        const decoded = {
+          clientName: raw.n || raw.clientName || '',
+          title: raw.ti || raw.title || '',
+          projectId: raw.p || raw.projectId || '',
+          value: Number(raw.v ?? raw.value) || 0,
+          weddingDate: raw.w || raw.weddingDate || '',
+          venue: raw.ve || raw.venue || '',
+          packageType: raw.pk || raw.packageType || '',
+          templateId: raw.tm || raw.templateId || null,
+          templateHtml: raw.th || raw.templateHtml || null,
+          templateName: raw.tn || raw.templateName || null,
+          clientId: raw.ci || raw.clientId || null,
+          clientEmail: raw.ce || raw.clientEmail || null,
+        }
+        const now = new Date().toISOString().slice(0, 10)
+        const contractId = req.params.id
+        const signToken = String(token)
+
+        if (decoded.clientId) {
+          if (!getClientById(decoded.clientId)) {
+            try { createClient({ id: decoded.clientId, name: decoded.clientName, email: decoded.clientEmail || '', phone: null, partnerName: null, createdAt: now }) } catch (_) {}
+          }
+          try { restoreClient(decoded.clientId) } catch (_) {}
+        }
+        if (decoded.projectId) {
+          if (!getState().projects.find((p) => p.id === decoded.projectId)) {
+            try { createProject({ id: decoded.projectId, clientId: decoded.clientId || 'unknown', clientName: decoded.clientName, title: decoded.title, stage: 'booked', value: decoded.value, weddingDate: decoded.weddingDate || now, venue: decoded.venue || null, packageType: decoded.packageType || null, dueDate: now, createdAt: now, notes: null, requestedArtist: null, cloudProjectId: null }) } catch (_) {}
+          }
+          try { restoreProject(decoded.projectId) } catch (_) {}
+        }
+        if (decoded.templateId && decoded.templateHtml) {
+          const existingT = getState().contractTemplates.find((t) => t.id === decoded.templateId)
+          if (!existingT) {
+            try { createContractTemplate({ id: decoded.templateId, name: decoded.templateName || 'Performance Agreement', fileName: '', createdAt: now, contentHtml: decoded.templateHtml }) } catch (_) {}
+          }
+        }
+
+        if (!contract) {
+          try {
+            createContract({ id: contractId, projectId: decoded.projectId, clientName: decoded.clientName, title: decoded.title, status: 'sent', value: decoded.value, weddingDate: decoded.weddingDate, venue: decoded.venue || null, packageType: decoded.packageType || null, signedAt: null, createdAt: now, templateId: decoded.templateId, signToken, clientSignedAt: null, lastReminderSentAt: null })
+          } catch (_) {
+            updateContract(contractId, { signToken, status: 'sent', templateId: decoded.templateId || undefined })
+          }
+        } else {
+          updateContract(contractId, { signToken, status: 'sent', templateId: decoded.templateId || contract.templateId })
+        }
+
+        state = getState()
+        contract = state.contracts.find((c) => c.id === contractId)
+
+        if (contract && decoded.templateHtml) {
+          const t = state.contractTemplates.find((x) => x.id === contract.templateId)
+          if (t) {
+            const proj = state.projects.find((p) => p.id === contract.projectId)
+            const proposal = state.proposals.find((p) => p.projectId === contract.projectId)
+            const cl = decoded.clientId ? getClientById(decoded.clientId) : null
+            const pdfBuf = await createContractPdfFromTemplate(t, proposal, proj, cl)
+            if (pdfBuf) {
+              ensureContractsDir()
+              writeFileSync(join(CONTRACTS_DIR, `${contract.id}.pdf`), pdfBuf)
+            }
+          }
+        }
+      } catch (err) { console.error('[sign-info] d param error:', err.message || err) }
+    }
+
     if (!contract) return res.status(404).json({ error: 'Contract not found' })
-    if (contract.status !== 'sent' || !contract.signToken || contract.signToken !== token) {
+    if (contract.status !== 'sent' || !contract.signToken || contract.signToken !== String(token)) {
       return res.status(403).json({ error: 'Invalid or expired signing link' })
     }
     if (contract.clientSignedAt) {

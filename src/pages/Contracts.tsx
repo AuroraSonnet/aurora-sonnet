@@ -13,6 +13,7 @@ import {
   getContractFileUrl,
   apiUploadContractFile,
   fetchContractTemplateFileAsBase64,
+  apiSyncContractForSign,
 } from '../api/db'
 import { mergeContractTemplate } from '../utils/mergeContractTemplate'
 import { htmlToPdfBase64 } from '../utils/htmlToPdf'
@@ -140,7 +141,21 @@ export default function Contracts() {
         if (!ok) throw new Error('Could not prepare the retainer invoice.')
       }
 
-      const signUrl = `${clientFacingBaseUrl.replace(/\/$/, '')}/sign/${contract.id}?token=${encodeURIComponent(signToken)}`
+      const template = contractTemplates.find((t: { id: string }) => t.id === contract.templateId) || contractTemplates[0]
+      const d = btoa(JSON.stringify({
+        n: contract.clientName, ti: contract.title, p: contract.projectId,
+        v: contract.value, w: contract.weddingDate, ve: contract.venue,
+        pk: contract.packageType, tm: template?.id,
+        th: template?.contentHtml || null, tn: template?.name,
+        ci: project.clientId, ce: client?.email,
+      }))
+      const signUrl = `${clientFacingBaseUrl.replace(/\/$/, '')}/sign/${contract.id}?token=${encodeURIComponent(signToken)}&d=${encodeURIComponent(d)}`
+
+      void apiSyncContractForSign(clientFacingBaseUrl, contract.id).then((ok) => {
+        if (ok) console.log('[ContractSync] Synced to Render')
+        else console.warn('[ContractSync] Sync failed (link has fallback data)')
+      })
+
       const invoiceUrl = `${clientFacingBaseUrl.replace(/\/$/, '')}/invoices/view/${invoice.id}`
       const firstName = (contract.clientName || '').split(/\s+/)[0] || 'there'
       const subject = `Your agreement and retainer — ${contract.title} | Aurora Sonnet`
@@ -458,7 +473,17 @@ export default function Contracts() {
                                 onClick={() => {
                                   const token = (c as { signToken?: string }).signToken
                                   const base = contractReminderBaseUrl
-                                  const link = base ? `${base.replace(/\/$/, '')}/sign/${c.id}?token=${encodeURIComponent(token || '')}` : ''
+                                  const proj = projectById(c.projectId)
+                                  const cl = proj ? clients.find((x) => x.id === proj.clientId) : null
+                                  const tmpl = contractTemplates.find((t: { id: string }) => t.id === (c as { templateId?: string }).templateId) || contractTemplates[0]
+                                  const dParam = btoa(JSON.stringify({
+                                    n: c.clientName, ti: c.title, p: c.projectId,
+                                    v: c.value, w: c.weddingDate, ve: c.venue,
+                                    pk: c.packageType, tm: tmpl?.id,
+                                    th: tmpl?.contentHtml || null, tn: tmpl?.name,
+                                    ci: proj?.clientId, ce: cl?.email,
+                                  }))
+                                  const link = base ? `${base.replace(/\/$/, '')}/sign/${c.id}?token=${encodeURIComponent(token || '')}&d=${encodeURIComponent(dParam)}` : ''
                                   if (!link) {
                                     alert('Set Public URL or Inquiry API URL in Settings so the signing link works for clients.')
                                     return
