@@ -129,9 +129,11 @@ export default function AcceptProposal() {
       const body: {
         token: string
         baseUrl: string
+        d?: string
         acceptedTotal?: number
         selectedEnhancements?: { id: string; label: string; amount: number }[]
       } = { token, baseUrl }
+      if (encodedData) body.d = encodedData
       if (selectedEnhancements.length > 0) {
         body.acceptedTotal = acceptedTotal
         body.selectedEnhancements = selectedEnhancements.map((e) => {

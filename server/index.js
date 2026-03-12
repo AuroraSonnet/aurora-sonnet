@@ -1396,13 +1396,12 @@ app.post('/api/proposals/sync-for-accept', (req, res) => {
 app.get('/api/proposals/:id/accept-info', (req, res) => {
   try {
     const { token, d } = req.query
-    console.log(`[accept-info] id=${req.params.id} token=${token ? 'yes' : 'no'} d=${d ? `yes(${String(d).length}chars)` : 'no'}`)
-    const state = getState()
-    let proposal = state.proposals.find((p) => p.id === req.params.id)
-    if (!proposal && d) {
+    const tokenStr = token ? String(token).trim() : null
+    console.log(`[accept-info] id=${req.params.id} token=${tokenStr ? 'yes' : 'no'} d=${d ? `yes(${String(d).length}chars)` : 'no'}`)
+    // When we have d + token, create or update proposal to match link (fixes stale/missing data)
+    if (d && tokenStr) {
       try {
         const raw = JSON.parse(Buffer.from(String(d), 'base64').toString('utf-8'))
-        // Support both short keys (t,n,v,p,ci,ce,w,ve) and legacy long keys
         const decoded = {
           title: raw.t || raw.title || 'Proposal',
           clientName: raw.n || raw.clientName || 'Client',
@@ -1413,40 +1412,36 @@ app.get('/api/proposals/:id/accept-info', (req, res) => {
           weddingDate: raw.w || raw.weddingDate,
           venue: raw.ve || raw.venue,
           projectTitle: raw.projectTitle,
-          status: raw.status,
+          status: raw.status || 'sent',
           sentAt: raw.sentAt,
         }
         const proposalId = req.params.id
-        const acceptToken = String(token)
-        console.log(`[accept-info] decoded d: title=${decoded.title} projectId=${decoded.projectId}`)
-        if (decoded) {
+        if (decoded.projectId) {
           if (decoded.clientId) {
             const existingClient = getClientById(decoded.clientId)
             if (!existingClient) {
-              try { createClient({ id: decoded.clientId, name: decoded.clientName, email: decoded.clientEmail || 'noreply@example.com', phone: null, partnerName: null, createdAt: new Date().toISOString().slice(0, 10) }) } catch (_) { /* may already exist soft-deleted */ }
+              try { createClient({ id: decoded.clientId, name: decoded.clientName, email: decoded.clientEmail || 'noreply@example.com', phone: null, partnerName: null, createdAt: new Date().toISOString().slice(0, 10) }) } catch (_) {}
             }
-            // Always restore client + their projects (clears deletedAt on both)
             try { restoreClient(decoded.clientId) } catch (_) {}
           }
-          if (decoded.projectId) {
-            const projectExists = getState().projects.find((p) => p.id === decoded.projectId)
-            if (!projectExists) {
-              try {
-                createProject({ id: decoded.projectId, clientId: decoded.clientId || 'unknown', clientName: decoded.clientName, title: decoded.projectTitle || decoded.title, stage: 'proposal', value: decoded.value, weddingDate: decoded.weddingDate || new Date().toISOString().slice(0, 10), venue: decoded.venue || null, packageType: null, dueDate: new Date().toISOString().slice(0, 10), createdAt: new Date().toISOString().slice(0, 10), notes: null, requestedArtist: null, cloudProjectId: null })
-              } catch (_) { /* already exists */ }
-            }
+          const projectExists = getState().projects.find((p) => p.id === decoded.projectId)
+          if (!projectExists) {
+            try {
+              createProject({ id: decoded.projectId, clientId: decoded.clientId || 'unknown', clientName: decoded.clientName, title: decoded.projectTitle || decoded.title, stage: 'proposal', value: decoded.value, weddingDate: decoded.weddingDate || new Date().toISOString().slice(0, 10), venue: decoded.venue || null, packageType: null, dueDate: new Date().toISOString().slice(0, 10), createdAt: new Date().toISOString().slice(0, 10), notes: null, requestedArtist: null, cloudProjectId: null })
+            } catch (_) {}
           }
           try {
-            createProposal({ id: proposalId, projectId: decoded.projectId, clientName: decoded.clientName, title: decoded.title, status: decoded.status || 'sent', value: decoded.value, sentAt: decoded.sentAt || null, emailBody: null, customPackageName: null, customPackageDetails: null, customPriceBreakdown: null, acceptToken })
+            createProposal({ id: proposalId, projectId: decoded.projectId, clientName: decoded.clientName, title: decoded.title, status: decoded.status || 'sent', value: decoded.value, sentAt: decoded.sentAt || null, emailBody: null, customPackageName: null, customPackageDetails: null, customPriceBreakdown: null, acceptToken: tokenStr })
           } catch (_) {
-            try { updateProposal(proposalId, { acceptToken, status: decoded.status || 'sent', value: decoded.value, clientName: decoded.clientName, title: decoded.title }) } catch (_) {}
+            updateProposal(proposalId, { acceptToken: tokenStr, status: decoded.status || 'sent', value: decoded.value, clientName: decoded.clientName, title: decoded.title })
           }
-          proposal = getState().proposals.find((p) => p.id === proposalId)
         }
       } catch (err) { console.error('[accept-info] d param error:', err.message || err) }
     }
+    const state = getState()
+    let proposal = state.proposals.find((p) => p.id === req.params.id)
     if (!proposal) return res.status(404).json({ error: 'Proposal not found' })
-    if (!token || proposal.acceptToken !== token) return res.status(403).json({ error: 'Invalid or expired link' })
+    if (!tokenStr || proposal.acceptToken !== tokenStr) return res.status(403).json({ error: 'Invalid or expired link' })
     if (proposal.status === 'accepted') return res.json({ ...proposal, alreadyAccepted: true })
     res.json({
       id: proposal.id,
@@ -1464,10 +1459,20 @@ app.get('/api/proposals/:id/accept-info', (req, res) => {
 app.post('/api/proposals/:id/accept', async (req, res) => {
   try {
     const id = req.params.id
-    const { token, acceptedTotal: bodyAcceptedTotal, selectedEnhancements: bodySelectedEnhancements } = req.body || {}
+    const { token, d, acceptedTotal: bodyAcceptedTotal, selectedEnhancements: bodySelectedEnhancements } = req.body || {}
     const state = getState()
     let proposal = state.proposals.find((p) => p.id === id)
     if (!proposal) return res.status(404).json({ error: 'Proposal not found' })
+    // Fix token mismatch via d param (same as accept-info)
+    if (token && proposal.acceptToken !== token && d) {
+      try {
+        const raw = JSON.parse(Buffer.from(String(d), 'base64').toString('utf-8'))
+        if (raw && (raw.p || raw.projectId || raw.t)) {
+          updateProposal(id, { acceptToken: String(token) })
+          proposal = getState().proposals.find((p) => p.id === id)
+        }
+      } catch (_) {}
+    }
     if (!token || proposal.acceptToken !== token) return res.status(403).json({ error: 'Invalid or expired link' })
     if (proposal.status === 'accepted') return res.status(400).json({ error: 'Proposal already accepted' })
 

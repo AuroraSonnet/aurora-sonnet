@@ -458,14 +458,16 @@ export default function Proposals() {
     let acceptProposalUrl: string | undefined
     if (baseUrl && acceptToken) {
       const base = baseUrl.replace(/\/$/, '')
-      if (syncOk) {
-        acceptProposalUrl = `${base}/accept-proposal/${p.id}?token=${encodeURIComponent(acceptToken)}`
-      } else {
+      if (pair?.client && pair?.project) {
+        // Always include d param so link works even if Render has stale/missing data
         const d = btoa(JSON.stringify({
           t: p.title, n: p.clientName, v: p.value, p: p.projectId,
-          ci: pair?.client?.id, ce: pair?.client?.email,
+          ci: pair.client.id, ce: pair.client.email,
+          w: pair.project.weddingDate, ve: pair.project.venue,
         }))
         acceptProposalUrl = `${base}/accept-proposal/${p.id}?token=${encodeURIComponent(acceptToken)}&d=${encodeURIComponent(d)}`
+      } else {
+        acceptProposalUrl = `${base}/accept-proposal/${p.id}?token=${encodeURIComponent(acceptToken)}`
       }
     }
     const experienceName =
@@ -606,14 +608,16 @@ export default function Proposals() {
     let acceptProposalUrl: string | undefined
     if (baseUrl && p.acceptToken) {
       const base = baseUrl.replace(/\/$/, '')
-      if (syncOk) {
-        acceptProposalUrl = `${base}/accept-proposal/${p.id}?token=${encodeURIComponent(p.acceptToken)}`
-      } else {
+      if (pair?.client && pair?.project) {
+        // Always include d param so link works even if Render has stale/missing data
         const d = btoa(JSON.stringify({
           t: p.title, n: p.clientName, v: p.value, p: p.projectId,
-          ci: pair?.client?.id, ce: pair?.client?.email,
+          ci: pair.client.id, ce: pair.client.email,
+          w: pair.project.weddingDate, ve: pair.project.venue,
         }))
         acceptProposalUrl = `${base}/accept-proposal/${p.id}?token=${encodeURIComponent(p.acceptToken)}&d=${encodeURIComponent(d)}`
+      } else {
+        acceptProposalUrl = `${base}/accept-proposal/${p.id}?token=${encodeURIComponent(p.acceptToken)}`
       }
     }
     const experienceName =
