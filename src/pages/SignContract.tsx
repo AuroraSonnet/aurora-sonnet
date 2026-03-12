@@ -1,6 +1,7 @@
 import { useState, useEffect, useRef } from 'react'
 import { useParams, useSearchParams } from 'react-router-dom'
 import { apiSignContractClient, getContractFileUrl } from '../api/db'
+import PdfViewer from '../components/PdfViewer'
 import SignaturePad from '../components/SignaturePad'
 import styles from './SignContract.module.css'
 
@@ -15,6 +16,9 @@ export default function SignContract() {
     awaiting: 'client' | 'vendor'
     message: string
   } | null>(null)
+  const [pdfBlob, setPdfBlob] = useState<Blob | null>(null)
+  const [pdfLoading, setPdfLoading] = useState(false)
+  const [pdfError, setPdfError] = useState<string | null>(null)
   const [loading, setLoading] = useState(true)
   const [submitting, setSubmitting] = useState(false)
   const [error, setError] = useState<string | null>(null)
@@ -39,6 +43,24 @@ export default function SignContract() {
       .catch((err) => setError(err instanceof Error ? err.message : 'Failed to load'))
       .finally(() => setLoading(false))
   }, [contractId, token])
+
+  useEffect(() => {
+    if (!info || info.awaiting !== 'client' || !contractId || !token) return
+    setPdfError(null)
+    setPdfLoading(true)
+    const fileUrl = getContractFileUrl(contractId, token)
+    fetch(fileUrl)
+      .then((res) => {
+        if (!res.ok) throw new Error('Contract unavailable')
+        return res.blob()
+      })
+      .then((blob) => {
+        if (blob.type !== 'application/pdf') throw new Error('Invalid format')
+        setPdfBlob(blob)
+      })
+      .catch(() => setPdfError('Unable to load contract'))
+      .finally(() => setPdfLoading(false))
+  }, [info?.awaiting, contractId, token])
 
   useEffect(() => {
     if (info?.awaiting === 'client') signatureSectionRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' })
@@ -118,11 +140,30 @@ export default function SignContract() {
         <p className={styles.subtitle}>{info.title}</p>
         <p className={styles.hint}>{info.clientName}, please sign below.</p>
         <div className={styles.pdfWrap}>
-          <iframe
-            title="Contract PDF"
-            src={getContractFileUrl(contractId!, token ?? undefined)}
-            className={styles.pdfIframe}
-          />
+          {pdfLoading && (
+            <div className={styles.pdfPlaceholder}>
+              <span className={styles.pdfSpinner} aria-hidden />
+              <p>Loading contract…</p>
+            </div>
+          )}
+          {!pdfLoading && pdfError && (
+            <div className={styles.pdfPlaceholder}>
+              <p className={styles.pdfErrorText}>{pdfError}</p>
+              <a
+                href={getContractFileUrl(contractId!, token ?? undefined)}
+                target="_blank"
+                rel="noopener noreferrer"
+                className={styles.pdfDownloadLink}
+              >
+                Download PDF
+              </a>
+            </div>
+          )}
+          {!pdfLoading && pdfBlob && (
+            <div className={styles.pdfViewerWrap}>
+              <PdfViewer blob={pdfBlob} />
+            </div>
+          )}
         </div>
         <div ref={signatureSectionRef} className={styles.signatureSection}>
           <label className={styles.agreeLabel}>

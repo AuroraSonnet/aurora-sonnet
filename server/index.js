@@ -217,7 +217,7 @@ function writePayment(invoiceId, paidAt) {
 // Security headers (help prevent XSS, clickjacking, MIME sniffing)
 app.use((req, res, next) => {
   res.setHeader('X-Content-Type-Options', 'nosniff')
-  res.setHeader('X-Frame-Options', 'DENY')
+  res.setHeader('X-Frame-Options', 'SAMEORIGIN') // SAMEORIGIN allows sign page to embed contract PDF iframe
   res.setHeader('X-XSS-Protection', '1; mode=block')
   res.setHeader('Referrer-Policy', 'strict-origin-when-cross-origin')
   next()
@@ -1804,6 +1804,83 @@ app.post('/api/contracts/:id/push-to-render', async (req, res) => {
   }
 })
 
+app.post('/api/invoices/sync-for-view', (req, res) => {
+  try {
+    const { client, project, invoice } = req.body || {}
+    if (!invoice || !invoice.id) return res.status(400).json({ error: 'invoice required' })
+    const now = new Date().toISOString().slice(0, 10)
+    const state = getState()
+    if (client?.id) {
+      if (!getClientById(client.id)) {
+        try { createClient({ id: client.id, name: client.name || 'Client', email: client.email || '', phone: client.phone ?? null, partnerName: client.partnerName ?? null, createdAt: client.createdAt || now }) } catch (_) {}
+      }
+      try { restoreClient(client.id) } catch (_) {}
+    }
+    if (project?.id) {
+      if (!getState().projects.find((p) => p.id === project.id)) {
+        try { createProject({ id: project.id, clientId: project.clientId || client?.id || 'unknown', clientName: project.clientName || '', title: project.title || '', stage: project.stage || 'booked', value: Number(project.value) || 0, weddingDate: project.weddingDate || now, venue: project.venue ?? null, packageType: project.packageType ?? null, dueDate: project.dueDate || now, createdAt: project.createdAt || now, notes: null, requestedArtist: null, cloudProjectId: null }) } catch (_) {}
+      }
+      try { restoreProject(project.id) } catch (_) {}
+    }
+    const existing = getState().invoices.find((i) => i.id === invoice.id)
+    if (!existing) {
+      createInvoice({
+        id: invoice.id, projectId: invoice.projectId || null, clientName: invoice.clientName || '', clientEmail: invoice.clientEmail || '', projectTitle: invoice.projectTitle || '',
+        amount: Number(invoice.amount) || 0, status: invoice.status || 'sent', dueDate: invoice.dueDate || now, type: invoice.type || 'deposit',
+        lineItems: invoice.lineItems || [{ description: 'Retainer', quantity: 1, unitPrice: Number(invoice.amount) || 0 }],
+      })
+    } else {
+      updateInvoice(invoice.id, { amount: Number(invoice.amount) || existing.amount, clientEmail: invoice.clientEmail ?? existing.clientEmail, projectTitle: invoice.projectTitle ?? existing.projectTitle, lineItems: invoice.lineItems ?? existing.lineItems, status: invoice.status || existing.status })
+    }
+    res.json({ ok: true })
+  } catch (err) {
+    logError('DB', 'Failed to sync invoice for view', err)
+    res.status(500).json({ error: err.message || 'Failed to sync' })
+  }
+})
+
+app.post('/api/invoices/:id/push-to-render', async (req, res) => {
+  try {
+    const { id } = req.params
+    const baseUrl = ((req.body && req.body.baseUrl) || '').toString().trim().replace(/\/$/, '')
+    if (!baseUrl || !baseUrl.startsWith('http')) return res.status(400).json({ error: 'Missing or invalid baseUrl' })
+    const state = getState()
+    const invoice = state.invoices.find((i) => i.id === id)
+    if (!invoice) return res.status(404).json({ error: 'Invoice not found locally' })
+    const project = state.projects.find((p) => p.id === invoice.projectId)
+    const client = project ? state.clients.find((c) => c.id === project.clientId) : null
+    const payload = {
+      client: client ? { id: client.id, name: client.name, email: client.email, phone: client.phone, partnerName: client.partnerName, createdAt: client.createdAt } : undefined,
+      project: project ? { id: project.id, clientId: project.clientId, clientName: project.clientName, title: project.title, stage: project.stage, value: project.value, weddingDate: project.weddingDate, venue: project.venue, packageType: project.packageType, dueDate: project.dueDate, createdAt: project.createdAt, notes: project.notes, requestedArtist: project.requestedArtist, cloudProjectId: project.cloudProjectId } : undefined,
+      invoice: { id: invoice.id, projectId: invoice.projectId, clientName: invoice.clientName, clientEmail: invoice.clientEmail, projectTitle: invoice.projectTitle, amount: invoice.amount, status: invoice.status, dueDate: invoice.dueDate, type: invoice.type, lineItems: invoice.lineItems },
+    }
+    const syncUrl = `${baseUrl}/api/invoices/sync-for-view`
+    let lastErr = null
+    for (let attempt = 0; attempt < 3; attempt++) {
+      try {
+        const controller = new AbortController()
+        const timeoutId = setTimeout(() => controller.abort(), PROXY_STATE_TIMEOUT_MS)
+        const response = await fetch(syncUrl, {
+          method: 'POST', headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(payload), signal: controller.signal,
+        }).finally(() => clearTimeout(timeoutId))
+        const data = await response.json().catch(() => ({}))
+        if (response.ok) return res.json({ ok: true })
+        lastErr = `Render returned ${response.status}: ${JSON.stringify(data)}`
+        console.error(`[InvoicePush] attempt ${attempt + 1}: ${lastErr}`)
+      } catch (e) {
+        lastErr = e.name === 'AbortError' ? 'Timeout' : (e.message || 'Unknown error')
+        console.error(`[InvoicePush] attempt ${attempt + 1}: ${lastErr}`)
+      }
+      if (attempt < 2) await new Promise((r) => setTimeout(r, 5000))
+    }
+    res.status(502).json({ error: lastErr || 'Could not reach Render after 3 attempts' })
+  } catch (err) {
+    console.error('[InvoicePush] Failed:', err.message || err)
+    res.status(502).json({ error: err.message || 'Could not reach Render' })
+  }
+})
+
 app.get('/api/contracts/:id/sign-info', async (req, res) => {
   try {
     const { token, d } = req.query
@@ -1963,10 +2040,16 @@ async function sendContractReminderEmail(contractId, baseUrl = '') {
   const contract = state.contracts.find((c) => c.id === contractId)
   if (!contract) return { sent: false, error: 'Contract not found' }
   if (contract.status !== 'sent' || contract.clientSignedAt) return { sent: false, error: 'Contract not awaiting client signature' }
-  const project = state.projects.find((p) => p.id === contract.projectId)
+  let project = state.projects.find((p) => p.id === contract.projectId)
+  if (!project) project = state.projects.find((p) => p.cloudProjectId === contract.projectId)
+  if (!project) project = state.projects.find((p) => p.clientName === contract.clientName && p.title === contract.title)
+  if (!project) {
+    const clientByContract = state.clients.find((c) => c.name === contract.clientName || (contract.clientName && contract.clientName.includes(c.name)))
+    if (clientByContract) project = state.projects.find((p) => p.clientId === clientByContract.id && (p.title === contract.title || p.clientName === contract.clientName))
+  }
   const client = project ? state.clients.find((c) => c.id === project.clientId) : null
   const toEmail = (client?.email || '').trim()
-  if (!toEmail) return { sent: false, error: 'No client email for this contract' }
+  if (!toEmail) return { sent: false, error: 'No client email for this contract. Add the client email in their contact details.' }
   const lastSent = contract.lastReminderSentAt || ''
   if (lastSent) {
     const cutoff = new Date()
@@ -2783,9 +2866,15 @@ app.post('/api/create-checkout-session', async (req, res) => {
 // Serve built frontend in production (after all API routes). SPA fallback: non-API GET gets index.html.
 const distPath = join(__dirname, '..', 'dist')
 if (existsSync(distPath)) {
-  app.use(express.static(distPath))
+  app.use(express.static(distPath, {
+    maxAge: 0,
+    etag: true,
+    lastModified: true,
+  }))
   app.get('*', (req, res, next) => {
     if (req.path.startsWith('/api')) return next()
+    res.setHeader('Cache-Control', 'no-cache, no-store, must-revalidate')
+    res.setHeader('Pragma', 'no-cache')
     res.sendFile(join(distPath, 'index.html'), (err) => {
       if (err) next(err)
     })

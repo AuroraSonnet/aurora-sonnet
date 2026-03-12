@@ -235,6 +235,11 @@
   margin-left: 0.25rem;
 }
 
+.artist {
+  font-size: 0.8rem;
+  color: var(--text-muted);
+}
+
 .stage,
 .status {
   font-size: 0.75rem;

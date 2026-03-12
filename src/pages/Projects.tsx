@@ -13,6 +13,7 @@ import {
 import type { Project } from '../data/mock'
 import { ALL_PACKAGES, getPackageOrDuoPrice } from '../data/packages'
 import { getInquiryReplyBody } from '../utils/emailSignature'
+import { getRequestedArtistLabel } from '../utils/artistLabels'
 import styles from './Projects.module.css'
 
 const defaultStages = [
@@ -500,6 +501,9 @@ export default function Projects() {
                 <div className={styles.archiveCardMain}>
                   <strong>{p.title}</strong>
                   {p.venue && <span className={styles.venue}>{p.venue}</span>}
+                  {getRequestedArtistLabel(p.requestedArtist) && (
+                    <span className={styles.requestedArtist}>{getRequestedArtistLabel(p.requestedArtist)}</span>
+                  )}
                   <span className={styles.client}>
                     <Link to={`/clients/${p.clientId}`} className={styles.cardClientLink} onClick={(e) => e.stopPropagation()}>
                       {p.clientName}
@@ -557,6 +561,9 @@ export default function Projects() {
                 >
                   <strong>{p.title}</strong>
                   {p.venue && <span className={styles.venue}>{p.venue}</span>}
+                  {getRequestedArtistLabel(p.requestedArtist) && (
+                    <span className={styles.requestedArtist}>{getRequestedArtistLabel(p.requestedArtist)}</span>
+                  )}
                   <span className={styles.client}>
                     <Link to={`/clients/${p.clientId}`} className={styles.cardClientLink} onClick={(e) => e.stopPropagation()}>
                       {p.clientName}

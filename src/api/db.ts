@@ -419,6 +419,26 @@ export async function apiSyncProposalForAccept(
   return false
 }
 
+export async function apiSyncInvoiceForView(
+  publicBaseUrl: string,
+  invoiceId: string,
+): Promise<boolean> {
+  await warmUpRender(publicBaseUrl)
+  for (let attempt = 0; attempt < 2; attempt++) {
+    try {
+      const res = await fetch(`${API}/invoices/${invoiceId}/push-to-render`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ baseUrl: publicBaseUrl }),
+      })
+      if (res.ok) return true
+      console.warn(`[InvoiceSync] push-to-render attempt ${attempt + 1} status=${res.status}`)
+    } catch { /* endpoint unavailable */ }
+    if (attempt < 1) await new Promise((r) => setTimeout(r, 3000))
+  }
+  return false
+}
+
 export async function apiSyncContractForSign(
   publicBaseUrl: string,
   contractId: string,

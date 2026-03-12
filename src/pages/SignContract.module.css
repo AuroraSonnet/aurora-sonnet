@@ -43,6 +43,46 @@
   border: none;
 }
 
+.pdfViewerWrap {
+  max-height: 500px;
+  overflow-y: auto;
+  background: #fff;
+  border-radius: var(--radius-sm);
+}
+
+.pdfPlaceholder {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  min-height: 400px;
+  gap: 1rem;
+  background: var(--bg-page, #f5f5f5);
+  color: var(--text-secondary);
+}
+
+.pdfSpinner {
+  width: 32px;
+  height: 32px;
+  border: 3px solid var(--border);
+  border-top-color: var(--accent);
+  border-radius: 50%;
+  animation: spin 0.8s linear infinite;
+}
+
+@keyframes spin {
+  to { transform: rotate(360deg); }
+}
+
+.pdfErrorText {
+  margin: 0;
+}
+
+.pdfDownloadLink {
+  color: var(--accent);
+  font-weight: 500;
+}
+
 .error {
   color: var(--danger, #c00);
   margin: 0;

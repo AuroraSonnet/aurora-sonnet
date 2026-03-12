@@ -1,0 +1,18 @@
+.viewer {
+  background: #fff;
+  padding: 1rem 0;
+}
+
+.pageCanvas {
+  display: block;
+  width: 100%;
+  height: auto;
+  margin: 0 auto 1rem;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.1);
+}
+
+.error {
+  color: var(--danger, #c00);
+  margin: 0;
+  padding: 1rem;
+}

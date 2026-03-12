@@ -3,6 +3,7 @@ import { useParams, Link, useNavigate } from 'react-router-dom'
 import { useApp, type MusicSelection } from '../context/AppContext'
 import { getInquiryApiBaseUrl } from '../utils/inquiryApiUrl'
 import { getPackageLabel } from '../data/packages'
+import { getRequestedArtistLabel } from '../utils/artistLabels'
 import { getInquiryReplyBody } from '../utils/emailSignature'
 import { htmlToPdfBase64 } from '../utils/htmlToPdf'
 import styles from './ClientDetail.module.css'
@@ -392,6 +393,9 @@ export default function ClientDetail() {
                     <strong>{p.title}</strong>
                     {p.packageType && (
                       <span className={styles.package}>{getPackageLabel(p.packageType)}</span>
+                    )}
+                    {getRequestedArtistLabel(p.requestedArtist) && (
+                      <span className={styles.artist}> · {getRequestedArtistLabel(p.requestedArtist)}</span>
                     )}
                     <span className={styles.stage} data-stage={p.stage}>
                       {p.stage}

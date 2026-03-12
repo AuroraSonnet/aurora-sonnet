@@ -14,6 +14,7 @@ import {
   apiUploadContractFile,
   fetchContractTemplateFileAsBase64,
   apiSyncContractForSign,
+  apiSyncInvoiceForView,
 } from '../api/db'
 import { mergeContractTemplate } from '../utils/mergeContractTemplate'
 import { htmlToPdfBase64 } from '../utils/htmlToPdf'
@@ -72,13 +73,27 @@ export default function Contracts() {
     if (packageSendingId) return
     let project = projects.find((p) => p.id === contract.projectId)
     if (!project) {
-      project = projects.find((p) => p.clientName === contract.clientName && p.title === contract.title)
+      project = projects.find((p) => (p as { cloudProjectId?: string }).cloudProjectId === contract.projectId)
       if (project) {
         await apiUpdateContract(contract.id, { projectId: project.id })
         actions.updateContract(contract.id, { projectId: project.id })
       }
     }
     if (!project) {
+      project = projects.find((p) => p.clientName === contract.clientName && p.title === contract.title)
+    }
+    if (!project) {
+      const clientByContract = clients.find((c) => c.name === contract.clientName || (contract.clientName && contract.clientName.includes(c.name)))
+      if (clientByContract) {
+        project = projects.find((p) => p.clientId === clientByContract.id && (p.title === contract.title || p.clientName === contract.clientName))
+      }
+    }
+    if (project) {
+      if (contract.projectId !== project.id) {
+        await apiUpdateContract(contract.id, { projectId: project.id })
+        actions.updateContract(contract.id, { projectId: project.id })
+      }
+    } else {
       alert('Project not found for this contract. Create a booking for this client first.')
       return
     }
@@ -146,7 +161,6 @@ export default function Contracts() {
         n: contract.clientName, ti: contract.title, p: contract.projectId,
         v: contract.value, w: contract.weddingDate, ve: contract.venue,
         pk: contract.packageType, tm: template?.id,
-        th: (template as { contentHtml?: string })?.contentHtml || null, tn: template?.name,
         ci: project.clientId, ce: client?.email,
       }))
       const signUrl = `${clientFacingBaseUrl.replace(/\/$/, '')}/sign/${contract.id}?token=${encodeURIComponent(signToken)}&d=${encodeURIComponent(d)}`
@@ -154,6 +168,10 @@ export default function Contracts() {
       void apiSyncContractForSign(clientFacingBaseUrl, contract.id).then((ok) => {
         if (ok) console.log('[ContractSync] Synced to Render')
         else console.warn('[ContractSync] Sync failed (link has fallback data)')
+      })
+      void apiSyncInvoiceForView(clientFacingBaseUrl, invoice.id).then((ok) => {
+        if (ok) console.log('[InvoiceSync] Synced to Render')
+        else console.warn('[InvoiceSync] Sync failed')
       })
 
       const invoiceUrl = `${clientFacingBaseUrl.replace(/\/$/, '')}/invoices/view/${invoice.id}`
@@ -480,7 +498,6 @@ export default function Contracts() {
                                     n: c.clientName, ti: c.title, p: c.projectId,
                                     v: c.value, w: c.weddingDate, ve: c.venue,
                                     pk: c.packageType, tm: tmpl?.id,
-                                    th: (tmpl as { contentHtml?: string })?.contentHtml || null, tn: tmpl?.name,
                                     ci: proj?.clientId, ce: cl?.email,
                                   }))
                                   const link = base ? `${base.replace(/\/$/, '')}/sign/${c.id}?token=${encodeURIComponent(token || '')}&d=${encodeURIComponent(dParam)}` : ''

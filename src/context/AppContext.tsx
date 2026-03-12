@@ -600,6 +600,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
         musicSelections?: MusicSelection[]
         contracts?: { id: string; clientSignedAt?: string; status?: string; signedAt?: string }[]
         proposals?: { id: string; status?: string }[]
+        invoices?: { id: string; projectId?: string; status?: string; paidAt?: string }[]
       }
       const allCloudClients = apiState.clients ?? []
       const allCloudProjects = apiState.projects ?? []
@@ -852,6 +853,23 @@ export function AppProvider({ children }: { children: ReactNode }) {
           })
           if (!changed) return prev
           const next = { ...prev, proposals: updatedProposals }
+          saveState(next)
+          return next
+        })
+      }
+      const remoteInvoices = apiState.invoices ?? []
+      if (remoteInvoices.length > 0) {
+        setState((prev) => {
+          let changed = false
+          const updatedInvoices = (prev.invoices ?? []).map((inv) => {
+            const remote = remoteInvoices.find((r) => r.id === inv.id)
+            if (!remote?.paidAt || inv.paidAt) return inv
+            changed = true
+            void apiUpdateInvoice(inv.id, { status: 'paid', paidAt: remote.paidAt })
+            return { ...inv, status: 'paid' as const, paidAt: remote.paidAt }
+          })
+          if (!changed) return prev
+          const next = { ...prev, invoices: updatedInvoices }
           saveState(next)
           return next
         })

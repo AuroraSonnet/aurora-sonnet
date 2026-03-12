@@ -260,6 +260,11 @@
   color: var(--text-secondary);
 }
 
+.requestedArtist {
+  font-size: 0.8rem;
+  color: var(--text-muted);
+}
+
 .weddingDate {
   font-size: 0.75rem;
   color: var(--text-muted);

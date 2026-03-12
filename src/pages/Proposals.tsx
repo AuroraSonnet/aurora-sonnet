@@ -412,8 +412,7 @@ export default function Proposals() {
       if (result) acceptToken = result.acceptToken
       else await actions.refreshState()
     }
-    // Sync proposal to Render in background (best-effort; the d parameter in the URL
-    // makes the link self-contained so it works even if this sync fails).
+    let syncOk = false
     if (baseUrl && acceptToken && pair?.client && pair?.project) {
       const payload = {
         client: {
@@ -451,21 +450,23 @@ export default function Proposals() {
           acceptToken,
         },
       }
-      void apiSyncProposalForAccept(baseUrl, payload).then((ok) => {
-        if (!ok && baseUrl !== DEFAULT_INQUIRY_API_URL) {
-          return apiSyncProposalForAccept(DEFAULT_INQUIRY_API_URL, payload)
-        }
-        return ok
-      })
+      syncOk = await apiSyncProposalForAccept(baseUrl, payload)
+      if (!syncOk && baseUrl !== DEFAULT_INQUIRY_API_URL) {
+        syncOk = await apiSyncProposalForAccept(DEFAULT_INQUIRY_API_URL, payload)
+      }
     }
     let acceptProposalUrl: string | undefined
     if (baseUrl && acceptToken) {
-      const d = btoa(JSON.stringify({
-        t: p.title, n: p.clientName, v: p.value, p: p.projectId,
-        ci: pair?.client?.id, ce: pair?.client?.email,
-        w: project?.weddingDate, ve: project?.venue,
-      }))
-      acceptProposalUrl = `${baseUrl.replace(/\/$/, '')}/accept-proposal/${p.id}?token=${encodeURIComponent(acceptToken)}&d=${encodeURIComponent(d)}`
+      const base = baseUrl.replace(/\/$/, '')
+      if (syncOk) {
+        acceptProposalUrl = `${base}/accept-proposal/${p.id}?token=${encodeURIComponent(acceptToken)}`
+      } else {
+        const d = btoa(JSON.stringify({
+          t: p.title, n: p.clientName, v: p.value, p: p.projectId,
+          ci: pair?.client?.id, ce: pair?.client?.email,
+        }))
+        acceptProposalUrl = `${base}/accept-proposal/${p.id}?token=${encodeURIComponent(acceptToken)}&d=${encodeURIComponent(d)}`
+      }
     }
     const experienceName =
       p.customPackageName?.trim() || project?.packageType?.trim() || p.title
@@ -572,7 +573,7 @@ export default function Proposals() {
     }
   }
 
-  const startEdit = (p: Proposal) => {
+  const startEdit = async (p: Proposal) => {
     setEditingId(p.id)
     const pair = getClientForProposal(p)
     const clientName = pair?.client?.name
@@ -592,14 +593,28 @@ export default function Proposals() {
       (rawBase.startsWith('http://localhost') || rawBase.startsWith('file:'))
         ? DEFAULT_INQUIRY_API_URL
         : rawBase || DEFAULT_INQUIRY_API_URL
+    let syncOk = false
+    if (baseUrl && p.acceptToken && pair?.client && pair?.project) {
+      const payload = {
+        client: { id: pair.client.id, name: pair.client.name, email: pair.client.email, phone: pair.client.phone, partnerName: pair.client.partnerName, createdAt: pair.client.createdAt },
+        project: { id: pair.project.id, clientId: pair.project.clientId, clientName: pair.project.clientName, title: pair.project.title, stage: pair.project.stage, value: pair.project.value, weddingDate: pair.project.weddingDate, venue: pair.project.venue, packageType: pair.project.packageType, dueDate: pair.project.dueDate, createdAt: pair.project.createdAt, notes: pair.project.notes, requestedArtist: pair.project.requestedArtist, cloudProjectId: pair.project.cloudProjectId },
+        proposal: { id: p.id, projectId: p.projectId, clientName: p.clientName, title: p.title, status: p.status, value: p.value, sentAt: p.sentAt, acceptToken: p.acceptToken },
+      }
+      syncOk = await apiSyncProposalForAccept(baseUrl, payload)
+      if (!syncOk && baseUrl !== DEFAULT_INQUIRY_API_URL) syncOk = await apiSyncProposalForAccept(DEFAULT_INQUIRY_API_URL, payload)
+    }
     let acceptProposalUrl: string | undefined
     if (baseUrl && p.acceptToken) {
-      const d = btoa(JSON.stringify({
-        t: p.title, n: p.clientName, v: p.value, p: p.projectId,
-        ci: pair?.client?.id, ce: pair?.client?.email,
-        w: project?.weddingDate, ve: project?.venue,
-      }))
-      acceptProposalUrl = `${baseUrl.replace(/\/$/, '')}/accept-proposal/${p.id}?token=${encodeURIComponent(p.acceptToken)}&d=${encodeURIComponent(d)}`
+      const base = baseUrl.replace(/\/$/, '')
+      if (syncOk) {
+        acceptProposalUrl = `${base}/accept-proposal/${p.id}?token=${encodeURIComponent(p.acceptToken)}`
+      } else {
+        const d = btoa(JSON.stringify({
+          t: p.title, n: p.clientName, v: p.value, p: p.projectId,
+          ci: pair?.client?.id, ce: pair?.client?.email,
+        }))
+        acceptProposalUrl = `${base}/accept-proposal/${p.id}?token=${encodeURIComponent(p.acceptToken)}&d=${encodeURIComponent(d)}`
+      }
     }
     const experienceName =
       p.customPackageName?.trim() || project?.packageType?.trim() || p.title
