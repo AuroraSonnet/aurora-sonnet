@@ -1406,51 +1406,30 @@ app.get('/api/proposals/:id/accept-info', (req, res) => {
           if (decoded.clientId) {
             const existingClient = getClientById(decoded.clientId)
             if (!existingClient) {
-              createClient({
-                id: decoded.clientId,
-                name: decoded.clientName || 'Client',
-                email: decoded.clientEmail || 'noreply@example.com',
-                phone: null,
-                partnerName: null,
-                createdAt: new Date().toISOString().slice(0, 10),
-              })
+              try { createClient({ id: decoded.clientId, name: decoded.clientName || 'Client', email: decoded.clientEmail || 'noreply@example.com', phone: null, partnerName: null, createdAt: new Date().toISOString().slice(0, 10) }) } catch (_) { /* may already exist soft-deleted */ }
+              try { restoreClient(decoded.clientId) } catch (_) {}
             }
           }
-          if (decoded.projectId && !state.projects.find((p) => p.id === decoded.projectId)) {
-            createProject({
-              id: decoded.projectId,
-              clientId: decoded.clientId || 'unknown',
-              clientName: decoded.clientName || 'Client',
-              title: decoded.projectTitle || decoded.title || 'Booking',
-              stage: 'proposal',
-              value: Number(decoded.value) || 0,
-              weddingDate: decoded.weddingDate || new Date().toISOString().slice(0, 10),
-              venue: decoded.venue || null,
-              packageType: null,
-              dueDate: new Date().toISOString().slice(0, 10),
-              createdAt: new Date().toISOString().slice(0, 10),
-              notes: null,
-              requestedArtist: null,
-              cloudProjectId: null,
-            })
+          if (decoded.projectId) {
+            const projectExists = state.projects.find((p) => p.id === decoded.projectId)
+            if (!projectExists) {
+              try {
+                createProject({ id: decoded.projectId, clientId: decoded.clientId || 'unknown', clientName: decoded.clientName || 'Client', title: decoded.projectTitle || decoded.title || 'Booking', stage: 'proposal', value: Number(decoded.value) || 0, weddingDate: decoded.weddingDate || new Date().toISOString().slice(0, 10), venue: decoded.venue || null, packageType: null, dueDate: new Date().toISOString().slice(0, 10), createdAt: new Date().toISOString().slice(0, 10), notes: null, requestedArtist: null, cloudProjectId: null })
+              } catch (_) {
+                // Project exists but soft-deleted — restore and update it
+                try { updateProject(decoded.projectId, { deletedAt: null, clientId: decoded.clientId || 'unknown', clientName: decoded.clientName || 'Client', title: decoded.projectTitle || decoded.title || 'Booking', stage: 'proposal', value: Number(decoded.value) || 0 }) } catch (_) {}
+              }
+            }
           }
-          createProposal({
-            id: decoded.id,
-            projectId: decoded.projectId,
-            clientName: decoded.clientName || 'Client',
-            title: decoded.title || 'Proposal',
-            status: decoded.status || 'sent',
-            value: Number(decoded.value) || 0,
-            sentAt: decoded.sentAt || null,
-            emailBody: null,
-            customPackageName: null,
-            customPackageDetails: null,
-            customPriceBreakdown: null,
-            acceptToken: decoded.acceptToken,
-          })
+          try {
+            createProposal({ id: decoded.id, projectId: decoded.projectId, clientName: decoded.clientName || 'Client', title: decoded.title || 'Proposal', status: decoded.status || 'sent', value: Number(decoded.value) || 0, sentAt: decoded.sentAt || null, emailBody: null, customPackageName: null, customPackageDetails: null, customPriceBreakdown: null, acceptToken: decoded.acceptToken })
+          } catch (_) {
+            // Proposal might exist but wasn't returned by getState — update it
+            try { updateProposal(decoded.id, { acceptToken: decoded.acceptToken, status: decoded.status || 'sent', value: Number(decoded.value) || 0, clientName: decoded.clientName || 'Client', title: decoded.title || 'Proposal' }) } catch (_) {}
+          }
           proposal = getState().proposals.find((p) => p.id === req.params.id)
         }
-      } catch (_) { /* malformed d param, ignore */ }
+      } catch (err) { console.error('[accept-info] d param error:', err.message || err) }
     }
     if (!proposal) return res.status(404).json({ error: 'Proposal not found' })
     if (!token || proposal.acceptToken !== token) return res.status(403).json({ error: 'Invalid or expired link' })
