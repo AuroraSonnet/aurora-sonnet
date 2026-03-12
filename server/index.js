@@ -1395,11 +1395,13 @@ app.post('/api/proposals/sync-for-accept', (req, res) => {
 app.get('/api/proposals/:id/accept-info', (req, res) => {
   try {
     const { token, d } = req.query
+    console.log(`[accept-info] id=${req.params.id} token=${token ? 'yes' : 'no'} d=${d ? `yes(${String(d).length}chars)` : 'no'}`)
     const state = getState()
     let proposal = state.proposals.find((p) => p.id === req.params.id)
     if (!proposal && d) {
       try {
         const decoded = JSON.parse(Buffer.from(String(d), 'base64').toString('utf-8'))
+        console.log(`[accept-info] decoded d: id=${decoded.id} tokenMatch=${decoded.acceptToken === token}`)
         if (decoded && decoded.acceptToken === token && decoded.id === req.params.id) {
           if (decoded.clientId) {
             const existingClient = getClientById(decoded.clientId)
