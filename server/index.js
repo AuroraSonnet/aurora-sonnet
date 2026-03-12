@@ -1423,17 +1423,16 @@ app.get('/api/proposals/:id/accept-info', (req, res) => {
             const existingClient = getClientById(decoded.clientId)
             if (!existingClient) {
               try { createClient({ id: decoded.clientId, name: decoded.clientName, email: decoded.clientEmail || 'noreply@example.com', phone: null, partnerName: null, createdAt: new Date().toISOString().slice(0, 10) }) } catch (_) { /* may already exist soft-deleted */ }
-              try { restoreClient(decoded.clientId) } catch (_) {}
             }
+            // Always restore client + their projects (clears deletedAt on both)
+            try { restoreClient(decoded.clientId) } catch (_) {}
           }
           if (decoded.projectId) {
-            const projectExists = state.projects.find((p) => p.id === decoded.projectId)
+            const projectExists = getState().projects.find((p) => p.id === decoded.projectId)
             if (!projectExists) {
               try {
                 createProject({ id: decoded.projectId, clientId: decoded.clientId || 'unknown', clientName: decoded.clientName, title: decoded.projectTitle || decoded.title, stage: 'proposal', value: decoded.value, weddingDate: decoded.weddingDate || new Date().toISOString().slice(0, 10), venue: decoded.venue || null, packageType: null, dueDate: new Date().toISOString().slice(0, 10), createdAt: new Date().toISOString().slice(0, 10), notes: null, requestedArtist: null, cloudProjectId: null })
-              } catch (_) {
-                try { updateProject(decoded.projectId, { deletedAt: null, clientId: decoded.clientId || 'unknown', clientName: decoded.clientName, title: decoded.projectTitle || decoded.title, stage: 'proposal', value: decoded.value }) } catch (_) {}
-              }
+              } catch (_) { /* already exists */ }
             }
           }
           try {
@@ -1472,7 +1471,13 @@ app.post('/api/proposals/:id/accept', async (req, res) => {
     if (proposal.status === 'accepted') return res.status(400).json({ error: 'Proposal already accepted' })
 
     let project = state.projects.find((p) => p.id === proposal.projectId)
-    if (!project) return res.status(400).json({ error: 'Project not found' })
+    if (!project) {
+      try {
+        db.prepare('UPDATE projects SET deletedAt = NULL WHERE id = ?').run(proposal.projectId)
+        project = getState().projects.find((p) => p.id === proposal.projectId)
+      } catch (_) {}
+      if (!project) return res.status(400).json({ error: 'Project not found' })
+    }
     const client = state.clients.find((c) => c.id === project.clientId)
     const clientEmail = (client?.email || '').trim()
     const baseUrl = (req.body && req.body.baseUrl) || process.env.APP_URL || ''
