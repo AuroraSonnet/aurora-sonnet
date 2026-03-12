@@ -598,6 +598,8 @@ export function AppProvider({ children }: { children: ReactNode }) {
         clients?: { id: string; name: string; email: string; phone?: string; partnerName?: string; createdAt: string }[]
         projects?: { id: string; clientId: string; clientName: string; title: string; stage: string; value: number; weddingDate: string; venue?: string; packageType?: string; dueDate: string; createdAt?: string; notes?: string }[]
         musicSelections?: MusicSelection[]
+        contracts?: { id: string; clientSignedAt?: string; status?: string; signedAt?: string }[]
+        proposals?: { id: string; status?: string }[]
       }
       const allCloudClients = apiState.clients ?? []
       const allCloudProjects = apiState.projects ?? []
@@ -811,6 +813,45 @@ export function AppProvider({ children }: { children: ReactNode }) {
           const additions = remoteSelections.filter((m) => !existingIds.has(m.id))
           if (additions.length === 0) return prev
           const next = { ...prev, musicSelections: [...existing, ...additions] }
+          saveState(next)
+          return next
+        })
+      }
+      const remoteContracts = apiState.contracts ?? []
+      if (remoteContracts.length > 0) {
+        setState((prev) => {
+          let changed = false
+          const updatedContracts = (prev.contracts ?? []).map((c) => {
+            const remote = remoteContracts.find((rc) => rc.id === c.id)
+            if (!remote) return c
+            const updates: Record<string, unknown> = {}
+            if (remote.clientSignedAt && !c.clientSignedAt) updates.clientSignedAt = remote.clientSignedAt
+            if (remote.status === 'signed' && c.status !== 'signed') { updates.status = 'signed'; updates.signedAt = remote.signedAt }
+            if (Object.keys(updates).length === 0) return c
+            changed = true
+            return { ...c, ...updates }
+          })
+          if (!changed) return prev
+          const next = { ...prev, contracts: updatedContracts }
+          saveState(next)
+          return next
+        })
+      }
+      const remoteProposals = apiState.proposals ?? []
+      if (remoteProposals.length > 0) {
+        setState((prev) => {
+          let changed = false
+          const updatedProposals = (prev.proposals ?? []).map((p) => {
+            const remote = remoteProposals.find((rp) => rp.id === p.id)
+            if (!remote) return p
+            if (remote.status === 'accepted' && p.status !== 'accepted') {
+              changed = true
+              return { ...p, status: 'accepted' as const }
+            }
+            return p
+          })
+          if (!changed) return prev
+          const next = { ...prev, proposals: updatedProposals }
           saveState(next)
           return next
         })

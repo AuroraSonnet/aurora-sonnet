@@ -28,7 +28,9 @@ export default function SignContract() {
       setLoading(false)
       return
     }
-    fetch(`/api/contracts/${contractId}/sign-info?token=${encodeURIComponent(token)}`)
+    const encodedData = searchParams.get('d')
+    const infoUrl = `/api/contracts/${contractId}/sign-info?token=${encodeURIComponent(token)}${encodedData ? `&d=${encodeURIComponent(encodedData)}` : ''}`
+    fetch(infoUrl)
       .then((res) => res.json().then((data) => ({ ok: res.ok, data })))
       .then(({ ok, data }) => {
         if (!ok || data.error) throw new Error(data?.error || 'Invalid or expired signing link')
