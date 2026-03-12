@@ -1,4 +1,4 @@
-import { useState, lazy, Suspense } from 'react'
+import { useState, useEffect, useRef, lazy, Suspense } from 'react'
 import { useSearchParams } from 'react-router-dom'
 import { useApp } from '../context/AppContext'
 import { useUndo } from '../context/UndoContext'
@@ -45,6 +45,20 @@ export default function Contracts() {
   const invoices = state.invoices ?? []
   const [creatingFrom, setCreatingFrom] = useState<string | null>(null)
   const [selectedTemplateId, setSelectedTemplateId] = useState<string>('')
+
+  const getDefaultTemplate = () =>
+    (contractTemplates ?? []).find((t) => /performance/i.test(t.name)) ?? (contractTemplates ?? [])[0]
+
+  const hasSetDefaultTemplate = useRef(false)
+  useEffect(() => {
+    if (contractTemplates?.length && !hasSetDefaultTemplate.current) {
+      const def = getDefaultTemplate()
+      if (def) {
+        setSelectedTemplateId(def.id)
+        hasSetDefaultTemplate.current = true
+      }
+    }
+  }, [contractTemplates?.length])
   const [signingContractId, setSigningContractId] = useState<string | null>(null)
   const [vendorSigningInProgress, setVendorSigningInProgress] = useState(false)
   const [vendorAgreed, setVendorAgreed] = useState(false)
@@ -156,7 +170,7 @@ export default function Contracts() {
         if (!ok) throw new Error('Could not prepare the retainer invoice.')
       }
 
-      const template = contractTemplates.find((t) => t.id === (contract as { templateId?: string }).templateId) || contractTemplates[0]
+      const template = contractTemplates.find((t) => t.id === (contract as { templateId?: string }).templateId) || getDefaultTemplate()
       const d = btoa(JSON.stringify({
         n: contract.clientName, ti: contract.title, p: contract.projectId,
         v: contract.value, w: contract.weddingDate, ve: contract.venue,
@@ -230,7 +244,7 @@ export default function Contracts() {
     setCreatingFrom(projectId)
     setGeneratePdfError(null)
     try {
-      const templateId = selectedTemplateId || undefined
+      const templateId = selectedTemplateId || getDefaultTemplate()?.id || undefined
       const contractId = actions.addContract({
         projectId: p.id,
         clientName: p.clientName,
@@ -493,7 +507,7 @@ export default function Contracts() {
                                   const base = contractReminderBaseUrl
                                   const proj = projectById(c.projectId)
                                   const cl = proj ? clients.find((x) => x.id === proj.clientId) : null
-                                  const tmpl = contractTemplates.find((t) => t.id === (c as { templateId?: string }).templateId) || contractTemplates[0]
+                                  const tmpl = contractTemplates.find((t) => t.id === (c as { templateId?: string }).templateId) || getDefaultTemplate()
                                   const dParam = btoa(JSON.stringify({
                                     n: c.clientName, ti: c.title, p: c.projectId,
                                     v: c.value, w: c.weddingDate, ve: c.venue,

@@ -44,7 +44,7 @@
 }
 
 .pdfViewerWrap {
-  max-height: 500px;
+  max-height: 700px;
   overflow-y: auto;
   background: #fff;
   border-radius: var(--radius-sm);

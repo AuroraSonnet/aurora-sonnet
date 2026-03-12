@@ -31,7 +31,7 @@ export default function PdfViewer({ blob, className }: PdfViewerProps) {
     }).then((pdf) => {
       const renderPage = (pageNum: number) => {
         return pdf.getPage(pageNum).then((page) => {
-          const scale = 1.5
+          const scale = 2.2
           const viewport = page.getViewport({ scale })
           const canvas = document.createElement('canvas')
           const ctx = canvas.getContext('2d')
