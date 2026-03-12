@@ -672,6 +672,10 @@ export function restoreClient(id) {
   _restoreClient(id)
 }
 
+export function restoreProject(id) {
+  db.prepare('UPDATE projects SET deletedAt = NULL WHERE id = ?').run(id)
+}
+
 export function createProject(project) {
   db.prepare(
     'INSERT INTO projects (id, clientId, clientName, title, stage, value, weddingDate, venue, packageType, dueDate, createdAt, notes, requestedArtist, cloudProjectId) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)'

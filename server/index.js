@@ -14,6 +14,7 @@ import {
   updateClient,
   deleteClient,
   restoreClient,
+  restoreProject,
   getDeletedClientIds,
   createInquiryInTransaction,
   createProject,
@@ -1473,7 +1474,7 @@ app.post('/api/proposals/:id/accept', async (req, res) => {
     let project = state.projects.find((p) => p.id === proposal.projectId)
     if (!project) {
       try {
-        db.prepare('UPDATE projects SET deletedAt = NULL WHERE id = ?').run(proposal.projectId)
+        restoreProject(proposal.projectId)
         project = getState().projects.find((p) => p.id === proposal.projectId)
       } catch (_) {}
       if (!project) return res.status(400).json({ error: 'Project not found' })
