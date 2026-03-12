@@ -141,12 +141,12 @@ export default function Contracts() {
         if (!ok) throw new Error('Could not prepare the retainer invoice.')
       }
 
-      const template = contractTemplates.find((t: { id: string }) => t.id === contract.templateId) || contractTemplates[0]
+      const template = contractTemplates.find((t) => t.id === (contract as { templateId?: string }).templateId) || contractTemplates[0]
       const d = btoa(JSON.stringify({
         n: contract.clientName, ti: contract.title, p: contract.projectId,
         v: contract.value, w: contract.weddingDate, ve: contract.venue,
         pk: contract.packageType, tm: template?.id,
-        th: template?.contentHtml || null, tn: template?.name,
+        th: (template as { contentHtml?: string })?.contentHtml || null, tn: template?.name,
         ci: project.clientId, ce: client?.email,
       }))
       const signUrl = `${clientFacingBaseUrl.replace(/\/$/, '')}/sign/${contract.id}?token=${encodeURIComponent(signToken)}&d=${encodeURIComponent(d)}`
@@ -475,12 +475,12 @@ export default function Contracts() {
                                   const base = contractReminderBaseUrl
                                   const proj = projectById(c.projectId)
                                   const cl = proj ? clients.find((x) => x.id === proj.clientId) : null
-                                  const tmpl = contractTemplates.find((t: { id: string }) => t.id === (c as { templateId?: string }).templateId) || contractTemplates[0]
+                                  const tmpl = contractTemplates.find((t) => t.id === (c as { templateId?: string }).templateId) || contractTemplates[0]
                                   const dParam = btoa(JSON.stringify({
                                     n: c.clientName, ti: c.title, p: c.projectId,
                                     v: c.value, w: c.weddingDate, ve: c.venue,
                                     pk: c.packageType, tm: tmpl?.id,
-                                    th: tmpl?.contentHtml || null, tn: tmpl?.name,
+                                    th: (tmpl as { contentHtml?: string })?.contentHtml || null, tn: tmpl?.name,
                                     ci: proj?.clientId, ce: cl?.email,
                                   }))
                                   const link = base ? `${base.replace(/\/$/, '')}/sign/${c.id}?token=${encodeURIComponent(token || '')}&d=${encodeURIComponent(dParam)}` : ''
