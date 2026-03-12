@@ -1936,10 +1936,10 @@ app.get('/api/contracts/:id/sign-info', async (req, res) => {
           try {
             createContract({ id: contractId, projectId: decoded.projectId, clientName: decoded.clientName, title: decoded.title, status: 'sent', value: decoded.value, weddingDate: decoded.weddingDate, venue: decoded.venue || null, packageType: decoded.packageType || null, signedAt: null, createdAt: now, templateId: decoded.templateId, signToken, clientSignedAt: null, lastReminderSentAt: null })
           } catch (_) {
-            updateContract(contractId, { signToken, status: 'sent', templateId: decoded.templateId || undefined })
+            updateContract(contractId, { signToken, status: 'sent', templateId: decoded.templateId || undefined, clientSignedAt: null })
           }
         } else {
-          updateContract(contractId, { signToken, status: 'sent', templateId: decoded.templateId || contract.templateId })
+          updateContract(contractId, { signToken, status: 'sent', templateId: decoded.templateId || contract.templateId, clientSignedAt: null })
         }
 
         state = getState()
