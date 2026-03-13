@@ -1961,6 +1961,12 @@ app.get('/api/contracts/:id/sign-info', async (req, res) => {
       } catch (err) { console.error('[sign-info] d param error:', err.message || err) }
     }
 
+    // When d is present and contract has clientSignedAt, clear it so client can sign (fixes stale Render state)
+    if (d && contract && contract.clientSignedAt) {
+      updateContract(req.params.id, { clientSignedAt: null })
+      contract = getState().contracts.find((c) => c.id === req.params.id)
+    }
+
     if (!contract) return res.status(404).json({ error: 'Contract not found' })
     if (contract.status !== 'sent' || !contract.signToken || contract.signToken !== String(token)) {
       return res.status(403).json({ error: 'Invalid or expired signing link' })
