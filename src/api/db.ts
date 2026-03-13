@@ -790,6 +790,30 @@ export async function fetchContractTemplateFileAsBase64(templateId: string): Pro
   return btoa(binary)
 }
 
+/** Generate contract PDF on server from template (records signature positions for accurate stamping). */
+export async function apiGenerateContractPdfFromTemplate(
+  contractId: string,
+  contentHtml: string,
+  mergeData: { clientName: string; weddingDate: string; venue?: string; packageType?: string; value: number; title: string; clientEmail?: string; clientPhone?: string }
+): Promise<void> {
+  const res = await fetch(`${API}/contracts/${contractId}/generate-pdf-from-template`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ contentHtml, mergeData }),
+  })
+  if (!res.ok) {
+    const text = await res.text()
+    let msg = 'Failed to generate contract PDF'
+    try {
+      const j = JSON.parse(text) as { error?: string }
+      if (j.error) msg = j.error
+    } catch {
+      if (text) msg = text
+    }
+    throw new Error(msg)
+  }
+}
+
 /** Upload generated PDF for a contract (e.g. from editor template merge or file-based template copy). */
 export async function apiUploadContractFile(contractId: string, fileBase64: string): Promise<void> {
   const res = await fetch(`${API}/contracts/${contractId}/file`, {

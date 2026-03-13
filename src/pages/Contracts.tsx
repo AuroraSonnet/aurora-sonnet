@@ -11,13 +11,12 @@ import {
   apiSignContractVendor,
   apiSendContractReminder,
   getContractFileUrl,
+  apiGenerateContractPdfFromTemplate,
   apiUploadContractFile,
   fetchContractTemplateFileAsBase64,
   apiSyncContractForSign,
   apiSyncInvoiceForView,
 } from '../api/db'
-import { mergeContractTemplate } from '../utils/mergeContractTemplate'
-import { htmlToPdfBase64 } from '../utils/htmlToPdf'
 import type { ContractStatus } from '../data/mock'
 import { getPackageLabel } from '../data/packages'
 import { getInquiryApiBaseUrl, DEFAULT_INQUIRY_API_URL } from '../utils/inquiryApiUrl'
@@ -271,7 +270,7 @@ export default function Contracts() {
 
       if (editorTemplate && contentHtml) {
         try {
-          const merged = mergeContractTemplate(contentHtml, {
+          await apiGenerateContractPdfFromTemplate(contractId, contentHtml, {
             clientName: client?.name || p.clientName,
             weddingDate: p.weddingDate,
             venue: p.venue,
@@ -281,8 +280,6 @@ export default function Contracts() {
             clientEmail: client?.email,
             clientPhone: client?.phone,
           })
-          const base64 = await htmlToPdfBase64(merged)
-          await apiUploadContractFile(contractId, base64)
         } catch (err) {
           setGeneratePdfError(err instanceof Error ? err.message : 'Failed to generate PDF')
         }

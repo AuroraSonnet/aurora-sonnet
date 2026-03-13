@@ -1745,6 +1745,33 @@ app.put('/api/contracts/:id/file', (req, res) => {
   }
 })
 
+app.post('/api/contracts/:id/generate-pdf-from-template', async (req, res) => {
+  try {
+    const state = getState()
+    const contract = state.contracts.find((c) => c.id === req.params.id)
+    if (!contract) return res.status(404).json({ error: 'Contract not found' })
+    const { contentHtml, mergeData } = req.body || {}
+    if (!contentHtml || typeof contentHtml !== 'string') return res.status(400).json({ error: 'contentHtml required' })
+    const data = {
+      clientName: mergeData?.clientName ?? contract.clientName ?? '',
+      weddingDate: mergeData?.weddingDate ?? contract.weddingDate ?? '',
+      venue: mergeData?.venue ?? contract.venue ?? '',
+      packageType: mergeData?.packageType ?? contract.packageType ?? '',
+      value: mergeData?.value ?? contract.value ?? 0,
+      title: mergeData?.title ?? contract.title ?? '',
+      clientEmail: mergeData?.clientEmail ?? '',
+      clientPhone: mergeData?.clientPhone ?? '',
+    }
+    const result = await createPdfFromEditorTemplate(contentHtml, data)
+    if (!result?.buffer) return res.status(500).json({ error: 'Failed to generate PDF' })
+    saveContractPdf(contract.id, result)
+    res.json({ ok: true })
+  } catch (err) {
+    logError('API', 'Failed to generate contract PDF', err)
+    res.status(500).json({ error: err.message || 'Failed to generate PDF' })
+  }
+})
+
 app.post('/api/contracts/sync-for-sign', async (req, res) => {
   try {
     const { client, project, contract, template } = req.body || {}
