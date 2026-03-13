@@ -556,16 +556,16 @@ async function createPdfFromEditorTemplate(contentHtml, mergeData) {
   return Buffer.from(await pdf.save())
 }
 
-async function createContractPdfFromTemplate(template, proposal, project, client) {
+async function createContractPdfFromTemplate(template, proposal, project, client, override) {
   if (!template) return null
   const mergeData = {
-    clientName: client?.name || project?.clientName || proposal?.clientName || '',
-    weddingDate: project?.weddingDate || '',
-    venue: project?.venue || '',
-    packageType: getProposalPackageLabel(proposal, project),
-    value: project?.value || proposal?.value || 0,
-    title: project?.title || proposal?.title || '',
-    clientEmail: client?.email || '',
+    clientName: override?.clientName || client?.name || project?.clientName || proposal?.clientName || '',
+    weddingDate: override?.weddingDate || project?.weddingDate || '',
+    venue: override?.venue ?? project?.venue ?? '',
+    packageType: override?.packageType || getProposalPackageLabel(proposal, project),
+    value: override?.value ?? project?.value ?? proposal?.value ?? 0,
+    title: override?.title || project?.title || proposal?.title || '',
+    clientEmail: override?.clientEmail || client?.email || '',
     clientPhone: client?.phone || '',
   }
   if (template.contentHtml) {
@@ -1924,14 +1924,20 @@ app.get('/api/contracts/:id/sign-info', async (req, res) => {
         const signToken = String(token)
 
         if (decoded.clientId) {
-          if (!getClientById(decoded.clientId)) {
+          const existingClient = getClientById(decoded.clientId)
+          if (!existingClient) {
             try { createClient({ id: decoded.clientId, name: decoded.clientName, email: decoded.clientEmail || '', phone: null, partnerName: null, createdAt: now }) } catch (_) {}
+          } else {
+            updateClient(decoded.clientId, { name: decoded.clientName || existingClient.name, email: decoded.clientEmail ?? existingClient.email ?? '' })
           }
           try { restoreClient(decoded.clientId) } catch (_) {}
         }
         if (decoded.projectId) {
-          if (!getState().projects.find((p) => p.id === decoded.projectId)) {
+          const existingProject = getState().projects.find((p) => p.id === decoded.projectId)
+          if (!existingProject) {
             try { createProject({ id: decoded.projectId, clientId: decoded.clientId || 'unknown', clientName: decoded.clientName, title: decoded.title, stage: 'booked', value: decoded.value, weddingDate: decoded.weddingDate || now, venue: decoded.venue || null, packageType: decoded.packageType || null, dueDate: now, createdAt: now, notes: null, requestedArtist: null, cloudProjectId: null }) } catch (_) {}
+          } else {
+            updateProject(decoded.projectId, { clientName: decoded.clientName || existingProject.clientName, title: decoded.title || existingProject.title, value: decoded.value ?? existingProject.value, weddingDate: decoded.weddingDate || existingProject.weddingDate, venue: decoded.venue ?? existingProject.venue })
           }
           try { restoreProject(decoded.projectId) } catch (_) {}
         }
@@ -1944,25 +1950,26 @@ app.get('/api/contracts/:id/sign-info', async (req, res) => {
 
         if (!contract) {
           try {
-            createContract({ id: contractId, projectId: decoded.projectId, clientName: decoded.clientName, title: decoded.title, status: 'sent', value: decoded.value, weddingDate: decoded.weddingDate, venue: decoded.venue || null, packageType: decoded.packageType || null, signedAt: null, createdAt: now, templateId: decoded.templateId, signToken, clientSignedAt: null, lastReminderSentAt: null })
+            createContract({ id: contractId, projectId: decoded.projectId, clientName: decoded.clientName, title: decoded.title, status: 'sent', value: decoded.value, weddingDate: decoded.weddingDate || now, venue: decoded.venue || null, packageType: decoded.packageType || null, signedAt: null, createdAt: now, templateId: decoded.templateId, signToken, clientSignedAt: null, lastReminderSentAt: null })
           } catch (_) {
-            updateContract(contractId, { signToken, status: 'sent', templateId: decoded.templateId || undefined, clientSignedAt: null, clientName: decoded.clientName, title: decoded.title })
+            updateContract(contractId, { signToken, status: 'sent', templateId: decoded.templateId || undefined, clientSignedAt: null, clientName: decoded.clientName, title: decoded.title, weddingDate: decoded.weddingDate || now, venue: decoded.venue || null })
           }
         } else {
-          updateContract(contractId, { signToken, status: 'sent', templateId: decoded.templateId || contract.templateId, clientSignedAt: null, clientName: decoded.clientName || contract.clientName, title: decoded.title || contract.title })
+          updateContract(contractId, { signToken, status: 'sent', templateId: decoded.templateId || contract.templateId, clientSignedAt: null, clientName: decoded.clientName || contract.clientName, title: decoded.title || contract.title, weddingDate: decoded.weddingDate || contract.weddingDate, venue: decoded.venue ?? contract.venue })
         }
 
         state = getState()
         contract = state.contracts.find((c) => c.id === contractId)
 
-        // Regenerate PDF with correct client name (from d) when we have template
+        // Regenerate PDF with correct data (from d) when we have template
         if (contract) {
           const t = state.contractTemplates.find((x) => x.id === contract.templateId)
           if (t && (t.contentHtml || t.fileName)) {
             const proj = state.projects.find((p) => p.id === contract.projectId)
             const proposal = state.proposals.find((p) => p.projectId === contract.projectId)
             const cl = decoded.clientId ? getClientById(decoded.clientId) : null
-            const pdfBuf = await createContractPdfFromTemplate(t, proposal, proj, cl)
+            const override = { clientName: decoded.clientName, clientEmail: decoded.clientEmail, weddingDate: decoded.weddingDate, venue: decoded.venue, packageType: decoded.packageType, value: decoded.value, title: decoded.title }
+            const pdfBuf = await createContractPdfFromTemplate(t, proposal, proj, cl, override)
             if (pdfBuf) {
               ensureContractsDir()
               writeFileSync(join(CONTRACTS_DIR, `${contract.id}.pdf`), pdfBuf)
@@ -1989,8 +1996,9 @@ app.get('/api/contracts/:id/sign-info', async (req, res) => {
     if (!pdfBuf) {
       try {
         const proj = state.projects.find((p) => p.id === contract.projectId)
+        const cl = proj ? getClientById(proj.clientId) : null
         const basicHtml = `<h1>Performance Agreement</h1><p>Client: ${contract.clientName}</p><p>Event: ${contract.title}</p><p>Date: ${contract.weddingDate || 'TBD'}</p><p>Venue: ${contract.venue || 'TBD'}</p><p>Investment: $${(contract.value || 0).toLocaleString()}</p><p>Package: ${contract.packageType || proj?.packageType || 'Standard'}</p>`
-        pdfBuf = await createPdfFromEditorTemplate(basicHtml, { clientName: contract.clientName, weddingDate: contract.weddingDate, venue: contract.venue, packageType: contract.packageType, value: contract.value, title: contract.title })
+        pdfBuf = await createPdfFromEditorTemplate(basicHtml, { clientName: cl?.name || contract.clientName, clientEmail: cl?.email || '', weddingDate: contract.weddingDate, venue: contract.venue, packageType: contract.packageType, value: contract.value, title: contract.title })
         if (pdfBuf) { ensureContractsDir(); writeFileSync(join(CONTRACTS_DIR, `${contract.id}.pdf`), pdfBuf) }
       } catch (_) {}
     }
