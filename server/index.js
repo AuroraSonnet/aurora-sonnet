@@ -2097,7 +2097,7 @@ app.post('/api/contracts/:id/sign-vendor', async (req, res) => {
     if (!buf) return res.status(400).json({ error: 'Contract PDF not available' })
     ensureContractsDir()
     const signedAt = new Date().toISOString().slice(0, 10)
-    const signedPdf = await stampSignature(buf, signatureDataUrl, 'Aurora Sonnet (Vendor)', signedAt, 'vendor', contract.id)
+    const signedPdf = await stampSignature(buf, signatureDataUrl, 'Aurora Sonnet (Agency)', signedAt, 'vendor', contract.id)
     writeFileSync(join(CONTRACTS_DIR, `${contract.id}.pdf`), signedPdf)
     const fullySigned = Boolean(contract.clientSignedAt)
     updateContract(contract.id, { signedAt, ...(fullySigned ? { status: 'signed' } : {}) })
