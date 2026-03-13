@@ -139,6 +139,16 @@ function ensureTemplatesDirs() {
 function ensureContractsDir() {
   if (!existsSync(CONTRACTS_DIR)) mkdirSync(CONTRACTS_DIR, { recursive: true })
 }
+function saveContractPdf(contractId, result) {
+  if (!result) return
+  const buf = result.buffer ?? result
+  if (!buf || !Buffer.isBuffer(buf)) return
+  ensureContractsDir()
+  writeFileSync(join(CONTRACTS_DIR, `${contractId}.pdf`), buf)
+  if (result.signaturePositions && (result.signaturePositions.client || result.signaturePositions.vendor)) {
+    writeFileSync(join(CONTRACTS_DIR, `${contractId}.sig.json`), JSON.stringify(result.signaturePositions))
+  }
+}
 ensureTemplatesDirs()
 ensureContractsDir()
 
@@ -521,39 +531,59 @@ function wrapTextLines(text, maxChars = 90) {
   return out
 }
 
-async function createPdfFromEditorTemplate(contentHtml, mergeData) {
+const SIGNATURE_LINE_PATTERN = /Signature:\s*_+/i
+function createPdfFromEditorTemplate(contentHtml, mergeData) {
   const mergedHtml = mergeContractTemplateHtml(contentHtml, mergeData)
   const text = htmlToPlainText(mergedHtml)
-  const pdf = await PDFDocument.create()
-  const font = await pdf.embedStandardFont(StandardFonts.Helvetica)
-  const fontSize = 11
-  const lineHeight = 16
-  const margin = 50
-  const pageWidth = 595
-  const pageHeight = 842
-  let page = pdf.addPage([pageWidth, pageHeight])
-  let y = pageHeight - margin
   const lines = wrapTextLines(text, 92)
+  const signaturePositions = { client: null, vendor: null }
+  let clientFound = false
+  let vendorFound = false
 
-  for (const line of lines) {
-    if (y < margin) {
-      page = pdf.addPage([pageWidth, pageHeight])
-      y = pageHeight - margin
-    }
-    if (line) {
-      page.drawText(line, {
-        x: margin,
-        y,
-        size: fontSize,
-        font,
-        color: rgb(0, 0, 0),
-        maxWidth: pageWidth - margin * 2,
-      })
-    }
-    y -= lineHeight
-  }
+  return (async () => {
+    const pdf = await PDFDocument.create()
+    const font = await pdf.embedStandardFont(StandardFonts.Helvetica)
+    const fontSize = 11
+    const lineHeight = 16
+    const margin = 50
+    const pageWidth = 595
+    const pageHeight = 842
+    let page = pdf.addPage([pageWidth, pageHeight])
+    let pageIndex = 0
+    let y = pageHeight - margin
+    const pages = [page]
 
-  return Buffer.from(await pdf.save())
+    for (const line of lines) {
+      if (y < margin) {
+        page = pdf.addPage([pageWidth, pageHeight])
+        pages.push(page)
+        pageIndex++
+        y = pageHeight - margin
+      }
+      if (line) {
+        const isSignatureLine = SIGNATURE_LINE_PATTERN.test(line)
+        if (isSignatureLine && !clientFound) {
+          signaturePositions.client = { page: pageIndex, y }
+          clientFound = true
+        } else if (isSignatureLine && !vendorFound) {
+          signaturePositions.vendor = { page: pageIndex, y }
+          vendorFound = true
+        }
+        page.drawText(line, {
+          x: margin,
+          y,
+          size: fontSize,
+          font,
+          color: rgb(0, 0, 0),
+          maxWidth: pageWidth - margin * 2,
+        })
+      }
+      y -= lineHeight
+    }
+
+    const buffer = Buffer.from(await pdf.save())
+    return { buffer, signaturePositions }
+  })()
 }
 
 async function createContractPdfFromTemplate(template, proposal, project, client, override) {
@@ -574,7 +604,7 @@ async function createContractPdfFromTemplate(template, proposal, project, client
   if (template.fileName) {
     const templatePath = join(TEMPLATES_CONTRACTS_DIR, template.fileName)
     if (existsSync(templatePath)) {
-      return readFileSync(templatePath)
+      return { buffer: readFileSync(templatePath), signaturePositions: null }
     }
   }
   return null
@@ -1533,8 +1563,7 @@ app.post('/api/proposals/:id/accept', async (req, res) => {
       })
       const contractPdf = await createContractPdfFromTemplate(template, proposal, project, client)
       if (contractPdf) {
-        ensureContractsDir()
-        writeFileSync(join(CONTRACTS_DIR, `${contractId}.pdf`), contractPdf)
+        saveContractPdf(contractId, contractPdf)
       }
       s = getState()
       contract = s.contracts.find((c) => c.id === contractId)
@@ -1640,19 +1669,35 @@ function loadContractPdfBuffer(contract, state) {
   return readFileSync(templatePath)
 }
 
-async function stampSignature(pdfBuffer, signatureDataUrl, label, signedDate) {
+/** Stamp a signature on the contract. Uses recorded positions from template if available; otherwise fixed positions. */
+async function stampSignature(pdfBuffer, signatureDataUrl, label, signedDate, slot = 'client', contractId = null) {
   const pdf = await PDFDocument.load(pdfBuffer)
   const pages = pdf.getPages()
   if (pages.length === 0) return pdf.save()
-  const page = pages[pages.length - 1]
-  const { width } = page.getSize()
+  const margin = 50
+  let page = pages[pages.length - 1]
+  let x = margin
+  let y = slot === 'vendor' ? 50 : 100
+
+  if (contractId) {
+    try {
+      const sigPath = join(CONTRACTS_DIR, `${contractId}.sig.json`)
+      if (existsSync(sigPath)) {
+        const pos = JSON.parse(readFileSync(sigPath, 'utf8'))
+        const slotPos = slot === 'client' ? pos.client : pos.vendor
+        if (slotPos && slotPos.page >= 0 && slotPos.page < pages.length) {
+          page = pages[slotPos.page]
+          y = slotPos.y
+        }
+      }
+    } catch (_) {}
+  }
+
   const base64 = signatureDataUrl.replace(/^data:image\/png;base64,/, '')
   const imgBytes = Buffer.from(base64, 'base64')
   const img = await pdf.embedPng(imgBytes)
   const imgW = Math.min(120, img.width)
   const imgH = (img.height / img.width) * imgW
-  const x = width - imgW - 40
-  const y = 40
   page.drawImage(img, { x, y, width: imgW, height: imgH })
   const gray = { type: 'RGB', red: 0.4, green: 0.4, blue: 0.4 }
   page.drawText(label || '', { x, y: y - 14, size: 9, color: gray })
@@ -1759,10 +1804,9 @@ app.post('/api/contracts/sync-for-sign', async (req, res) => {
           const proj = getState().projects.find((p) => p.id === c.projectId)
           const proposal = getState().proposals.find((p) => p.projectId === c.projectId)
           const cl = client?.id ? getClientById(client.id) : null
-          const pdfBuf = await createContractPdfFromTemplate(t, proposal, proj, cl)
-          if (pdfBuf) {
-            ensureContractsDir()
-            writeFileSync(join(CONTRACTS_DIR, `${c.id}.pdf`), pdfBuf)
+          const pdfResult = await createContractPdfFromTemplate(t, proposal, proj, cl)
+          if (pdfResult) {
+            saveContractPdf(c.id, pdfResult)
           }
         }
       }
@@ -1969,10 +2013,9 @@ app.get('/api/contracts/:id/sign-info', async (req, res) => {
             const proposal = state.proposals.find((p) => p.projectId === contract.projectId)
             const cl = decoded.clientId ? getClientById(decoded.clientId) : null
             const override = { clientName: decoded.clientName, clientEmail: decoded.clientEmail, weddingDate: decoded.weddingDate, venue: decoded.venue, packageType: decoded.packageType, value: decoded.value, title: decoded.title }
-            const pdfBuf = await createContractPdfFromTemplate(t, proposal, proj, cl, override)
-            if (pdfBuf) {
-              ensureContractsDir()
-              writeFileSync(join(CONTRACTS_DIR, `${contract.id}.pdf`), pdfBuf)
+            const pdfResult = await createContractPdfFromTemplate(t, proposal, proj, cl, override)
+            if (pdfResult) {
+              saveContractPdf(contract.id, pdfResult)
             }
           }
         }
@@ -1998,8 +2041,8 @@ app.get('/api/contracts/:id/sign-info', async (req, res) => {
         const proj = state.projects.find((p) => p.id === contract.projectId)
         const cl = proj ? getClientById(proj.clientId) : null
         const basicHtml = `<h1>Performance Agreement</h1><p>Client: ${contract.clientName}</p><p>Event: ${contract.title}</p><p>Date: ${contract.weddingDate || 'TBD'}</p><p>Venue: ${contract.venue || 'TBD'}</p><p>Investment: $${(contract.value || 0).toLocaleString()}</p><p>Package: ${contract.packageType || proj?.packageType || 'Standard'}</p>`
-        pdfBuf = await createPdfFromEditorTemplate(basicHtml, { clientName: cl?.name || contract.clientName, clientEmail: cl?.email || '', weddingDate: contract.weddingDate, venue: contract.venue, packageType: contract.packageType, value: contract.value, title: contract.title })
-        if (pdfBuf) { ensureContractsDir(); writeFileSync(join(CONTRACTS_DIR, `${contract.id}.pdf`), pdfBuf) }
+        const fallbackResult = await createPdfFromEditorTemplate(basicHtml, { clientName: cl?.name || contract.clientName, clientEmail: cl?.email || '', weddingDate: contract.weddingDate, venue: contract.venue, packageType: contract.packageType, value: contract.value, title: contract.title })
+        if (fallbackResult?.buffer) { saveContractPdf(contract.id, fallbackResult); pdfBuf = fallbackResult.buffer }
       } catch (_) {}
     }
     if (!pdfBuf) {
@@ -2027,9 +2070,10 @@ app.post('/api/contracts/:id/sign-client', async (req, res) => {
     if (!buf) return res.status(400).json({ error: 'Contract PDF not available' })
     ensureContractsDir()
     const clientSignedAt = new Date().toISOString().slice(0, 10)
-    const signedPdf = await stampSignature(buf, signatureDataUrl, `${contract.clientName} (Client)`, clientSignedAt)
+    const signedPdf = await stampSignature(buf, signatureDataUrl, `${contract.clientName} (Client)`, clientSignedAt, 'client', contract.id)
     writeFileSync(join(CONTRACTS_DIR, `${contract.id}.pdf`), signedPdf)
-    updateContract(contract.id, { clientSignedAt })
+    const fullySigned = Boolean(contract.signedAt)
+    updateContract(contract.id, { clientSignedAt, ...(fullySigned ? { status: 'signed' } : {}) })
     sendContractSignedNotification(contract.id, clientSignedAt).catch((err) => {
       logError('SMTP', 'Failed to send contract signed notification email', err)
     })
@@ -2047,14 +2091,15 @@ app.post('/api/contracts/:id/sign-vendor', async (req, res) => {
     const state = getState()
     const contract = state.contracts.find((c) => c.id === req.params.id)
     if (!contract) return res.status(404).json({ error: 'Contract not found' })
-    if (!contract.clientSignedAt) return res.status(400).json({ error: 'Client must sign first' })
+    // Allow vendor to sign before or after client (agency-sign-first workflow)
     const buf = loadContractPdfBuffer(contract, state)
     if (!buf) return res.status(400).json({ error: 'Contract PDF not available' })
     ensureContractsDir()
     const signedAt = new Date().toISOString().slice(0, 10)
-    const signedPdf = await stampSignature(buf, signatureDataUrl, 'Aurora Sonnet (Vendor)', signedAt)
+    const signedPdf = await stampSignature(buf, signatureDataUrl, 'Aurora Sonnet (Vendor)', signedAt, 'vendor', contract.id)
     writeFileSync(join(CONTRACTS_DIR, `${contract.id}.pdf`), signedPdf)
-    updateContract(contract.id, { status: 'signed', signedAt })
+    const fullySigned = Boolean(contract.clientSignedAt)
+    updateContract(contract.id, { signedAt, ...(fullySigned ? { status: 'signed' } : {}) })
     ensureSecuredBookingCalendarDates()
     res.json({ ok: true, signedAt })
   } catch (err) {

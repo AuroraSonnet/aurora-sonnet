@@ -468,26 +468,40 @@ export default function Contracts() {
                         </a>
                       )}
                       {c.status === 'draft' && (
-                        <button
-                          type="button"
-                          className={styles.smallBtn}
-                          onClick={() => handleSendContractAndInvoice(c)}
-                          disabled={packageSendingId !== null}
-                        >
-                          {packageSendingId === c.id ? 'Sending…' : 'Send contract + invoice'}
-                        </button>
-                      )}
-                      {c.status === 'sent' && (
                         <>
-                          {(c as { clientSignedAt?: string }).clientSignedAt ? (
+                          {!(c as { signedAt?: string }).signedAt && (
                             <button
                               type="button"
                               className={styles.primaryBtn}
                               onClick={() => setSigningContractId(c.id)}
+                              title="Sign as agency before sending (client will see both signatures when they sign)"
                             >
                               Sign
                             </button>
-                          ) : (
+                          )}
+                          <button
+                            type="button"
+                            className={styles.smallBtn}
+                            onClick={() => handleSendContractAndInvoice(c)}
+                            disabled={packageSendingId !== null}
+                          >
+                            {packageSendingId === c.id ? 'Sending…' : 'Send contract + invoice'}
+                          </button>
+                        </>
+                      )}
+                      {c.status === 'sent' && (
+                        <>
+                          {!(c as { signedAt?: string }).signedAt && (
+                            <button
+                              type="button"
+                              className={styles.primaryBtn}
+                              onClick={() => setSigningContractId(c.id)}
+                              title="Sign as agency (you can sign before or after the client)"
+                            >
+                              Sign
+                            </button>
+                          )}
+                          {!(c as { clientSignedAt?: string }).clientSignedAt && (
                             <>
                               <button
                                 type="button"
@@ -566,7 +580,7 @@ export default function Contracts() {
       </section>
 
       <p className={styles.tip}>
-        <strong>Tip:</strong> Send the contract and retainer together from here. Use <strong>Email package</strong> to resend both links together if needed. After the client signs, click <strong>Sign</strong> to add your signature.
+        <strong>Tip:</strong> You can <strong>Sign</strong> first (as agency), then send—the client will see both signatures when they sign and download. Or send first and sign after the client signs.
       </p>
 
       {signingContractId && (
