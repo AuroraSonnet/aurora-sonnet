@@ -89,6 +89,32 @@ export default function AcceptProposal() {
 
   const encodedData = searchParams.get('d')
 
+  /** When d says draft/sent, treat as not accepted (client-side fallback if server has stale data). */
+  const linkSaysNotAccepted = (() => {
+    if (!encodedData) return false
+    try {
+      const raw = JSON.parse(atob(encodedData))
+      const s = raw.s || raw.status
+      return s === 'draft' || s === 'sent'
+    } catch {
+      return false
+    }
+  })()
+
+  const linkData = (() => {
+    if (!encodedData || !linkSaysNotAccepted) return null
+    try {
+      const raw = JSON.parse(atob(encodedData))
+      return {
+        title: raw.t || raw.title || 'Proposal',
+        clientName: raw.n || raw.clientName || 'Client',
+        value: Number(raw.v ?? raw.value) || 0,
+      }
+    } catch {
+      return null
+    }
+  })()
+
   useEffect(() => {
     if (!proposalId || !token) {
       setError('Invalid link')
@@ -106,7 +132,8 @@ export default function AcceptProposal() {
       .finally(() => setLoading(false))
   }, [proposalId, token, encodedData])
 
-  const baseValue = info?.value ?? 0
+  const formInfoForValue = linkSaysNotAccepted && linkData ? linkData : info
+  const baseValue = formInfoForValue?.value ?? 0
   const selectedEnhancements = ELEVATED_ENHANCEMENTS.filter((e) => selectedEnhancementIds.has(e.id))
   const enhancementsTotal = selectedEnhancements.reduce((sum, e) => sum + (enhancementAmountById[e.id] ?? e.defaultPrice), 0)
   const acceptedTotal = baseValue + enhancementsTotal
@@ -199,7 +226,7 @@ export default function AcceptProposal() {
     )
   }
 
-  if (accepted || info?.alreadyAccepted) {
+  if (accepted || (info?.alreadyAccepted && !linkSaysNotAccepted)) {
     return (
       <div className={styles.page}>
         <div className={styles.card}>
@@ -217,7 +244,10 @@ export default function AcceptProposal() {
     )
   }
 
-  if (!info) return null
+  const formInfo = linkSaysNotAccepted && linkData
+    ? { id: info?.id ?? proposalId!, title: linkData.title, clientName: linkData.clientName, value: linkData.value }
+    : info
+  if (!formInfo) return null
 
   return (
     <div className={styles.page}>
@@ -225,8 +255,8 @@ export default function AcceptProposal() {
         {brandHeader}
         <div className={styles.body}>
           <h2>Accept proposal</h2>
-          <p className={styles.subtitle}>{info.title}</p>
-          <p className={styles.meta}>for {info.clientName}</p>
+          <p className={styles.subtitle}>{formInfo.title}</p>
+          <p className={styles.meta}>for {formInfo.clientName}</p>
           <p className={styles.value}>Experience investment: ${baseValue.toLocaleString()}</p>
 
           <p className={styles.enhancementsTitle}>Elevated enhancements (optional)</p>

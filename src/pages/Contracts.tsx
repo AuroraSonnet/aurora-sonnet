@@ -243,7 +243,7 @@ export default function Contracts() {
     try {
       const client = clients.find((c) => c.id === p.clientId)
       const templateId = selectedTemplateId || getDefaultTemplate()?.id || undefined
-      const contractId = actions.addContract({
+      const contractId = await actions.addContract({
         projectId: p.id,
         clientName: client?.name || p.clientName,
         title: p.title,
@@ -294,6 +294,8 @@ export default function Contracts() {
       }
 
       await actions.refreshState()
+    } catch (err) {
+      setGeneratePdfError(err instanceof Error ? err.message : 'Failed to create contract')
     } finally {
       setCreatingFrom(null)
     }

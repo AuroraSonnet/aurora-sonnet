@@ -458,18 +458,14 @@ export default function Proposals() {
     let acceptProposalUrl: string | undefined
     if (baseUrl && acceptToken) {
       const base = baseUrl.replace(/\/$/, '')
-      if (pair?.client && pair?.project) {
-        // Always include d param so link works even if Render has stale/missing data
-        const d = btoa(JSON.stringify({
-          t: p.title, n: p.clientName, v: p.value, p: p.projectId,
-          ci: pair.client.id, ce: pair.client.email,
-          w: pair.project.weddingDate, ve: pair.project.venue,
-          s: p.status,
-        }))
-        acceptProposalUrl = `${base}/accept-proposal/${p.id}?token=${encodeURIComponent(acceptToken)}&d=${encodeURIComponent(d)}`
-      } else {
-        acceptProposalUrl = `${base}/accept-proposal/${p.id}?token=${encodeURIComponent(acceptToken)}`
-      }
+      // Always include d param so link works even if Render has stale/missing data (linkSaysNotAccepted fix)
+      const d = btoa(JSON.stringify({
+        t: p.title, n: p.clientName, v: p.value, p: p.projectId,
+        ...(pair?.client ? { ci: pair.client.id, ce: pair.client.email } : {}),
+        ...(pair?.project ? { w: pair.project.weddingDate, ve: pair.project.venue } : {}),
+        s: p.status,
+      }))
+      acceptProposalUrl = `${base}/accept-proposal/${p.id}?token=${encodeURIComponent(acceptToken)}&d=${encodeURIComponent(d)}`
     }
     const experienceName =
       p.customPackageName?.trim() || project?.packageType?.trim() || p.title
@@ -569,11 +565,12 @@ export default function Proposals() {
           showToast('That email is already used by another contact.')
         }
       }
-      window.location.href = `mailto:${encodeURIComponent(email)}?subject=${encodeURIComponent(subject)}&body=${encodeURIComponent(finalBody)}`
-      showToast('Opening your email app…')
-    } else {
-      showToast('Add a contact email above to send the proposal.')
     }
+    const mailtoUrl = email
+      ? `mailto:${encodeURIComponent(email)}?subject=${encodeURIComponent(subject)}&body=${encodeURIComponent(finalBody)}`
+      : `mailto:?subject=${encodeURIComponent(subject)}&body=${encodeURIComponent(finalBody)}`
+    window.location.href = mailtoUrl
+    showToast(email ? 'Opening your email app…' : 'Opening your email app. Add the recipient address there.')
   }
 
   const startEdit = async (p: Proposal) => {
@@ -609,18 +606,14 @@ export default function Proposals() {
     let acceptProposalUrl: string | undefined
     if (baseUrl && p.acceptToken) {
       const base = baseUrl.replace(/\/$/, '')
-      if (pair?.client && pair?.project) {
-        // Always include d param so link works even if Render has stale/missing data
-        const d = btoa(JSON.stringify({
-          t: p.title, n: p.clientName, v: p.value, p: p.projectId,
-          ci: pair.client.id, ce: pair.client.email,
-          w: pair.project.weddingDate, ve: pair.project.venue,
-          s: p.status,
-        }))
-        acceptProposalUrl = `${base}/accept-proposal/${p.id}?token=${encodeURIComponent(p.acceptToken)}&d=${encodeURIComponent(d)}`
-      } else {
-        acceptProposalUrl = `${base}/accept-proposal/${p.id}?token=${encodeURIComponent(p.acceptToken)}`
-      }
+      // Always include d param so link works even if Render has stale/missing data (linkSaysNotAccepted fix)
+      const d = btoa(JSON.stringify({
+        t: p.title, n: p.clientName, v: p.value, p: p.projectId,
+        ...(pair?.client ? { ci: pair.client.id, ce: pair.client.email } : {}),
+        ...(pair?.project ? { w: pair.project.weddingDate, ve: pair.project.venue } : {}),
+        s: p.status,
+      }))
+      acceptProposalUrl = `${base}/accept-proposal/${p.id}?token=${encodeURIComponent(p.acceptToken)}&d=${encodeURIComponent(d)}`
     }
     const experienceName =
       p.customPackageName?.trim() || project?.packageType?.trim() || p.title

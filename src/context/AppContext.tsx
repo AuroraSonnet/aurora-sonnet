@@ -218,7 +218,7 @@ type AppActions = {
   addProject: (project: Omit<Project, 'id'>) => string
   addProposal: (proposal: Omit<Proposal, 'id'>) => Promise<string>
   updateProposal: (id: string, updates: Partial<Proposal>) => Promise<boolean>
-  addContract: (contract: Omit<Contract, 'id'>) => string
+  addContract: (contract: Omit<Contract, 'id'>) => Promise<string>
   updateContract: (id: string, updates: Partial<Contract>) => void
   addInvoice: (invoice: Omit<Invoice, 'id'>) => string
   updateInvoice: (id: string, updates: Partial<Invoice>) => void
@@ -369,11 +369,14 @@ export function AppProvider({ children }: { children: ReactNode }) {
     return true
   }, [useApi])
 
-  const addContract = useCallback((contract: Omit<Contract, 'id'>): string => {
+  const addContract = useCallback(async (contract: Omit<Contract, 'id'>): Promise<string> => {
     const id = nextId('c', state.contracts ?? [])
     const newContract = { ...contract, id }
+    if (useApi) {
+      const ok = await apiCreateContract(newContract as Record<string, unknown>)
+      if (!ok) throw new Error('Failed to create contract. Check your connection and try again.')
+    }
     setState((s) => ({ ...s, contracts: [...(s.contracts ?? []), newContract] }))
-    if (useApi) apiCreateContract(newContract as Record<string, unknown>)
     return id
   }, [state.contracts ?? [], useApi])
 

@@ -1469,8 +1469,8 @@ app.get('/api/proposals/:id/accept-info', (req, res) => {
           } catch (_) {
             const existing = getState().proposals.find((p) => p.id === proposalId)
             const updates = { acceptToken: tokenStr, clientName: decoded.clientName, title: decoded.title }
-            // When d says 'sent', trust it (link was generated for acceptance) — override stale 'accepted' on Render
-            if (!existing || existing.status !== 'accepted' || decoded.status === 'sent') {
+            // When d says 'sent' or 'draft', trust it (link was generated for acceptance) — override stale 'accepted' on Render
+            if (!existing || existing.status !== 'accepted' || decoded.status === 'sent' || decoded.status === 'draft') {
               updates.status = decoded.status || 'sent'
               updates.value = decoded.value
             }
@@ -1483,6 +1483,22 @@ app.get('/api/proposals/:id/accept-info', (req, res) => {
     let proposal = state.proposals.find((p) => p.id === req.params.id)
     if (!proposal) return res.status(404).json({ error: 'Proposal not found' })
     if (!tokenStr || proposal.acceptToken !== tokenStr) return res.status(403).json({ error: 'Invalid or expired link' })
+    // When d says 'draft' or 'sent', trust the link — return form data immediately (bypass DB state)
+    if (d && tokenStr) {
+      try {
+        const raw = JSON.parse(Buffer.from(String(d), 'base64').toString('utf-8'))
+        const s = raw.s || raw.status
+        if (s === 'draft' || s === 'sent') {
+          return res.json({
+            id: proposal.id,
+            title: raw.t || raw.title || proposal.title,
+            clientName: raw.n || raw.clientName || proposal.clientName,
+            value: Number(raw.v ?? raw.value) || proposal.value || 0,
+            alreadyAccepted: false,
+          })
+        }
+      } catch (_) {}
+    }
     if (proposal.status === 'accepted') return res.json({ ...proposal, alreadyAccepted: true })
     res.json({
       id: proposal.id,
@@ -2102,6 +2118,7 @@ app.post('/api/contracts/:id/sign-client', async (req, res) => {
     writeFileSync(join(CONTRACTS_DIR, `${contract.id}.pdf`), signedPdf)
     const fullySigned = Boolean(contract.signedAt)
     updateContract(contract.id, { clientSignedAt, ...(fullySigned ? { status: 'signed' } : {}) })
+    if (fullySigned) ensureSecuredBookingCalendarDates()
     sendContractSignedNotification(contract.id, clientSignedAt).catch((err) => {
       logError('SMTP', 'Failed to send contract signed notification email', err)
     })
@@ -2198,6 +2215,8 @@ app.delete('/api/contracts/:id', (req, res) => {
     const id = req.params.id
     const filePath = join(CONTRACTS_DIR, `${id}.pdf`)
     if (existsSync(filePath)) unlinkSync(filePath)
+    const sigPath = join(CONTRACTS_DIR, `${id}.sig.json`)
+    if (existsSync(sigPath)) unlinkSync(sigPath)
     deleteContract(id)
     res.json({ ok: true })
   } catch (err) {
