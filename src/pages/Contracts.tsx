@@ -242,10 +242,11 @@ export default function Contracts() {
     setCreatingFrom(projectId)
     setGeneratePdfError(null)
     try {
+      const client = clients.find((c) => c.id === p.clientId)
       const templateId = selectedTemplateId || getDefaultTemplate()?.id || undefined
       const contractId = actions.addContract({
         projectId: p.id,
-        clientName: p.clientName,
+        clientName: client?.name || p.clientName,
         title: p.title,
         status: 'draft',
         value: p.value,
@@ -270,9 +271,8 @@ export default function Contracts() {
 
       if (editorTemplate && contentHtml) {
         try {
-          const client = clients.find((c) => c.id === p.clientId)
           const merged = mergeContractTemplate(contentHtml, {
-            clientName: p.clientName,
+            clientName: client?.name || p.clientName,
             weddingDate: p.weddingDate,
             venue: p.venue,
             packageType: p.packageType,

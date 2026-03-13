@@ -559,7 +559,7 @@ async function createPdfFromEditorTemplate(contentHtml, mergeData) {
 async function createContractPdfFromTemplate(template, proposal, project, client) {
   if (!template) return null
   const mergeData = {
-    clientName: project?.clientName || proposal?.clientName || '',
+    clientName: client?.name || project?.clientName || proposal?.clientName || '',
     weddingDate: project?.weddingDate || '',
     venue: project?.venue || '',
     packageType: getProposalPackageLabel(proposal, project),
@@ -1936,18 +1936,19 @@ app.get('/api/contracts/:id/sign-info', async (req, res) => {
           try {
             createContract({ id: contractId, projectId: decoded.projectId, clientName: decoded.clientName, title: decoded.title, status: 'sent', value: decoded.value, weddingDate: decoded.weddingDate, venue: decoded.venue || null, packageType: decoded.packageType || null, signedAt: null, createdAt: now, templateId: decoded.templateId, signToken, clientSignedAt: null, lastReminderSentAt: null })
           } catch (_) {
-            updateContract(contractId, { signToken, status: 'sent', templateId: decoded.templateId || undefined, clientSignedAt: null })
+            updateContract(contractId, { signToken, status: 'sent', templateId: decoded.templateId || undefined, clientSignedAt: null, clientName: decoded.clientName, title: decoded.title })
           }
         } else {
-          updateContract(contractId, { signToken, status: 'sent', templateId: decoded.templateId || contract.templateId, clientSignedAt: null })
+          updateContract(contractId, { signToken, status: 'sent', templateId: decoded.templateId || contract.templateId, clientSignedAt: null, clientName: decoded.clientName || contract.clientName, title: decoded.title || contract.title })
         }
 
         state = getState()
         contract = state.contracts.find((c) => c.id === contractId)
 
-        if (contract && decoded.templateHtml) {
+        // Regenerate PDF with correct client name (from d) when we have template
+        if (contract) {
           const t = state.contractTemplates.find((x) => x.id === contract.templateId)
-          if (t) {
+          if (t && (t.contentHtml || t.fileName)) {
             const proj = state.projects.find((p) => p.id === contract.projectId)
             const proposal = state.proposals.find((p) => p.projectId === contract.projectId)
             const cl = decoded.clientId ? getClientById(decoded.clientId) : null

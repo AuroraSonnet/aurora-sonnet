@@ -274,7 +274,7 @@ export default function Proposals() {
       const ok = await apiCreateContract({
         id: contractId,
         projectId: project.id,
-        clientName: project.clientName,
+        clientName: client?.name || project.clientName,
         title: project.title,
         status: 'sent',
         value: project.value,
@@ -291,7 +291,7 @@ export default function Proposals() {
       contract = {
         id: contractId,
         projectId: project.id,
-        clientName: project.clientName,
+        clientName: client?.name || project.clientName,
         title: project.title,
         status: 'sent',
         value: project.value,
@@ -318,7 +318,7 @@ export default function Proposals() {
 
     if (templateContentHtml?.trim()) {
       const merged = mergeContractTemplate(templateContentHtml, {
-        clientName: project.clientName,
+        clientName: client?.name || project.clientName,
         weddingDate: project.weddingDate,
         venue: project.venue,
         packageType: project.packageType,
