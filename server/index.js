@@ -1670,15 +1670,15 @@ function loadContractPdfBuffer(contract, state) {
   return readFileSync(templatePath)
 }
 
-/** Stamp a signature on the contract. Uses recorded positions from template if available; otherwise fixed positions. */
+/** Stamp a signature on the contract. Uses recorded positions from template if available; otherwise first page, fixed y. */
 async function stampSignature(pdfBuffer, signatureDataUrl, label, signedDate, slot = 'client', contractId = null) {
   const pdf = await PDFDocument.load(pdfBuffer)
   const pages = pdf.getPages()
   if (pages.length === 0) return pdf.save()
   const margin = 50
-  let page = pages[pages.length - 1]
+  let page = pages[0]
   let x = margin
-  let y = slot === 'vendor' ? 50 : 100
+  let y = slot === 'vendor' ? 120 : 180
 
   if (contractId) {
     try {
