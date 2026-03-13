@@ -309,7 +309,8 @@ export default function Contracts() {
     try {
       await apiSignContractVendor(contractId, dataUrl)
       const signedAt = new Date().toISOString().slice(0, 10)
-      actions.updateContract(contractId, { status: 'signed', signedAt })
+      const fullySigned = Boolean((contract as { clientSignedAt?: string }).clientSignedAt)
+      actions.updateContract(contractId, { signedAt, ...(fullySigned ? { status: 'signed' } : {}) })
       let newInvoiceId: string | null = null
       if (!invoices.some((i) => i.projectId === contract.projectId && i.type === 'deposit')) {
         const deposit = Math.round(contract.value * 0.5)
