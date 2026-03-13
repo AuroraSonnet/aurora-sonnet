@@ -464,6 +464,7 @@ export default function Proposals() {
           t: p.title, n: p.clientName, v: p.value, p: p.projectId,
           ci: pair.client.id, ce: pair.client.email,
           w: pair.project.weddingDate, ve: pair.project.venue,
+          s: p.status,
         }))
         acceptProposalUrl = `${base}/accept-proposal/${p.id}?token=${encodeURIComponent(acceptToken)}&d=${encodeURIComponent(d)}`
       } else {
@@ -614,6 +615,7 @@ export default function Proposals() {
           t: p.title, n: p.clientName, v: p.value, p: p.projectId,
           ci: pair.client.id, ce: pair.client.email,
           w: pair.project.weddingDate, ve: pair.project.venue,
+          s: p.status,
         }))
         acceptProposalUrl = `${base}/accept-proposal/${p.id}?token=${encodeURIComponent(p.acceptToken)}&d=${encodeURIComponent(d)}`
       } else {

@@ -1446,7 +1446,7 @@ app.get('/api/proposals/:id/accept-info', (req, res) => {
           weddingDate: raw.w || raw.weddingDate,
           venue: raw.ve || raw.venue,
           projectTitle: raw.projectTitle,
-          status: raw.status || 'sent',
+          status: raw.s || raw.status || 'sent',
           sentAt: raw.sentAt,
         }
         const proposalId = req.params.id
@@ -1469,7 +1469,8 @@ app.get('/api/proposals/:id/accept-info', (req, res) => {
           } catch (_) {
             const existing = getState().proposals.find((p) => p.id === proposalId)
             const updates = { acceptToken: tokenStr, clientName: decoded.clientName, title: decoded.title }
-            if (!existing || existing.status !== 'accepted') {
+            // When d says 'sent', trust it (link was generated for acceptance) — override stale 'accepted' on Render
+            if (!existing || existing.status !== 'accepted' || decoded.status === 'sent') {
               updates.status = decoded.status || 'sent'
               updates.value = decoded.value
             }
