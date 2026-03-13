@@ -1374,17 +1374,21 @@ app.post('/api/proposals/sync-for-accept', (req, res) => {
         acceptToken: proposal.acceptToken,
       })
     } else {
-      updateProposal(proposal.id, {
+      // Preserve accepted state (status, value, acceptedEnhancements) when client already accepted on Render
+      const updates = {
         acceptToken: proposal.acceptToken,
         title: String(proposal.title || '').trim() || existing.title,
-        value: Number(proposal.value) || existing.value,
-        status: proposal.status || existing.status,
         clientName: String(proposal.clientName || '').trim() || existing.clientName,
         emailBody: proposal.emailBody ?? existing.emailBody,
         customPackageName: proposal.customPackageName ?? existing.customPackageName,
         customPackageDetails: proposal.customPackageDetails ?? existing.customPackageDetails,
         customPriceBreakdown: proposal.customPriceBreakdown ?? existing.customPriceBreakdown,
-      })
+      }
+      if (existing.status !== 'accepted') {
+        updates.value = Number(proposal.value) || existing.value
+        updates.status = proposal.status || existing.status
+      }
+      updateProposal(proposal.id, updates)
     }
     res.json({ ok: true })
   } catch (err) {
@@ -1433,7 +1437,13 @@ app.get('/api/proposals/:id/accept-info', (req, res) => {
           try {
             createProposal({ id: proposalId, projectId: decoded.projectId, clientName: decoded.clientName, title: decoded.title, status: decoded.status || 'sent', value: decoded.value, sentAt: decoded.sentAt || null, emailBody: null, customPackageName: null, customPackageDetails: null, customPriceBreakdown: null, acceptToken: tokenStr })
           } catch (_) {
-            updateProposal(proposalId, { acceptToken: tokenStr, status: decoded.status || 'sent', value: decoded.value, clientName: decoded.clientName, title: decoded.title })
+            const existing = getState().proposals.find((p) => p.id === proposalId)
+            const updates = { acceptToken: tokenStr, clientName: decoded.clientName, title: decoded.title }
+            if (!existing || existing.status !== 'accepted') {
+              updates.status = decoded.status || 'sent'
+              updates.value = decoded.value
+            }
+            updateProposal(proposalId, updates)
           }
         }
       } catch (err) { console.error('[accept-info] d param error:', err.message || err) }
