@@ -477,8 +477,8 @@ function mergeContractTemplateHtml(html, data) {
     package_type: data.packageType || '',
     performance_fee: `$${Number(data.value || 0).toLocaleString()}`,
     project_title: data.title || '',
-    signature_client: 'Signature: _________________________',
-    signature_vendor: 'Signature: _________________________',
+    signature_client: '',
+    signature_vendor: '',
   }
   let out = String(html || '')
   for (const [key, value] of Object.entries(replacements)) {
@@ -531,7 +531,7 @@ function wrapTextLines(text, maxChars = 90) {
   return out
 }
 
-const SIGNATURE_LINE_PATTERN = /Signature:\s*_+/i
+const SIGNATURE_LINE_PATTERN = /(?:Signature\s*:|\b(?:Artist|Agency|Client)\s+Signature)\s*$/i
 function createPdfFromEditorTemplate(contentHtml, mergeData) {
   const mergedHtml = mergeContractTemplateHtml(contentHtml, mergeData)
   const text = htmlToPlainText(mergedHtml)

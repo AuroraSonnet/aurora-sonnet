@@ -26,8 +26,8 @@ export function mergeContractTemplate(html: string, data: MergeData): string {
     package_type: data.packageType ?? '',
     performance_fee: `$${data.value.toLocaleString()}`,
     project_title: data.title,
-    signature_client: 'Signature: _________________________',
-    signature_vendor: 'Signature: _________________________',
+    signature_client: '',
+    signature_vendor: '',
   }
   let out = html
   for (const [key, value] of Object.entries(replacements)) {
