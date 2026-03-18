@@ -1,73 +1,112 @@
-<!--
-  Solo inquiry form — submissions go to YOUR APP only.
-  YOUR_APP_URL is set to https://aurora-sonnet-1.onrender.com (update if your Render service differs).
-  Deploy your app first (see DEPLOY_NEXT_STEPS.md) to get that URL. No trailing slash.
--->
+<!-- Solo inquiry — submissions to app, redirect to request-a-quote-thank-you. Paste full file into Hostinger Embed code. -->
+<!-- To point to your deployed app, set APP_URL below (no trailing slash). -->
 <link rel="preconnect" href="https://fonts.googleapis.com" />
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
 <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400&family=Playfair+Display:wght@400&display=swap" rel="stylesheet" />
 <style>
-  .aurora-solo-wrap { max-width: 640px; margin: 0 auto; font-family: 'Inter', system-ui, sans-serif; }
-  .aurora-solo-form { background: #fff; border-radius: 12px; padding: 1.5rem; box-shadow: 0 4px 24px rgba(0,0,0,0.08); border: 1px solid #e8e6e1; }
-  .aurora-solo-form label { display: block; margin-bottom: 1rem; font-size: 0.9rem; color: #333; }
-  .aurora-solo-form input, .aurora-solo-form select, .aurora-solo-form textarea { display: block; width: 100%; margin-top: 0.35rem; padding: 0.6rem 0.75rem; font-size: 0.95rem; border: 1px solid #ccc; border-radius: 8px; background: #f5ebe0; box-sizing: border-box; font-family: inherit; }
-  .aurora-solo-form textarea { min-height: 100px; resize: vertical; }
-  .aurora-solo-form .form-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(200px, 1fr)); gap: 1rem; margin-bottom: 1rem; }
+  .as-solo-wrap { max-width: 640px; margin: 0 auto; font-family: 'Inter', system-ui, sans-serif; }
+  .as-solo-form { background: #fff; border-radius: 12px; padding: 1.5rem; box-shadow: 0 4px 24px rgba(0,0,0,0.08); border: 1px solid #e8e6e1; }
+  .as-solo-form label { display: block; margin-bottom: 1rem; font-size: 0.9rem; color: #333; }
+  .as-solo-form input, .as-solo-form select, .as-solo-form textarea, .as-solo-form .pm-trigger { display: block; width: 100%; margin-top: 0.35rem; padding: 0.6rem 0.75rem; font-size: 0.95rem; border: 1px solid #ccc; border-radius: 8px; background: #f5ebe0; box-sizing: border-box; font-family: inherit; }
+  .as-solo-form .pm-wrap .pm-trigger { margin-top: 0; }
+  .as-solo-form textarea { min-height: 100px; resize: vertical; }
+  .as-solo-form .form-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(200px, 1fr)); gap: 1rem; margin-bottom: 1rem; align-items: start; }
   @media (max-width: 600px) {
-    .aurora-solo-form .form-grid { grid-template-columns: 1fr; }
-    .aurora-solo-form .form-grid > label { min-width: 0; }
+    .as-solo-form .form-grid { grid-template-columns: 1fr; }
+    .as-solo-form .form-grid > label { min-width: 0; }
   }
-  .aurora-solo-form input[type="date"] { min-width: 0; width: 100%; max-width: 100%; }
-  .aurora-solo-form .full-width { margin-bottom: 1rem; }
-  .aurora-solo-form .pkg-fieldset { border: none; padding: 1rem 0; margin: 0 0 1rem 0; }
-  .aurora-solo-form .pkg-legend { font-size: 0.9rem; color: #333; margin-bottom: 0.75rem; }
-  .aurora-solo-form .pkg-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 0.75rem; }
-  .aurora-solo-form .pkg-card { display: flex; flex-direction: column; align-items: center; justify-content: center; padding: 1rem; border: 1px solid #ccc; border-radius: 8px; cursor: pointer; background: #fff; transition: border-color 0.2s, box-shadow 0.2s; }
-  .aurora-solo-form .pkg-card:hover { border-color: #3d3630; }
-  .aurora-solo-form .pkg-card.selected { border-color: #3d3630; box-shadow: 0 0 0 2px #3d3630; }
-  .aurora-solo-form .pkg-card input { margin: 0 0 0.5rem 0; width: auto; accent-color: #f5eadf; }
-  .aurora-solo-form .pkg-name { font-size: 0.9rem; text-align: center; }
-  .aurora-solo-form .pkg-price-inline { display: none; font-family: 'Inter', system-ui, sans-serif; font-size: 0.8rem; font-weight: 300; color: #aaa; margin-top: 0.35rem; text-align: center; }
-  .aurora-solo-form .pkg-card.selected .pkg-price-inline { display: block; }
-  .aurora-solo-form .submit-btn { display: block; width: auto; min-width: 160px; margin: 1.5rem auto 0; padding: 0.65rem 2rem; font-size: 1rem; color: #fff; background: #3d3630; border: none; border-radius: 999px; cursor: pointer; font-family: inherit; }
-  .aurora-solo-form .submit-btn:hover { background: #2d2620; }
-  .aurora-solo-form .submit-btn:disabled { opacity: 0.7; cursor: not-allowed; }
-  .aurora-solo-form .form-error { font-size: 0.9rem; color: #c00; margin-top: 0.75rem; display: none; }
-  .aurora-thankyou { background: #fff; border-radius: 12px; padding: 3rem 2rem; box-shadow: 0 4px 24px rgba(0,0,0,0.08); border: 1px solid #e8e6e1; text-align: center; display: none; }
-  .aurora-thankyou.visible { display: block; }
-  .aurora-thankyou h2 { font-family: 'Playfair Display', serif; font-size: 1.75rem; font-weight: 400; color: #1a1a1a; margin: 0 0 1rem 0; line-height: 1.3; }
-  .aurora-thankyou p { font-family: 'Inter', system-ui, sans-serif; font-size: 1rem; font-weight: 400; color: #1a1a1a; margin: 0; line-height: 1.5; }
+  .as-solo-form input[type="date"] { min-width: 0; width: 100%; max-width: 100%; }
+  .as-solo-form .full { margin-bottom: 1rem; }
+  .as-solo-form .pkg-fs { border: none; padding: 1rem 0; margin: 0 0 1rem 0; }
+  .as-solo-form .pkg-legend { font-size: 0.9rem; color: #333; margin-bottom: 0.75rem; }
+  .as-solo-form .pkg-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 0.75rem; }
+  .as-solo-form .pkg-card { display: flex; flex-direction: column; align-items: center; justify-content: center; padding: 1rem; border: 1px solid #ccc; border-radius: 8px; cursor: pointer; background: #fff; transition: border-color 0.2s, box-shadow 0.2s; }
+  .as-solo-form .pkg-card:hover { border-color: #3d3630; }
+  .as-solo-form .pkg-card.selected { border-color: #3d3630; box-shadow: 0 0 0 2px #3d3630; }
+  .as-solo-form .pkg-card input { margin: 0 0 0.5rem 0; width: auto; accent-color: #f5eadf; }
+  .as-solo-form .pkg-name { font-size: 0.9rem; text-align: center; }
+  .as-solo-form .pkg-price-inline { display: none; font-family: 'Inter', system-ui, sans-serif; font-size: 0.8rem; font-weight: 300; color: #aaa; margin-top: 0.35rem; text-align: center; }
+  .as-solo-form .pkg-card.selected .pkg-price-inline { display: block; }
+  .as-solo-form .as-btn { display: block; width: auto; min-width: 160px; margin: 1.5rem auto 0; padding: 0.65rem 2rem; font-size: 1rem; color: #fff; background: #3d3630; border: none; border-radius: 999px; cursor: pointer; font-family: inherit; }
+  .as-solo-form .as-btn:hover { background: #2d2620; }
+  .as-solo-form .as-btn:disabled { opacity: 0.7; cursor: not-allowed; }
+  .as-solo-form .as-err { font-size: 0.9rem; color: #c00; margin-top: 0.75rem; display: none; }
+  .as-solo-form .pm-wrap { display: flex; flex-direction: column; gap: 0.35rem; font-size: 0.9rem; color: #333; position: relative; }
+  .as-solo-form .pm-label { font-weight: 500; }
+  .as-solo-form .pm-hint { font-size: 0.65rem; color: #888; }
+  .as-solo-form .pm-trigger { cursor: pointer; display: flex; align-items: center; justify-content: space-between; gap: 0.5rem; min-height: 2.5rem; }
+  .as-solo-form .pm-placeholder { color: #888; }
+  .as-solo-form .pm-arrow { font-size: 0.65rem; color: #888; flex-shrink: 0; }
+  .as-solo-form .pm-dropdown { position: absolute; top: 100%; left: 0; right: 0; margin-top: 2px; padding: 0.6rem 0.75rem; border-radius: 8px; border: 1px solid #ccc; background: #fff; box-shadow: 0 4px 24px rgba(0,0,0,0.12); z-index: 10; max-height: 280px; overflow-y: auto; }
+  .as-solo-form .pm-groups { display: flex; flex-direction: column; gap: 0.75rem; }
+  .as-solo-form .pm-group { display: flex; flex-direction: column; gap: 0.35rem; }
+  .as-solo-form .pm-group-title { font-size: 0.8rem; font-weight: 600; color: #1a1a1a; text-transform: uppercase; letter-spacing: 0.05em; }
+  .as-solo-form .pm-checkboxes { display: flex; flex-direction: column; gap: 0.25rem; }
+  .as-solo-form .pm-checkbox { display: flex; align-items: center; gap: 0.5rem; cursor: pointer; font-weight: 400; }
+  .as-solo-form .pm-checkbox input { width: 1rem; height: 1rem; flex-shrink: 0; accent-color: #3d3630; }
+  .as-solo-form .select-wrap { position: relative; display: flex; align-items: center; margin-top: 0.35rem; }
+  .as-solo-form .select-wrap select { appearance: none; padding-right: 2rem; cursor: pointer; }
+  .as-solo-form .select-wrap .select-arrow { position: absolute; right: 0.75rem; pointer-events: none; font-size: 0.65rem; color: #888; }
 </style>
-<div class="aurora-solo-wrap">
-  <div class="aurora-solo-form" id="aurora-solo-form-container">
-    <form id="aurora-solo-inquiry-form">
+<div class="as-solo-wrap">
+  <div class="as-solo-form" id="as-solo-box">
+    <form id="as-solo-f">
       <div class="form-grid">
-        <label>Full Name *
-          <input type="text" name="name" placeholder="e.g. Emma Walsh" required />
-        </label>
-        <label>Email *
-          <input type="email" name="email" required />
-        </label>
-        <label>Phone
-          <input type="tel" name="phone" />
-        </label>
-        <label>Wedding Date *
-          <input type="date" name="weddingDate" id="aurora-solo-weddingDate" required />
-        </label>
-        <label>Venue / Location *
-          <input type="text" name="venue" placeholder="e.g. Garden Estate Vineyard" required />
-        </label>
+        <label>Full Name * <input type="text" name="name" placeholder="e.g. Emma Walsh" required /></label>
+        <label>Email * <input type="email" name="email" required /></label>
+        <label>Phone <input type="tel" name="phone" /></label>
+        <label>Wedding Date * <input type="date" name="weddingDate" id="as-solo-weddingDate" required /></label>
+        <label>Venue / Location * <input type="text" name="venue" placeholder="e.g. Garden Estate Vineyard" required /></label>
+        <div class="pm-wrap" id="as-solo-pm-wrap">
+          <span class="pm-label">Performance Moment <span class="pm-hint">(max 3)</span></span>
+          <div class="pm-trigger" id="as-solo-pm-trigger" tabindex="0" role="combobox" aria-expanded="false" aria-haspopup="listbox">
+            <span class="pm-text" id="as-solo-pm-text"></span>
+            <span class="pm-arrow" aria-hidden>▼</span>
+          </div>
+          <div class="pm-dropdown" id="as-solo-pm-dropdown" style="display:none;">
+            <div class="pm-groups">
+              <div class="pm-group">
+                <span class="pm-group-title">Ceremony</span>
+                <div class="pm-checkboxes">
+                  <label class="pm-checkbox"><input type="checkbox" name="performanceMoment" value="Guest Arrival" /> Guest Arrival</label>
+                  <label class="pm-checkbox"><input type="checkbox" name="performanceMoment" value="Processional" /> Processional</label>
+                  <label class="pm-checkbox"><input type="checkbox" name="performanceMoment" value="Interlude" /> Interlude</label>
+                  <label class="pm-checkbox"><input type="checkbox" name="performanceMoment" value="Recessional" /> Recessional</label>
+                </div>
+              </div>
+              <div class="pm-group">
+                <span class="pm-group-title">Reception</span>
+                <div class="pm-checkboxes">
+                  <label class="pm-checkbox"><input type="checkbox" name="performanceMoment" value="Cocktail Hour" /> Cocktail Hour</label>
+                  <label class="pm-checkbox"><input type="checkbox" name="performanceMoment" value="Dinner Serenade" /> Dinner Serenade</label>
+                  <label class="pm-checkbox"><input type="checkbox" name="performanceMoment" value="First Dance" /> First Dance</label>
+                  <label class="pm-checkbox"><input type="checkbox" name="performanceMoment" value="Parent Dance" /> Parent Dance</label>
+                  <label class="pm-checkbox"><input type="checkbox" name="performanceMoment" value="Highlight Moment" /> Highlight Moment</label>
+                </div>
+              </div>
+              <div class="pm-group">
+                <span class="pm-group-title">Additional</span>
+                <div class="pm-checkboxes">
+                  <label class="pm-checkbox"><input type="checkbox" name="performanceMoment" value="Not sure (we'll guide you)" /> Not sure (we'll guide you)</label>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
       </div>
-      <div class="full-width">
+      <div class="full">
         <label>Requested Artist
-          <select name="requestedArtist">
-            <option value="">Select Artist</option>
-            <option value="dr-stephanie-susberich">Dr. Stephanie Susberich</option>
-            <option value="blake-friedman">Blake Friedman</option>
-          </select>
+          <div class="select-wrap">
+            <select name="requestedArtist">
+              <option value="">Select Artist</option>
+              <option value="dr-stephanie-susberich">Dr. Stephanie Susberich</option>
+              <option value="blake-friedman">Blake Friedman</option>
+            </select>
+            <span class="select-arrow" aria-hidden>▼</span>
+          </div>
         </label>
       </div>
-      <fieldset class="pkg-fieldset">
+      <fieldset class="pkg-fs">
         <legend class="pkg-legend">Experience</legend>
         <div class="pkg-grid">
           <label class="pkg-card" data-pkg="signature-aria">
@@ -87,107 +126,136 @@
           </label>
         </div>
       </fieldset>
-      <div class="full-width">
-        <label>Message
-          <textarea name="message" placeholder="Tell us about your wedding or any questions you may have." rows="3"></textarea>
-        </label>
+      <div class="full">
+        <label>Message <textarea name="message" placeholder="Tell us about your wedding or any questions." rows="3"></textarea></label>
       </div>
-      <p id="aurora-solo-error" class="form-error" role="alert"></p>
-      <button type="submit" class="submit-btn" id="aurora-solo-submit">Send Inquiry</button>
+      <p id="as-solo-err" class="as-err" role="alert"></p>
+      <button type="submit" class="as-btn" id="as-solo-btn">Send Inquiry</button>
     </form>
-  </div>
-  <div class="aurora-thankyou" id="aurora-solo-thankyou">
-    <h2>Thank you — we've received your request</h2>
-    <p>Our team is reviewing your request now and will reach out in a few moments with next steps.</p>
   </div>
 </div>
 <script>
-(function() {
-  // REQUIRED: Replace with your deployed app URL (no trailing slash). Example: https://aurora-sonnet-abc123.onrender.com
-  var YOUR_APP_URL = 'https://aurora-sonnet-1.onrender.com';
-  var THANK_YOU_URL = 'https://aurorasonnet.com/request-a-quote-thank-you';
-
-  var form = document.getElementById('aurora-solo-inquiry-form');
-  var errorEl = document.getElementById('aurora-solo-error');
-  var submitBtn = document.getElementById('aurora-solo-submit');
-  var weddingDateInput = document.getElementById('aurora-solo-weddingDate');
-  if (!form || !submitBtn) return;
-
-  function getLocalDateString(d) {
-    return d.getFullYear() + '-' + String(d.getMonth() + 1).padStart(2, '0') + '-' + String(d.getDate()).padStart(2, '0');
-  }
+(function(){
+  var APP_URL = 'https://aurora-sonnet-1.onrender.com';
+  var THANK_YOU = 'https://aurorasonnet.com/request-a-quote-thank-you';
+  var form = document.getElementById('as-solo-f');
+  var errEl = document.getElementById('as-solo-err');
+  var btn = document.getElementById('as-solo-btn');
+  var weddingDateInput = document.getElementById('as-solo-weddingDate');
   function setMinWeddingDate() {
-    if (weddingDateInput) weddingDateInput.setAttribute('min', getLocalDateString(new Date()));
+    if (weddingDateInput) {
+      var d = new Date();
+      weddingDateInput.setAttribute('min', d.getFullYear() + '-' + String(d.getMonth() + 1).padStart(2, '0') + '-' + String(d.getDate()).padStart(2, '0'));
+    }
   }
   setMinWeddingDate();
   if (weddingDateInput) weddingDateInput.addEventListener('focus', setMinWeddingDate);
-
-  form.querySelectorAll('.pkg-card').forEach(function(card) {
-    card.addEventListener('click', function() {
-      form.querySelectorAll('.pkg-card').forEach(function(c) { c.classList.remove('selected'); });
+  if (!form || !btn) return;
+  var pmWrap = document.getElementById('as-solo-pm-wrap');
+  var pmTrigger = document.getElementById('as-solo-pm-trigger');
+  var pmText = document.getElementById('as-solo-pm-text');
+  var pmDropdown = document.getElementById('as-solo-pm-dropdown');
+  var MAX_PM = 3;
+  function updatePmText() {
+    var checks = form.querySelectorAll('input[name="performanceMoment"]:checked');
+    var arr = []; checks.forEach(function(c){ if (c.value) arr.push(c.value); });
+    if (pmText) {
+      pmText.textContent = arr.length ? arr.join(', ') : 'Select performance moments';
+      pmText.classList.toggle('pm-placeholder', arr.length === 0);
+    }
+  }
+  function updatePmDisabled() {
+    var checks = form.querySelectorAll('input[name="performanceMoment"]:checked');
+    var count = checks.length;
+    form.querySelectorAll('input[name="performanceMoment"]').forEach(function(cb){
+      cb.disabled = !cb.checked && count >= MAX_PM;
+    });
+  }
+  function closePmDropdown() {
+    if (pmDropdown) pmDropdown.style.display = 'none';
+    if (pmTrigger) pmTrigger.setAttribute('aria-expanded', 'false');
+  }
+  updatePmText();
+  if (pmTrigger && pmDropdown) {
+    pmTrigger.addEventListener('click', function(){
+      var open = pmDropdown.style.display !== 'none';
+      pmDropdown.style.display = open ? 'none' : 'block';
+      pmTrigger.setAttribute('aria-expanded', !open);
+    });
+  }
+  document.addEventListener('mousedown', function(e){
+    if (pmWrap && pmDropdown && !pmWrap.contains(e.target)) closePmDropdown();
+  });
+  form.querySelectorAll('input[name="performanceMoment"]').forEach(function(cb){
+    cb.addEventListener('change', function(){
+      var checks = form.querySelectorAll('input[name="performanceMoment"]:checked');
+      if (checks.length > MAX_PM) this.checked = false;
+      updatePmText();
+      updatePmDisabled();
+    });
+  });
+  updatePmDisabled();
+  form.querySelectorAll('.pkg-card').forEach(function(card){
+    card.addEventListener('click', function(){
+      form.querySelectorAll('.pkg-card').forEach(function(c){ c.classList.remove('selected'); });
       card.classList.add('selected');
       card.querySelector('input').checked = true;
     });
   });
-  form.querySelectorAll('input[name="packageId"]').forEach(function(radio) {
-    radio.addEventListener('change', function() {
-      form.querySelectorAll('.pkg-card').forEach(function(c) {
-        c.classList.toggle('selected', c.querySelector('input').checked);
-      });
+  form.querySelectorAll('input[name="packageId"]').forEach(function(radio){
+    radio.addEventListener('change', function(){
+      form.querySelectorAll('.pkg-card').forEach(function(c){ c.classList.toggle('selected', c.querySelector('input').checked); });
     });
   });
-
-  form.addEventListener('submit', function(e) {
+  function getLocalDateStr() {
+    var d = new Date();
+    return d.getFullYear() + '-' + String(d.getMonth() + 1).padStart(2, '0') + '-' + String(d.getDate()).padStart(2, '0');
+  }
+  form.addEventListener('submit', function(e){
     e.preventDefault();
-    errorEl.style.display = 'none';
-    errorEl.textContent = '';
-    var weddingDateVal = form.weddingDate && form.weddingDate.value ? form.weddingDate.value.trim() : '';
-    if (weddingDateVal) {
-      var today = getLocalDateString(new Date());
-      if (weddingDateVal < today) {
-        errorEl.textContent = 'Please choose a wedding date that is today or in the future.';
-        errorEl.style.display = 'block';
-        return;
-      }
+    if (errEl) { errEl.style.display = 'none'; errEl.textContent = ''; }
+    var wd = form.weddingDate && form.weddingDate.value ? form.weddingDate.value.trim() : '';
+    if (wd && wd < getLocalDateStr()) {
+      if (errEl) { errEl.textContent = 'Please choose a wedding date that is today or in the future.'; errEl.style.display = 'block'; }
+      return;
     }
-    submitBtn.disabled = true;
-
+    btn.disabled = true;
+    var r = form.querySelector('input[name="packageId"]:checked');
+    var pmChecks = form.querySelectorAll('input[name="performanceMoment"]:checked');
+    var pmArr = [];
+    pmChecks.forEach(function(c){ if (c.value) pmArr.push(c.value); });
+    if (pmArr.length > MAX_PM) pmArr = pmArr.slice(0, MAX_PM);
     var payload = {
-      name: form.name.value.trim(),
-      email: form.email.value.trim(),
-      phone: form.phone.value.trim() || undefined,
-      weddingDate: form.weddingDate.value.trim() || undefined,
-      venue: form.venue.value.trim() || undefined,
-      requestedArtist: form.requestedArtist.value || undefined,
-      packageId: form.packageId.value || undefined,
-      message: form.message.value.trim() || undefined
+      name: (form.name && form.name.value) ? form.name.value.trim() : '',
+      email: (form.email && form.email.value) ? form.email.value.trim() : '',
+      phone: (form.phone && form.phone.value) ? form.phone.value.trim() : undefined,
+      weddingDate: (form.weddingDate && form.weddingDate.value) ? form.weddingDate.value.trim() : undefined,
+      venue: (form.venue && form.venue.value) ? form.venue.value.trim() : undefined,
+      performanceMoment: pmArr.length > 0 ? pmArr : undefined,
+      requestedArtist: (form.requestedArtist && form.requestedArtist.value) ? form.requestedArtist.value : undefined,
+      packageId: r ? r.value : undefined,
+      message: (form.message && form.message.value) ? form.message.value.trim() : undefined
     };
-
-    fetch(YOUR_APP_URL + '/api/inquiry', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json', 'Accept': 'application/json' },
-      body: JSON.stringify(payload)
-    })
-    .then(function(res) {
-      if (res.ok) {
-        try { if (window.top && window.top.location) { window.top.location.replace(THANK_YOU_URL); return; } } catch (_) {}
-        try { window.location.replace(THANK_YOU_URL); } catch (_) {}
-        return;
-      }
-      return res.text().then(function(t) {
-        var d;
-        try { d = t ? JSON.parse(t) : {}; } catch (_) { throw new Error('Server error (500). If this keeps happening, check Render logs for [DB] Inquiry failed.'); }
-        var msg = (d && (d.detail || d.error)) || 'Send failed';
-        if (res.status === 502 || res.status === 503) throw new Error('Server is waking up. Please wait 30–60 seconds and try again.');
-        throw new Error(msg);
+    fetch(APP_URL + '/api/inquiry', { method: 'POST', headers: { 'Content-Type': 'application/json', 'Accept': 'application/json' }, body: JSON.stringify(payload) })
+      .then(function(res){
+        if (res.ok) {
+          try { if (window.top && window.top.location) { window.top.location.replace(THANK_YOU); return; } } catch (_) {}
+          try { window.location.replace(THANK_YOU); } catch (_) {}
+          return;
+        }
+        return res.text().then(function(t){
+          var d;
+          try { d = t ? JSON.parse(t) : {}; } catch (_) { throw new Error('Server error (500). If this keeps happening, check Render logs for [DB] Inquiry failed.'); }
+          var msg = (d && (d.detail || d.error)) || 'Send failed';
+          if (res.status === 502 || res.status === 503) throw new Error('Server is waking up. Please wait 30–60 seconds and try again.');
+          throw new Error(msg);
+        });
+      })
+      .catch(function(err){
+        if (errEl) { errEl.textContent = (err && err.message) ? err.message : 'Something went wrong. Please try again.'; errEl.style.display = 'block'; }
+        btn.disabled = false;
+        btn.textContent = 'Send Inquiry';
       });
-    })
-    .catch(function(err) {
-      errorEl.textContent = err && err.message ? err.message : 'Something went wrong. Please try again.';
-      errorEl.style.display = 'block';
-      submitBtn.disabled = false;
-      submitBtn.textContent = 'Send Inquiry';
-    });
   });
 })();
 </script>

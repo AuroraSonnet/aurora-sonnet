@@ -110,7 +110,7 @@ export async function apiUpdateClient(id: string, updates: Record<string, unknow
 }
 
 /** Submit inquiry form (creates client + project in one call). For in-app or website form. */
-export async function apiSubmitInquiry(data: { name: string; email: string; phone?: string; weddingDate?: string; venue?: string; packageId?: string; requestedArtist?: string; message?: string }): Promise<{ clientId: string; projectId: string } | null> {
+export async function apiSubmitInquiry(data: { name: string; email: string; phone?: string; weddingDate?: string; venue?: string; packageId?: string; requestedArtist?: string; performanceMoment?: string[]; message?: string }): Promise<{ clientId: string; projectId: string } | null> {
   try {
     const res = await fetch(`${API}/inquiry`, {
       method: 'POST',
@@ -367,6 +367,28 @@ async function warmUpRender(publicBaseUrl: string): Promise<boolean> {
     if (i < 2) await new Promise((r) => setTimeout(r, 5000))
   }
   return false
+}
+
+/** Create a short link on the public server. Returns shortId or null on failure. */
+export async function apiCreateShortLink(
+  publicBaseUrl: string,
+  proposalId: string,
+  token: string,
+  d: string
+): Promise<string | null> {
+  try {
+    const base = publicBaseUrl.replace(/\/$/, '')
+    const res = await fetch(`${base}/api/short-links`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ proposalId, token, d }),
+    })
+    if (!res.ok) return null
+    const data = await res.json().catch(() => ({}))
+    return data.shortId || null
+  } catch {
+    return null
+  }
 }
 
 /** Push a proposal to Render so the public accept link works.

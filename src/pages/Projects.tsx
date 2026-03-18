@@ -504,6 +504,9 @@ export default function Projects() {
                   {getRequestedArtistLabel(p.requestedArtist) && (
                     <span className={styles.requestedArtist}>{getRequestedArtistLabel(p.requestedArtist)}</span>
                   )}
+                  {p.performanceMoment && (
+                    <span className={styles.performanceMoment}>{p.performanceMoment}</span>
+                  )}
                   <span className={styles.client}>
                     <Link to={`/clients/${p.clientId}`} className={styles.cardClientLink} onClick={(e) => e.stopPropagation()}>
                       {p.clientName}
@@ -563,6 +566,9 @@ export default function Projects() {
                   {p.venue && <span className={styles.venue}>{p.venue}</span>}
                   {getRequestedArtistLabel(p.requestedArtist) && (
                     <span className={styles.requestedArtist}>{getRequestedArtistLabel(p.requestedArtist)}</span>
+                  )}
+                  {p.performanceMoment && (
+                    <span className={styles.performanceMoment}>{p.performanceMoment}</span>
                   )}
                   <span className={styles.client}>
                     <Link to={`/clients/${p.clientId}`} className={styles.cardClientLink} onClick={(e) => e.stopPropagation()}>

@@ -397,6 +397,9 @@ export default function ClientDetail() {
                     {getRequestedArtistLabel(p.requestedArtist) && (
                       <span className={styles.artist}> · {getRequestedArtistLabel(p.requestedArtist)}</span>
                     )}
+                    {p.performanceMoment && (
+                      <span className={styles.performanceMoment}> · {p.performanceMoment}</span>
+                    )}
                     <span className={styles.stage} data-stage={p.stage}>
                       {p.stage}
                     </span>

@@ -7,9 +7,10 @@
   .as-duo-wrap { max-width: 640px; margin: 0 auto; font-family: 'Inter', system-ui, sans-serif; }
   .as-duo-form { background: #fff; border-radius: 12px; padding: 1.5rem; box-shadow: 0 4px 24px rgba(0,0,0,0.08); border: 1px solid #e8e6e1; }
   .as-duo-form label { display: block; margin-bottom: 1rem; font-size: 0.9rem; color: #333; }
-  .as-duo-form input, .as-duo-form select, .as-duo-form textarea { display: block; width: 100%; margin-top: 0.35rem; padding: 0.6rem 0.75rem; font-size: 0.95rem; border: 1px solid #ccc; border-radius: 8px; background: #f5ebe0; box-sizing: border-box; font-family: inherit; }
+  .as-duo-form input, .as-duo-form select, .as-duo-form textarea, .as-duo-form .pm-trigger { display: block; width: 100%; margin-top: 0.35rem; padding: 0.6rem 0.75rem; font-size: 0.95rem; border: 1px solid #ccc; border-radius: 8px; background: #f5ebe0; box-sizing: border-box; font-family: inherit; }
+  .as-duo-form .pm-wrap .pm-trigger { margin-top: 0; }
   .as-duo-form textarea { min-height: 100px; resize: vertical; }
-  .as-duo-form .form-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(200px, 1fr)); gap: 1rem; margin-bottom: 1rem; }
+  .as-duo-form .form-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(200px, 1fr)); gap: 1rem; margin-bottom: 1rem; align-items: start; }
   @media (max-width: 600px) {
     .as-duo-form .form-grid { grid-template-columns: 1fr; }
     .as-duo-form .form-grid > label { min-width: 0; }
@@ -30,6 +31,22 @@
   .as-duo-form .as-btn:hover { background: #2d2620; }
   .as-duo-form .as-btn:disabled { opacity: 0.7; cursor: not-allowed; }
   .as-duo-form .as-err { font-size: 0.9rem; color: #c00; margin-top: 0.75rem; display: none; }
+  .as-duo-form .pm-wrap { display: flex; flex-direction: column; gap: 0.35rem; font-size: 0.9rem; color: #333; position: relative; }
+  .as-duo-form .pm-label { font-weight: 500; }
+  .as-duo-form .pm-hint { font-size: 0.65rem; color: #888; }
+  .as-duo-form .pm-trigger { cursor: pointer; display: flex; align-items: center; justify-content: space-between; gap: 0.5rem; min-height: 2.5rem; }
+  .as-duo-form .pm-placeholder { color: #888; }
+  .as-duo-form .pm-arrow { font-size: 0.65rem; color: #888; flex-shrink: 0; }
+  .as-duo-form .pm-dropdown { position: absolute; top: 100%; left: 0; right: 0; margin-top: 2px; padding: 0.6rem 0.75rem; border-radius: 8px; border: 1px solid #ccc; background: #fff; box-shadow: 0 4px 24px rgba(0,0,0,0.12); z-index: 10; max-height: 280px; overflow-y: auto; }
+  .as-duo-form .pm-groups { display: flex; flex-direction: column; gap: 0.75rem; }
+  .as-duo-form .pm-group { display: flex; flex-direction: column; gap: 0.35rem; }
+  .as-duo-form .pm-group-title { font-size: 0.8rem; font-weight: 600; color: #1a1a1a; text-transform: uppercase; letter-spacing: 0.05em; }
+  .as-duo-form .pm-checkboxes { display: flex; flex-direction: column; gap: 0.25rem; }
+  .as-duo-form .pm-checkbox { display: flex; align-items: center; gap: 0.5rem; cursor: pointer; font-weight: 400; }
+  .as-duo-form .pm-checkbox input { width: 1rem; height: 1rem; flex-shrink: 0; accent-color: #3d3630; }
+  .as-duo-form .select-wrap { position: relative; display: flex; align-items: center; margin-top: 0.35rem; }
+  .as-duo-form .select-wrap select { appearance: none; padding-right: 2rem; cursor: pointer; }
+  .as-duo-form .select-wrap .select-arrow { position: absolute; right: 0.75rem; pointer-events: none; font-size: 0.65rem; color: #888; }
 </style>
 <div class="as-duo-wrap">
   <div class="as-duo-form" id="as-duo-box">
@@ -40,15 +57,54 @@
         <label>Phone <input type="tel" name="phone" /></label>
         <label>Wedding Date * <input type="date" name="weddingDate" id="as-duo-weddingDate" required /></label>
         <label>Venue / Location * <input type="text" name="venue" placeholder="e.g. Garden Estate Vineyard" required /></label>
+        <div class="pm-wrap" id="as-duo-pm-wrap">
+          <span class="pm-label">Performance Moment <span class="pm-hint">(max 3)</span></span>
+          <div class="pm-trigger" id="as-duo-pm-trigger" tabindex="0" role="combobox" aria-expanded="false" aria-haspopup="listbox">
+            <span class="pm-text" id="as-duo-pm-text"></span>
+            <span class="pm-arrow" aria-hidden>▼</span>
+          </div>
+          <div class="pm-dropdown" id="as-duo-pm-dropdown" style="display:none;">
+            <div class="pm-groups">
+              <div class="pm-group">
+                <span class="pm-group-title">Ceremony</span>
+                <div class="pm-checkboxes">
+                  <label class="pm-checkbox"><input type="checkbox" name="performanceMoment" value="Guest Arrival" /> Guest Arrival</label>
+                  <label class="pm-checkbox"><input type="checkbox" name="performanceMoment" value="Processional" /> Processional</label>
+                  <label class="pm-checkbox"><input type="checkbox" name="performanceMoment" value="Interlude" /> Interlude</label>
+                  <label class="pm-checkbox"><input type="checkbox" name="performanceMoment" value="Recessional" /> Recessional</label>
+                </div>
+              </div>
+              <div class="pm-group">
+                <span class="pm-group-title">Reception</span>
+                <div class="pm-checkboxes">
+                  <label class="pm-checkbox"><input type="checkbox" name="performanceMoment" value="Cocktail Hour" /> Cocktail Hour</label>
+                  <label class="pm-checkbox"><input type="checkbox" name="performanceMoment" value="Dinner Serenade" /> Dinner Serenade</label>
+                  <label class="pm-checkbox"><input type="checkbox" name="performanceMoment" value="First Dance" /> First Dance</label>
+                  <label class="pm-checkbox"><input type="checkbox" name="performanceMoment" value="Parent Dance" /> Parent Dance</label>
+                  <label class="pm-checkbox"><input type="checkbox" name="performanceMoment" value="Highlight Moment" /> Highlight Moment</label>
+                </div>
+              </div>
+              <div class="pm-group">
+                <span class="pm-group-title">Additional</span>
+                <div class="pm-checkboxes">
+                  <label class="pm-checkbox"><input type="checkbox" name="performanceMoment" value="Not sure (we'll guide you)" /> Not sure (we'll guide you)</label>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
       </div>
       <div class="full">
         <label>Requested Duo
-          <select name="requestedArtist">
-            <option value="">Select Duo</option>
-            <option value="eli-liv">Eli & Liv</option>
-            <option value="riley-richard">Riley & Lu</option>
-            <option value="garrett-tamara">Garrett & Tamara</option>
-          </select>
+          <div class="select-wrap">
+            <select name="requestedArtist">
+              <option value="">Select Duo</option>
+              <option value="eli-liv">Eli & Liv</option>
+              <option value="riley-richard">Riley & Lu</option>
+              <option value="garrett-tamara">Garrett & Tamara</option>
+            </select>
+            <span class="select-arrow" aria-hidden>▼</span>
+          </div>
         </label>
       </div>
       <fieldset class="pkg-fs">
@@ -96,6 +152,50 @@
   setMinWeddingDate();
   if (weddingDateInput) weddingDateInput.addEventListener('focus', setMinWeddingDate);
   if (!form || !btn) return;
+  var pmWrap = document.getElementById('as-duo-pm-wrap');
+  var pmTrigger = document.getElementById('as-duo-pm-trigger');
+  var pmText = document.getElementById('as-duo-pm-text');
+  var pmDropdown = document.getElementById('as-duo-pm-dropdown');
+  var MAX_PM = 3;
+  function updatePmText() {
+    var checks = form.querySelectorAll('input[name="performanceMoment"]:checked');
+    var arr = []; checks.forEach(function(c){ if (c.value) arr.push(c.value); });
+    if (pmText) {
+      pmText.textContent = arr.length ? arr.join(', ') : 'Select performance moments';
+      pmText.classList.toggle('pm-placeholder', arr.length === 0);
+    }
+  }
+  function updatePmDisabled() {
+    var checks = form.querySelectorAll('input[name="performanceMoment"]:checked');
+    var count = checks.length;
+    form.querySelectorAll('input[name="performanceMoment"]').forEach(function(cb){
+      cb.disabled = !cb.checked && count >= MAX_PM;
+    });
+  }
+  function closePmDropdown() {
+    if (pmDropdown) pmDropdown.style.display = 'none';
+    if (pmTrigger) pmTrigger.setAttribute('aria-expanded', 'false');
+  }
+  updatePmText();
+  if (pmTrigger && pmDropdown) {
+    pmTrigger.addEventListener('click', function(){
+      var open = pmDropdown.style.display !== 'none';
+      pmDropdown.style.display = open ? 'none' : 'block';
+      pmTrigger.setAttribute('aria-expanded', !open);
+    });
+  }
+  document.addEventListener('mousedown', function(e){
+    if (pmWrap && pmDropdown && !pmWrap.contains(e.target)) closePmDropdown();
+  });
+  form.querySelectorAll('input[name="performanceMoment"]').forEach(function(cb){
+    cb.addEventListener('change', function(){
+      var checks = form.querySelectorAll('input[name="performanceMoment"]:checked');
+      if (checks.length > MAX_PM) this.checked = false;
+      updatePmText();
+      updatePmDisabled();
+    });
+  });
+  updatePmDisabled();
   form.querySelectorAll('.pkg-card').forEach(function(card){
     card.addEventListener('click', function(){
       form.querySelectorAll('.pkg-card').forEach(function(c){ c.classList.remove('selected'); });
@@ -122,12 +222,17 @@
     }
     btn.disabled = true;
     var r = form.querySelector('input[name="packageId"]:checked');
+    var pmChecks = form.querySelectorAll('input[name="performanceMoment"]:checked');
+    var pmArr = [];
+    pmChecks.forEach(function(c){ if (c.value) pmArr.push(c.value); });
+    if (pmArr.length > MAX_PM) pmArr = pmArr.slice(0, MAX_PM);
     var payload = {
       name: (form.name && form.name.value) ? form.name.value.trim() : '',
       email: (form.email && form.email.value) ? form.email.value.trim() : '',
       phone: (form.phone && form.phone.value) ? form.phone.value.trim() : undefined,
       weddingDate: (form.weddingDate && form.weddingDate.value) ? form.weddingDate.value.trim() : undefined,
       venue: (form.venue && form.venue.value) ? form.venue.value.trim() : undefined,
+      performanceMoment: pmArr.length > 0 ? pmArr : undefined,
       requestedArtist: (form.requestedArtist && form.requestedArtist.value) ? form.requestedArtist.value : undefined,
       packageId: r ? r.value : undefined,
       message: (form.message && form.message.value) ? form.message.value.trim() : undefined

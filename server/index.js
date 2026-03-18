@@ -52,6 +52,8 @@ import {
   seedDb,
   getNextClientId,
   getNextProjectId,
+  createShortLink,
+  getShortLink,
 } from './db.js'
 import {
   seedClients,
@@ -245,7 +247,7 @@ const allowedOrigins = [
 ].filter(Boolean)
 const publicEndpoints = ['/api/state', '/api/inquiry', '/api/music-selection']
 const clientBulkEndpoints = ['/api/clients/delete-all', '/api/clients/restore-all']
-const desktopSyncEndpoints = ['/api/proposals/sync-for-accept', '/api/proposals']
+const desktopSyncEndpoints = ['/api/proposals/sync-for-accept', '/api/proposals', '/api/short-links']
 app.use((req, res, next) => {
   const origin = req.headers.origin
   const isStateGet = req.method === 'GET' && req.path === '/api/state'
@@ -537,8 +539,7 @@ function createPdfFromEditorTemplate(contentHtml, mergeData) {
   const text = htmlToPlainText(mergedHtml)
   const lines = wrapTextLines(text, 92)
   const signaturePositions = { client: null, vendor: null }
-  let clientFound = false
-  let vendorFound = false
+  const allMatches = []
 
   return (async () => {
     const pdf = await PDFDocument.create()
@@ -562,12 +563,9 @@ function createPdfFromEditorTemplate(contentHtml, mergeData) {
       }
       if (line) {
         const isSignatureLine = SIGNATURE_LINE_PATTERN.test(line)
-        if (isSignatureLine && !clientFound) {
-          signaturePositions.client = { page: pageIndex, y }
-          clientFound = true
-        } else if (isSignatureLine && !vendorFound) {
-          signaturePositions.vendor = { page: pageIndex, y }
-          vendorFound = true
+        const isVendorLine = /\b(?:Agency|Vendor)\s+Signature\s*$/i.test(line)
+        if (isSignatureLine) {
+          allMatches.push({ page: pageIndex, y, isVendor: isVendorLine })
         }
         page.drawText(line, {
           x: margin,
@@ -581,6 +579,10 @@ function createPdfFromEditorTemplate(contentHtml, mergeData) {
       y -= lineHeight
     }
 
+    const vendorMatches = allMatches.filter((m) => m.isVendor)
+    const clientMatches = allMatches.filter((m) => !m.isVendor)
+    signaturePositions.vendor = vendorMatches.length > 0 ? { page: vendorMatches[vendorMatches.length - 1].page, y: vendorMatches[vendorMatches.length - 1].y } : null
+    signaturePositions.client = clientMatches.length > 0 ? { page: clientMatches[clientMatches.length - 1].page, y: clientMatches[clientMatches.length - 1].y } : null
     const buffer = Buffer.from(await pdf.save())
     return { buffer, signaturePositions }
   })()
@@ -872,6 +874,7 @@ async function sendInquiryNotification(payload) {
     packageId,
     message,
     requestedArtist,
+    performanceMoment,
   } = payload
   const typeLabel = isGeneral ? 'General contact' : 'Artist / wedding inquiry'
   const subject = `New inquiry: ${name} — ${typeLabel}`
@@ -889,6 +892,7 @@ async function sendInquiryNotification(payload) {
     ...(venue ? [`Venue: ${venue}`] : []),
     ...(packageId ? [`Package: ${packageId}`] : []),
     ...(requestedArtist ? [`Requested artist: ${requestedArtist}`] : []),
+    ...(performanceMoment ? ['', '— Performance moments —', performanceMoment] : []),
     ...(message ? ['', '— Message —', message] : []),
   ]
   const text = lines.join('\n')
@@ -928,6 +932,10 @@ app.post('/api/inquiry', async (req, res) => {
     const title = isGeneral ? 'General inquiry' : (venue ? `${venue} Wedding` : 'Wedding inquiry')
     const inquiryMessage = (body.message || '').trim() || undefined
     const requestedArtist = (body.requestedArtist || '').trim() || undefined
+    const rawPerf = body.performanceMoment
+    const performanceMoment = Array.isArray(rawPerf)
+      ? rawPerf.filter((x) => x && String(x).trim()).map((x) => String(x).trim())
+      : (rawPerf && typeof rawPerf === 'string' ? [rawPerf.trim()].filter(Boolean) : [])
 
     const { clientId, projectId } = createInquiryInTransaction({
       name,
@@ -943,6 +951,7 @@ app.post('/api/inquiry', async (req, res) => {
       dueDate: weddingDate,
       notes: inquiryMessage,
       requestedArtist: requestedArtist || undefined,
+      performanceMoment: performanceMoment.length > 0 ? performanceMoment : undefined,
     })
 
     // Fire-and-forget email so the form response isn't blocked by slow SMTP
@@ -957,6 +966,7 @@ app.post('/api/inquiry', async (req, res) => {
       packageId,
       message: inquiryMessage,
       requestedArtist,
+      performanceMoment: performanceMoment.length > 0 ? performanceMoment.join(', ') : undefined,
     }).catch((err) => {
       logError('SMTP', 'Inquiry notification (non-blocking)', err)
     })
@@ -1696,12 +1706,22 @@ async function stampSignature(pdfBuffer, signatureDataUrl, label, signedDate, sl
   let x = margin
   let y = slot === 'vendor' ? 120 : 180
 
-  if (contractId) {
+  if (slot === 'vendor') {
+    // Always place agency signature on last page (page 2 for 2-page docs)
+    if (pages.length === 1) {
+      pdf.addPage([595, 842])
+      page = pdf.getPages()[1]
+      y = 120
+    } else {
+      page = pages[pages.length - 1]
+      y = 120
+    }
+  } else if (contractId) {
     try {
       const sigPath = join(CONTRACTS_DIR, `${contractId}.sig.json`)
       if (existsSync(sigPath)) {
         const pos = JSON.parse(readFileSync(sigPath, 'utf8'))
-        const slotPos = slot === 'client' ? pos.client : pos.vendor
+        const slotPos = pos.client
         if (slotPos && slotPos.page >= 0 && slotPos.page < pages.length) {
           page = pages[slotPos.page]
           y = slotPos.y
@@ -2993,6 +3013,31 @@ app.post('/api/create-checkout-session', async (req, res) => {
   } catch (err) {
     logError('Stripe', 'Failed to create checkout session', err)
     res.status(500).json({ error: err.message || 'Failed to create checkout session' })
+  }
+})
+
+// Short proposal links: /a/abc123 redirects to full accept-proposal URL
+app.get('/a/:shortId', (req, res) => {
+  try {
+    const row = getShortLink(req.params.shortId)
+    if (!row) return res.status(404).send('Link not found or expired.')
+    const url = `/accept-proposal/${row.proposalId}?token=${encodeURIComponent(row.token)}&d=${encodeURIComponent(row.d)}`
+    res.redirect(302, url)
+  } catch (err) {
+    logError('API', 'Short link redirect failed', err)
+    res.status(500).send('Link error')
+  }
+})
+
+app.post('/api/short-links', express.json(), (req, res) => {
+  try {
+    const { proposalId, token, d } = req.body || {}
+    if (!proposalId || !token || !d) return res.status(400).json({ error: 'proposalId, token, and d required' })
+    const shortId = createShortLink(proposalId, token, d)
+    res.json({ shortId })
+  } catch (err) {
+    logError('API', 'Failed to create short link', err)
+    res.status(500).json({ error: err.message || 'Failed to create short link' })
   }
 })
 

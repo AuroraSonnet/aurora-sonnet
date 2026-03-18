@@ -24,6 +24,8 @@ export interface Project {
   packageType?: string
   /** Client's requested artist (e.g. when inquiring for a specific vocalist) */
   requestedArtist?: string
+  /** Performance moments selected (e.g. Processional, First Dance) — stored as comma-separated string in DB */
+  performanceMoment?: string
   dueDate: string
   createdAt?: string
   /** Inquiry message (e.g. from general contact form) */

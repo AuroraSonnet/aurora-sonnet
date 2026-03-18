@@ -7,7 +7,7 @@
   .as-comb-wrap { max-width: 640px; margin: 0 auto; font-family: 'Inter', system-ui, sans-serif; }
   .as-comb-form { background: #fff; border-radius: 12px; padding: 1.5rem; box-shadow: 0 4px 24px rgba(0,0,0,0.08); border: 1px solid #e8e6e1; }
   .as-comb-form label { display: block; margin-bottom: 1rem; font-size: 0.9rem; color: #333; }
-  .as-comb-form input, .as-comb-form select, .as-comb-form textarea { display: block; width: 100%; margin-top: 0.35rem; padding: 0.6rem 0.75rem; font-size: 0.95rem; border: 1px solid #ccc; border-radius: 8px; background: #f5ebe0; box-sizing: border-box; font-family: inherit; }
+  .as-comb-form input, .as-comb-form select, .as-comb-form textarea, .as-comb-form .pm-trigger { display: block; width: 100%; margin-top: 0.35rem; padding: 0.6rem 0.75rem; font-size: 0.95rem; border: 1px solid #ccc; border-radius: 8px; background: #f5ebe0; box-sizing: border-box; font-family: inherit; }
   .as-comb-form textarea { min-height: 100px; resize: vertical; }
   .as-comb-form .form-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(200px, 1fr)); gap: 1rem; margin-bottom: 1rem; }
   @media (max-width: 600px) {
@@ -31,6 +31,20 @@
   .as-comb-form .as-btn:hover { background: #2d2620; }
   .as-comb-form .as-btn:disabled { opacity: 0.7; cursor: not-allowed; }
   .as-comb-form .as-err { font-size: 0.9rem; color: #c00; margin-top: 0.75rem; display: none; }
+  .as-comb-form .pm-wrap .pm-trigger { margin-top: 0; }
+  .as-comb-form .pm-wrap { display: flex; flex-direction: column; gap: 0.35rem; font-size: 0.9rem; color: #333; position: relative; }
+  .as-comb-form .pm-label { font-weight: 500; }
+  .as-comb-form .pm-hint { font-size: 0.65rem; color: #888; }
+  .as-comb-form .pm-trigger { cursor: pointer; display: flex; align-items: center; justify-content: space-between; gap: 0.5rem; min-height: 2.5rem; padding: 0.6rem 0.75rem; border: 1px solid #ccc; border-radius: 8px; background: #f5ebe0; box-sizing: border-box; }
+  .as-comb-form .pm-placeholder { color: #888; }
+  .as-comb-form .pm-arrow { font-size: 0.65rem; color: #888; flex-shrink: 0; }
+  .as-comb-form .pm-dropdown { position: absolute; top: 100%; left: 0; right: 0; margin-top: 2px; padding: 0.6rem 0.75rem; border-radius: 8px; border: 1px solid #ccc; background: #fff; box-shadow: 0 4px 24px rgba(0,0,0,0.12); z-index: 10; max-height: 280px; overflow-y: auto; }
+  .as-comb-form .pm-groups { display: flex; flex-direction: column; gap: 0.75rem; }
+  .as-comb-form .pm-group { display: flex; flex-direction: column; gap: 0.35rem; }
+  .as-comb-form .pm-group-title { font-size: 0.8rem; font-weight: 600; color: #1a1a1a; text-transform: uppercase; letter-spacing: 0.05em; }
+  .as-comb-form .pm-checkboxes { display: flex; flex-direction: column; gap: 0.25rem; }
+  .as-comb-form .pm-checkbox { display: flex; align-items: center; gap: 0.5rem; cursor: pointer; font-weight: 400; }
+  .as-comb-form .pm-checkbox input { width: 1rem; height: 1rem; flex-shrink: 0; accent-color: #3d3630; }
 </style>
 <div class="as-comb-wrap">
   <div class="as-comb-form" id="as-comb-box">
@@ -41,6 +55,42 @@
         <label>Phone <input type="tel" name="phone" /></label>
         <label>Wedding Date * <input type="date" name="weddingDate" id="as-comb-weddingDate" required /></label>
         <label>Venue / Location * <input type="text" name="venue" placeholder="e.g. Garden Estate Vineyard" required /></label>
+        <div class="pm-wrap" id="as-comb-pm-wrap">
+          <span class="pm-label">Performance Moment <span class="pm-hint">(max 3)</span></span>
+          <div class="pm-trigger" id="as-comb-pm-trigger" tabindex="0" role="combobox" aria-expanded="false" aria-haspopup="listbox">
+            <span class="pm-text" id="as-comb-pm-text"></span>
+            <span class="pm-arrow" aria-hidden>▼</span>
+          </div>
+          <div class="pm-dropdown" id="as-comb-pm-dropdown" style="display:none;">
+            <div class="pm-groups">
+              <div class="pm-group">
+                <span class="pm-group-title">Ceremony</span>
+                <div class="pm-checkboxes">
+                  <label class="pm-checkbox"><input type="checkbox" name="performanceMoment" value="Guest Arrival" /> Guest Arrival</label>
+                  <label class="pm-checkbox"><input type="checkbox" name="performanceMoment" value="Processional" /> Processional</label>
+                  <label class="pm-checkbox"><input type="checkbox" name="performanceMoment" value="Interlude" /> Interlude</label>
+                  <label class="pm-checkbox"><input type="checkbox" name="performanceMoment" value="Recessional" /> Recessional</label>
+                </div>
+              </div>
+              <div class="pm-group">
+                <span class="pm-group-title">Reception</span>
+                <div class="pm-checkboxes">
+                  <label class="pm-checkbox"><input type="checkbox" name="performanceMoment" value="Cocktail Hour" /> Cocktail Hour</label>
+                  <label class="pm-checkbox"><input type="checkbox" name="performanceMoment" value="Dinner Serenade" /> Dinner Serenade</label>
+                  <label class="pm-checkbox"><input type="checkbox" name="performanceMoment" value="First Dance" /> First Dance</label>
+                  <label class="pm-checkbox"><input type="checkbox" name="performanceMoment" value="Parent Dance" /> Parent Dance</label>
+                  <label class="pm-checkbox"><input type="checkbox" name="performanceMoment" value="Highlight Moment" /> Highlight Moment</label>
+                </div>
+              </div>
+              <div class="pm-group">
+                <span class="pm-group-title">Additional</span>
+                <div class="pm-checkboxes">
+                  <label class="pm-checkbox"><input type="checkbox" name="performanceMoment" value="Not sure (we'll guide you)" /> Not sure (we'll guide you)</label>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
       </div>
       <div class="full">
         <label>Artist or Duo
@@ -95,6 +145,50 @@
   var errEl = document.getElementById('as-comb-err');
   var btn = document.getElementById('as-comb-btn');
   var weddingDateInput = document.getElementById('as-comb-weddingDate');
+  var pmWrap = document.getElementById('as-comb-pm-wrap');
+  var pmTrigger = document.getElementById('as-comb-pm-trigger');
+  var pmText = document.getElementById('as-comb-pm-text');
+  var pmDropdown = document.getElementById('as-comb-pm-dropdown');
+  var MAX_PM = 3;
+  function updatePmText() {
+    var checks = form.querySelectorAll('input[name="performanceMoment"]:checked');
+    var arr = []; checks.forEach(function(c){ if (c.value) arr.push(c.value); });
+    if (pmText) {
+      pmText.textContent = arr.length ? arr.join(', ') : 'Select performance moments';
+      pmText.classList.toggle('pm-placeholder', arr.length === 0);
+    }
+  }
+  function updatePmDisabled() {
+    var checks = form.querySelectorAll('input[name="performanceMoment"]:checked');
+    var count = checks.length;
+    form.querySelectorAll('input[name="performanceMoment"]').forEach(function(cb){
+      cb.disabled = !cb.checked && count >= MAX_PM;
+    });
+  }
+  function closePmDropdown() {
+    if (pmDropdown) pmDropdown.style.display = 'none';
+    if (pmTrigger) pmTrigger.setAttribute('aria-expanded', 'false');
+  }
+  updatePmText();
+  if (pmTrigger && pmDropdown) {
+    pmTrigger.addEventListener('click', function(){
+      var open = pmDropdown.style.display !== 'none';
+      pmDropdown.style.display = open ? 'none' : 'block';
+      pmTrigger.setAttribute('aria-expanded', !open);
+    });
+  }
+  document.addEventListener('mousedown', function(e){
+    if (pmWrap && pmDropdown && !pmWrap.contains(e.target)) closePmDropdown();
+  });
+  form.querySelectorAll('input[name="performanceMoment"]').forEach(function(cb){
+    cb.addEventListener('change', function(){
+      var checks = form.querySelectorAll('input[name="performanceMoment"]:checked');
+      if (checks.length > MAX_PM) this.checked = false;
+      updatePmText();
+      updatePmDisabled();
+    });
+  });
+  updatePmDisabled();
   function setMinWeddingDate() {
     if (weddingDateInput) {
       var d = new Date();
@@ -144,12 +238,17 @@
     }
     btn.disabled = true;
     var r = form.querySelector('input[name="packageId"]:checked');
+    var pmChecks = form.querySelectorAll('input[name="performanceMoment"]:checked');
+    var pmArr = [];
+    pmChecks.forEach(function(c){ if (c.value) pmArr.push(c.value); });
+    if (pmArr.length > MAX_PM) pmArr = pmArr.slice(0, MAX_PM);
     var payload = {
       name: (form.name && form.name.value) ? form.name.value.trim() : '',
       email: (form.email && form.email.value) ? form.email.value.trim() : '',
       phone: (form.phone && form.phone.value) ? form.phone.value.trim() : undefined,
       weddingDate: (form.weddingDate && form.weddingDate.value) ? form.weddingDate.value.trim() : undefined,
       venue: (form.venue && form.venue.value) ? form.venue.value.trim() : undefined,
+      performanceMoment: pmArr.length > 0 ? pmArr : undefined,
       requestedArtist: (artistSelect && artistSelect.value) ? artistSelect.value : undefined,
       packageId: r ? r.value : undefined,
       message: (form.message && form.message.value) ? form.message.value.trim() : undefined

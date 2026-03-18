@@ -123,6 +123,13 @@ db.exec(`
     songsText TEXT,
     createdAt TEXT NOT NULL
   );
+  CREATE TABLE IF NOT EXISTS short_links (
+    id TEXT PRIMARY KEY,
+    proposalId TEXT NOT NULL,
+    token TEXT NOT NULL,
+    d TEXT NOT NULL,
+    createdAt TEXT NOT NULL
+  );
 `)
 
 // Optional templateId for "create from template" (migrate existing DBs)
@@ -193,6 +200,11 @@ try {
   if (!/duplicate column/i.test(e.message)) throw e
 }
 try {
+  db.exec('ALTER TABLE projects ADD COLUMN performanceMoment TEXT')
+} catch (e) {
+  if (!/duplicate column/i.test(e.message)) throw e
+}
+try {
   db.exec('ALTER TABLE projects ADD COLUMN cloudProjectId TEXT')
 } catch (e) {
   if (!/duplicate column/i.test(e.message)) throw e
@@ -244,7 +256,7 @@ try {
 // Ensure inquiry-related columns exist (handles old DBs on Render or restores)
 function ensureInquiryColumns() {
   const projectCols = db.prepare("PRAGMA table_info(projects)").all().map((r) => r.name)
-  for (const col of ['notes', 'requestedArtist', 'cloudProjectId', 'deletedAt', 'archivedAt']) {
+  for (const col of ['notes', 'requestedArtist', 'performanceMoment', 'cloudProjectId', 'deletedAt', 'archivedAt']) {
     if (!projectCols.includes(col)) {
       try {
         db.exec(`ALTER TABLE projects ADD COLUMN ${col} TEXT`)
@@ -310,6 +322,7 @@ function rowToProject(r) {
     createdAt: r.createdAt || undefined,
     notes: r.notes || undefined,
     requestedArtist: r.requestedArtist || undefined,
+    performanceMoment: r.performanceMoment || undefined,
     cloudProjectId: r.cloudProjectId || undefined,
     archivedAt: r.archivedAt || undefined,
   }
@@ -450,6 +463,31 @@ function rowToMusicSelection(r) {
     songsText: r.songsText || undefined,
     createdAt: r.createdAt,
   }
+}
+
+function randomShortId() {
+  const chars = 'abcdefghijklmnopqrstuvwxyz0123456789'
+  let id = ''
+  for (let i = 0; i < 6; i++) id += chars[Math.floor(Math.random() * chars.length)]
+  return id
+}
+
+export function createShortLink(proposalId, token, d) {
+  let id = randomShortId()
+  const existing = db.prepare('SELECT id FROM short_links WHERE id = ?').get(id)
+  if (existing) id = randomShortId()
+  db.prepare('INSERT INTO short_links (id, proposalId, token, d, createdAt) VALUES (?, ?, ?, ?, ?)').run(
+    id,
+    proposalId,
+    token,
+    d,
+    new Date().toISOString()
+  )
+  return id
+}
+
+export function getShortLink(shortId) {
+  return db.prepare('SELECT * FROM short_links WHERE id = ?').get(shortId)
 }
 
 export function getState() {
@@ -618,8 +656,11 @@ export const createInquiryInTransaction = db.transaction((data) => {
   const pMax = typeof pRow?.maxId === 'number' ? pRow.maxId : 0
   const projectId = `p${pMax + 1}`
   const value = typeof data.value === 'number' && !isNaN(data.value) ? data.value : 0
+  const perfMoment = Array.isArray(data.performanceMoment) && data.performanceMoment.length > 0
+    ? data.performanceMoment.join(', ')
+    : null
   db.prepare(
-    'INSERT INTO projects (id, clientId, clientName, title, stage, value, weddingDate, venue, packageType, dueDate, createdAt, notes, requestedArtist, cloudProjectId) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)'
+    'INSERT INTO projects (id, clientId, clientName, title, stage, value, weddingDate, venue, packageType, dueDate, createdAt, notes, requestedArtist, performanceMoment, cloudProjectId) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)'
   ).run(
     projectId,
     clientId,
@@ -634,6 +675,7 @@ export const createInquiryInTransaction = db.transaction((data) => {
     data.today,
     data.notes ?? null,
     data.requestedArtist ?? null,
+    perfMoment,
     null
   )
   return { clientId, projectId }
@@ -677,8 +719,11 @@ export function restoreProject(id) {
 }
 
 export function createProject(project) {
+  const perfMoment = Array.isArray(project.performanceMoment)
+    ? (project.performanceMoment.length > 0 ? project.performanceMoment.join(', ') : null)
+    : (project.performanceMoment || null)
   db.prepare(
-    'INSERT INTO projects (id, clientId, clientName, title, stage, value, weddingDate, venue, packageType, dueDate, createdAt, notes, requestedArtist, cloudProjectId) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)'
+    'INSERT INTO projects (id, clientId, clientName, title, stage, value, weddingDate, venue, packageType, dueDate, createdAt, notes, requestedArtist, performanceMoment, cloudProjectId) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)'
   ).run(
     project.id,
     project.clientId,
@@ -693,6 +738,7 @@ export function createProject(project) {
     project.createdAt ?? null,
     project.notes ?? null,
     project.requestedArtist ?? null,
+    perfMoment,
     project.cloudProjectId ?? null
   )
   return project.id
@@ -703,7 +749,7 @@ export function updateProject(id, updates) {
   if (!row) return
   const p = { ...rowToProject(row), ...updates }
   db.prepare(
-    'UPDATE projects SET clientId=?, clientName=?, title=?, stage=?, value=?, weddingDate=?, venue=?, packageType=?, dueDate=?, createdAt=?, notes=?, requestedArtist=?, cloudProjectId=?, archivedAt=? WHERE id=?'
+    'UPDATE projects SET clientId=?, clientName=?, title=?, stage=?, value=?, weddingDate=?, venue=?, packageType=?, dueDate=?, createdAt=?, notes=?, requestedArtist=?, performanceMoment=?, cloudProjectId=?, archivedAt=? WHERE id=?'
   ).run(
     p.clientId,
     p.clientName,
@@ -717,6 +763,7 @@ export function updateProject(id, updates) {
     p.createdAt ?? null,
     p.notes ?? null,
     p.requestedArtist ?? null,
+    (typeof p.performanceMoment === 'string' ? p.performanceMoment : (Array.isArray(p.performanceMoment) && p.performanceMoment.length > 0 ? p.performanceMoment.join(', ') : null)) ?? null,
     p.cloudProjectId ?? null,
     p.archivedAt ?? null,
     id
