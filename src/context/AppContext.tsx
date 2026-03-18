@@ -231,6 +231,8 @@ type AppActions = {
   refreshState: () => Promise<void>
   /** Remove one client and their projects from local state only (after API delete succeeded). Avoids refreshState overwriting with empty. */
   removeClientLocally: (clientId: string) => void
+  /** Remove one contract from local state (after API delete succeeded). Lets user recreate contract for same project. */
+  removeContractLocally: (contractId: string) => void
   /** Add a client and their projects back to local state (for undo after delete). Keeps undo correct without relying on refreshState. */
   restoreClientLocally: (client: Client, projects: Project[]) => void
   /** Pull new website inquiries from Inquiry API URL into the app. Uses proxy when possible to avoid CORS. */
@@ -571,6 +573,13 @@ export function AppProvider({ children }: { children: ReactNode }) {
     }))
   }, [])
 
+  const removeContractLocally = useCallback((contractId: string) => {
+    setState((s) => ({
+      ...s,
+      contracts: (s.contracts ?? []).filter((c) => c.id !== contractId),
+    }))
+  }, [])
+
   const restoreClientLocally = useCallback((client: Client, projects: Project[]) => {
     setState((s) => ({
       ...s,
@@ -738,15 +747,39 @@ export function AppProvider({ children }: { children: ReactNode }) {
         const localClientId = cloudToLocalClientId[p.clientId] ?? p.clientId
         const clientExists = localClientsSnapshot.some((c) => c.id === localClientId)
         if (!clientExists) continue
-        const alreadySynced =
-          localProjectsSnapshot.some((x) => x.cloudProjectId === p.id) ||
-          localProjectsSnapshot.some(
+        const existingMatch =
+          localProjectsSnapshot.find((x) => x.cloudProjectId === p.id) ||
+          localProjectsSnapshot.find(
             (x) =>
               x.clientId === localClientId &&
               x.title === p.title &&
               x.weddingDate === p.weddingDate
           )
-        if (alreadySynced) continue
+        if (existingMatch) {
+          // Update existing project with cloud data (e.g. performanceMoment, requestedArtist)
+          const cloudPerf = (p as { performanceMoment?: string }).performanceMoment
+          const cloudArtist = (p as { requestedArtist?: string }).requestedArtist
+          if (cloudPerf || cloudArtist) {
+            setState((prev) => {
+              const next = {
+                ...prev,
+                projects: prev.projects.map((proj) =>
+                  proj.id === existingMatch.id
+                    ? { ...proj, performanceMoment: cloudPerf ?? proj.performanceMoment, requestedArtist: cloudArtist ?? proj.requestedArtist }
+                    : proj
+                ),
+              }
+              saveState(next)
+              return next
+            })
+            localProjectsSnapshot = localProjectsSnapshot.map((proj) =>
+              proj.id === existingMatch.id
+                ? { ...proj, performanceMoment: cloudPerf ?? proj.performanceMoment, requestedArtist: cloudArtist ?? proj.requestedArtist }
+                : proj
+            )
+          }
+          continue
+        }
         const newId = nextId('p', localProjectsSnapshot)
         const createdAt = p.createdAt ?? new Date().toISOString().slice(0, 10)
         const dueDate = p.dueDate ?? createdAt
@@ -767,6 +800,8 @@ export function AppProvider({ children }: { children: ReactNode }) {
             dueDate,
             createdAt,
             notes: p.notes,
+            requestedArtist: (p as { requestedArtist?: string }).requestedArtist,
+            performanceMoment: (p as { performanceMoment?: string }).performanceMoment,
             cloudProjectId: p.id,
           }
           localProjectsSnapshot = [...localProjectsSnapshot, newProject]
@@ -791,6 +826,8 @@ export function AppProvider({ children }: { children: ReactNode }) {
             dueDate,
             createdAt,
             notes: p.notes,
+            requestedArtist: (p as { requestedArtist?: string }).requestedArtist,
+            performanceMoment: (p as { performanceMoment?: string }).performanceMoment,
             cloudProjectId: p.id,
           }
           setState((prev) => {
@@ -828,9 +865,11 @@ export function AppProvider({ children }: { children: ReactNode }) {
           const updatedContracts = (prev.contracts ?? []).map((c) => {
             const remote = remoteContracts.find((rc) => rc.id === c.id)
             if (!remote) return c
+            // Don't overwrite local draft contracts with remote data — protects newly created contracts from stale sync
+            if (c.status === 'draft' && !(c as { signedAt?: string }).signedAt && !(c as { clientSignedAt?: string }).clientSignedAt) return c
             const updates: Record<string, unknown> = {}
             if (remote.clientSignedAt && !c.clientSignedAt) updates.clientSignedAt = remote.clientSignedAt
-            if (remote.status === 'signed' && c.status !== 'signed') { updates.status = 'signed'; updates.signedAt = remote.signedAt }
+            if (remote.status === 'signed' && remote.clientSignedAt && remote.signedAt && c.status !== 'signed') { updates.status = 'signed'; updates.signedAt = remote.signedAt }
             if (Object.keys(updates).length === 0) return c
             changed = true
             return { ...c, ...updates }
@@ -916,6 +955,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
         setAutomationEnabled,
         refreshState,
         removeClientLocally,
+        removeContractLocally,
         restoreClientLocally,
         syncInquiriesFromWebsite,
         addNewsletterTemplate,
@@ -947,6 +987,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
       setAutomationEnabled,
       refreshState,
       removeClientLocally,
+      removeContractLocally,
       restoreClientLocally,
       syncInquiriesFromWebsite,
       addNewsletterTemplate,
