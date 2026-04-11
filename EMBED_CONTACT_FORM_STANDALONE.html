@@ -16,6 +16,8 @@
   .aurora-general-form { font-family: 'Inter', system-ui, sans-serif; max-width: 620px; margin: 0 auto; background: #fff; border-radius: 20px; padding: 2.25rem 2rem; box-shadow: 0 4px 24px rgba(0,0,0,0.1); }
   .aurora-general-form label { display: block; margin-bottom: 1.25rem; font-size: 0.875rem; color: #333; }
   .aurora-general-form label:first-child { margin-top: 0.25rem; }
+  .aurora-general-form .aurora-general-form-row { display: grid; grid-template-columns: 1fr 1fr; gap: 1rem; margin-bottom: 1.25rem; align-items: start; }
+  .aurora-general-form .aurora-general-form-row label { margin-bottom: 0; }
   .aurora-general-form label:last-of-type { margin-bottom: 1.75rem; }
   .aurora-general-form input,
   .aurora-general-form textarea { font-family: 'Inter', system-ui, sans-serif; display: block; width: 100%; margin-top: 0.5rem; padding: 0.5rem 0.75rem; font-size: 1rem; font-weight: 400; border: 1px solid #222; border-radius: 12px; background: #fff; box-sizing: border-box; }
@@ -33,9 +35,14 @@
     <label>Your Name
       <input type="text" name="name" placeholder="Enter full name" required />
     </label>
-    <label>Email Address*
-      <input type="email" name="email" placeholder="Enter email" required />
-    </label>
+    <div class="aurora-general-form-row">
+      <label>Email Address*
+        <input type="email" name="email" placeholder="Enter email" required />
+      </label>
+      <label>Phone Number*
+        <input type="tel" name="phone" placeholder="Enter phone number" required />
+      </label>
+    </div>
     <label>Message*
       <textarea name="message" placeholder="Write your message" required></textarea>
     </label>
@@ -67,10 +74,11 @@
     var payload = {
       name: (fd.get('name') || '').trim(),
       email: (fd.get('email') || '').trim(),
+      phone: (fd.get('phone') || '').trim(),
       message: (fd.get('message') || '').trim(),
     };
-    if (!payload.name || !payload.email) {
-      errorEl.textContent = 'Please enter your name and email.';
+    if (!payload.name || !payload.email || !payload.phone) {
+      errorEl.textContent = 'Please enter your name, email, and phone number.';
       errorEl.style.display = 'block';
       return;
     }

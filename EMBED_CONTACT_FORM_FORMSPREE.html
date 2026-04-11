@@ -1,12 +1,16 @@
 <!--
-  GENERAL INQUIRY FORM — Paste into Hostinger HTML block.
-  Uses Formspree (free): no Node server needed. Submissions go to your email; then redirect to thank-you page.
+  ⚠️ NOT RECOMMENDED for Aurora Sonnet CRM + client confirmation e-mail.
 
-  ONE-TIME SETUP:
-  1. Go to https://formspree.io and sign up (free).
-  2. Create a new form. Copy the form ID (e.g. "xyzabc" from https://formspree.io/f/xyzabc).
-  3. Below, replace YOUR_FORMSPREE_ID with that ID (e.g. xyzabc).
-  4. Paste this whole block into your Hostinger page.
+  This form POSTs to Formspree only. That sends YOU an e-mail but does NOT call
+  Render /api/inquiry → no [INQUIRY-HIT] logs, no Bookings record, no automatic
+  client confirmation from your server.
+
+  For the full pipeline, paste EMBED_GENERAL_INQUIRY_APP.html (or
+  EMBED_CONTACT_FORM_STANDALONE.html) instead.
+
+  LEGACY FORMSPREE SETUP (only if you intentionally want Formspree-only):
+  1. https://formspree.io — create a form, copy the ID from https://formspree.io/f/YOUR_ID
+  2. Replace YOUR_FORMSPREE_ID below.
 -->
 
 <link rel="preconnect" href="https://fonts.googleapis.com" />

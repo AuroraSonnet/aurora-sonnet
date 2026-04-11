@@ -1,6 +1,18 @@
 <!--
-  General inquiry — Formspree only. Paste into Hostinger. No connection to aurorasonnet.com for submit; redirects to thank-you page.
-  Form ID: xnjbojwk (replace below if you use a different Formspree form)
+  ⚠️ IMPORTANT — READ BEFORE PASTING ON HOSTINGER
+
+  This file used to post to Formspree (e.g. formspree.io/f/xnjbojwk). That path:
+  • E-mails the agency via Formspree only
+  • Never calls your Render app → no [INQUIRY-HIT] logs, no Bookings sync, no client auto-confirmation
+
+  The block below now matches EMBED_GENERAL_INQUIRY_APP.html: it POSTs JSON to YOUR_APP_URL + /api/inquiry
+  so the same server sends agency SMTP mail + client confirmation.
+
+  Set YOUR_APP_URL to your live Render URL (no trailing slash).
+-->
+<!--
+  General inquiry — submissions go to YOUR APP only (Render /api/inquiry).
+  YOUR_APP_URL is set to https://aurora-sonnet-1.onrender.com (update if your Render service differs).
 -->
 <link rel="preconnect" href="https://fonts.googleapis.com" />
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
@@ -8,6 +20,8 @@
 <style>
   .aurora-general-form { font-family: 'Inter', system-ui, sans-serif; max-width: 680px; margin: 0 auto; background: #fff; border-radius: 20px; padding: 2.25rem 2rem; box-shadow: 0 4px 24px rgba(0,0,0,0.1); }
   .aurora-general-form label { display: block; margin-bottom: 1.25rem; font-size: 0.875rem; color: #333; font-weight: 400; }
+  .aurora-general-form .aurora-general-form-row { display: grid; grid-template-columns: 1fr 1fr; gap: 1rem; margin-bottom: 1.25rem; align-items: start; }
+  .aurora-general-form .aurora-general-form-row label { margin-bottom: 0; }
   .aurora-general-form input, .aurora-general-form textarea { font-family: 'Inter', system-ui, sans-serif; display: block; width: 100%; margin-top: 0.5rem; padding: 0.6rem 0.75rem; font-size: 1rem; font-weight: 400; border: 1px solid #ccc; border-radius: 12px; background: #fff; box-sizing: border-box; }
   .aurora-general-form input::placeholder, .aurora-general-form textarea::placeholder { color: #b0b0b0; font-weight: 400; }
   .aurora-general-form textarea { min-height: 100px; resize: vertical; }
@@ -21,10 +35,15 @@
     <label>Your Name
       <input type="text" name="name" placeholder="Enter full name" required />
     </label>
-    <label>Email Address*
-      <input type="email" name="email" placeholder="Enter email" required />
-    </label>
-    <label>Message*
+    <div class="aurora-general-form-row">
+      <label>Email Address *
+        <input type="email" name="email" placeholder="Enter email" required />
+      </label>
+      <label>Phone Number *
+        <input type="tel" name="phone" placeholder="Enter phone number" required />
+      </label>
+    </div>
+    <label>Message *
       <textarea name="message" placeholder="Write your message" required></textarea>
     </label>
     <p id="aurora-form-error" class="form-error" role="alert"></p>
@@ -33,38 +52,62 @@
 </div>
 <script>
 (function() {
-  var FORMSPREE_ID = 'xnjbojwk';
+  var YOUR_APP_URL = 'https://aurora-sonnet-1.onrender.com';
+  var THANK_YOU_URL = 'https://aurorasonnet.com/general-inquiry-thank-you';
+
   var form = document.getElementById('aurora-general-inquiry-form');
   var errorEl = document.getElementById('aurora-form-error');
   var submitBtn = document.getElementById('aurora-submit-btn');
+  if (!form || !submitBtn) return;
 
   form.addEventListener('submit', function(e) {
     e.preventDefault();
     errorEl.style.display = 'none';
     errorEl.textContent = '';
+    if (!YOUR_APP_URL || YOUR_APP_URL.indexOf('YOUR-APP-URL') !== -1) {
+      errorEl.textContent = 'Please set YOUR_APP_URL in the embed code to your deployed app address.';
+      errorEl.style.display = 'block';
+      return;
+    }
+    var nameVal = form.name.value.trim();
+    var emailVal = form.email.value.trim();
+    var phoneVal = form.phone.value.trim();
+    var messageVal = form.message.value.trim();
+    if (!nameVal || !emailVal || !phoneVal) {
+      errorEl.textContent = 'Please enter your name, email, and phone number.';
+      errorEl.style.display = 'block';
+      return;
+    }
     submitBtn.disabled = true;
-    submitBtn.textContent = 'Sending…';
 
-    var fd = new FormData(form);
-    fetch('https://formspree.io/f/' + FORMSPREE_ID, {
+    var payload = {
+      name: nameVal,
+      email: emailVal,
+      phone: phoneVal,
+      message: messageVal || undefined
+    };
+
+    fetch(YOUR_APP_URL + '/api/inquiry', {
       method: 'POST',
-      body: fd,
-      headers: { 'Accept': 'application/json' }
+      headers: { 'Content-Type': 'application/json', 'Accept': 'application/json' },
+      body: JSON.stringify(payload)
     })
     .then(function(res) {
       if (res.ok) {
-        form.style.display = 'none';
-        var msg = document.createElement('div');
-        msg.className = 'aurora-general-form';
-        msg.style.textAlign = 'center';
-        msg.innerHTML = '<h2 style="font-family:Georgia,serif; font-size:1.5rem; font-weight:400; margin:0 0 0.75rem; color:#333;">Thank you — we\'ve received your inquiry</h2><p style="font-size:1rem; margin:0 0 1rem; color:#555;">Our team is reviewing your request now and will reach out in a few moments.</p>';
-        form.parentNode.appendChild(msg);
+        try { if (window.top && window.top.location) { window.top.location.replace(THANK_YOU_URL); return; } } catch (_) {}
+        try { window.location.replace(THANK_YOU_URL); } catch (_) {}
         return;
       }
-      throw new Error('Send failed');
+      return res.text().then(function(t) {
+        var d;
+        try { d = t ? JSON.parse(t) : {}; } catch (_) { throw new Error('Server error (500). If this keeps happening, check Render logs for [DB] Inquiry failed.'); }
+        var msg = (d && (d.detail || d.error)) || 'Send failed';
+        if (res.status === 502 || res.status === 503) throw new Error('Server is waking up. Please wait 30–60 seconds and try again.');
+        throw new Error(msg);
+      });
     })
-    .catch(function() {
-      errorEl.textContent = 'Something went wrong. Please email us at contact@aurorasonnet.com or call +1-646-596-4747.';
+    .catch(function(err) {
+      errorEl.textContent = err && err.message ? err.message : 'Something went wrong. Please try again.';
       errorEl.style.display = 'block';
       submitBtn.disabled = false;
       submitBtn.textContent = 'Send Inquiry';

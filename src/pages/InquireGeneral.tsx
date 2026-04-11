@@ -9,6 +9,7 @@ export default function InquireGeneral() {
   const [form, setForm] = useState({
     name: '',
     email: '',
+    phone: '',
     message: '',
   })
   const [submitting, setSubmitting] = useState(false)
@@ -23,6 +24,7 @@ export default function InquireGeneral() {
       let result = await apiSubmitInquiry({
         name: form.name.trim(),
         email: form.email.trim(),
+        phone: form.phone.trim(),
         message: form.message.trim() || undefined,
       })
       if (!result) {
@@ -32,6 +34,7 @@ export default function InquireGeneral() {
           body: JSON.stringify({
             name: form.name.trim(),
             email: form.email.trim(),
+            phone: form.phone.trim(),
             message: form.message.trim() || undefined,
           }),
         })
@@ -77,17 +80,30 @@ export default function InquireGeneral() {
             required
           />
         </label>
-        <label>
-          Email Address*
-          <input
-            type="email"
-            value={form.email}
-            onChange={(e) => setForm((s) => ({ ...s, email: e.target.value }))}
-            placeholder="Enter email"
-            className={styles.input}
-            required
-          />
-        </label>
+        <div className={styles.formRow}>
+          <label>
+            Email Address*
+            <input
+              type="email"
+              value={form.email}
+              onChange={(e) => setForm((s) => ({ ...s, email: e.target.value }))}
+              placeholder="Enter email"
+              className={styles.input}
+              required
+            />
+          </label>
+          <label>
+            Phone Number*
+            <input
+              type="tel"
+              value={form.phone}
+              onChange={(e) => setForm((s) => ({ ...s, phone: e.target.value }))}
+              placeholder="Enter phone number"
+              className={styles.input}
+              required
+            />
+          </label>
+        </div>
         <label>
           Message*
           <textarea

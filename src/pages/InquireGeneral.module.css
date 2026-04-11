@@ -30,6 +30,18 @@
   margin-top: 0.25rem;
 }
 
+.formRow {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 1rem;
+  margin-bottom: 1.25rem;
+  align-items: start;
+}
+
+.formRow label {
+  margin-bottom: 0;
+}
+
 .form label:last-of-type {
   margin-bottom: 1.75rem;
 }

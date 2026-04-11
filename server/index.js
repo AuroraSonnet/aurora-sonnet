@@ -26,6 +26,8 @@ import {
   createContract,
   updateContract,
   deleteContract,
+  restoreContract,
+  nextContractId,
   createInvoice,
   updateInvoice,
   deleteInvoice,
@@ -54,6 +56,8 @@ import {
   getNextProjectId,
   createShortLink,
   getShortLink,
+  upsertContractPdfBlob,
+  getContractPdfBlob,
 } from './db.js'
 import {
   seedClients,
@@ -116,6 +120,7 @@ function logError(tag, message, err) {
 function logSmtpStatus() {
   if (reminderTransporter && (REMINDER_EMAIL_TO || SMTP_USER)) {
     console.log('[SMTP] configured — inquiry and reminder emails enabled')
+    console.log('[SMTP] On inquiry submit, search logs for: INQUIRY-HIT, AGENCY-EMAIL, CLIENT-EMAIL (not only [SMTP])')
   } else {
     const where = process.env.DATA_DIR
       ? `For the Mac app, put a .env file in: ${process.env.DATA_DIR}`
@@ -147,6 +152,9 @@ function saveContractPdf(contractId, result) {
   if (!buf || !Buffer.isBuffer(buf)) return
   ensureContractsDir()
   writeFileSync(join(CONTRACTS_DIR, `${contractId}.pdf`), buf)
+  try {
+    upsertContractPdfBlob(contractId, buf)
+  } catch (_) {}
   if (result.signaturePositions && (result.signaturePositions.client || result.signaturePositions.vendor)) {
     writeFileSync(join(CONTRACTS_DIR, `${contractId}.sig.json`), JSON.stringify(result.signaturePositions))
   }
@@ -227,9 +235,24 @@ function writePayment(invoiceId, paidAt) {
 }
 
 // Security headers (help prevent XSS, clickjacking, MIME sniffing)
+// /embed/* is loaded in iframes on aurorasonnet.com — SAMEORIGIN would block that (different origin).
+const embedFrameAncestors = [
+  "'self'",
+  'https://aurorasonnet.com',
+  'https://www.aurorasonnet.com',
+  ...(process.env.EMBED_FRAME_ANCESTORS || '')
+    .split(/[\s,]+/)
+    .map((s) => s.trim())
+    .filter(Boolean),
+]
 app.use((req, res, next) => {
   res.setHeader('X-Content-Type-Options', 'nosniff')
-  res.setHeader('X-Frame-Options', 'SAMEORIGIN') // SAMEORIGIN allows sign page to embed contract PDF iframe
+  const pathOnly = (req.path || '').split('?')[0]
+  if (pathOnly.startsWith('/embed/')) {
+    res.setHeader('Content-Security-Policy', `frame-ancestors ${embedFrameAncestors.join(' ')}`)
+  } else {
+    res.setHeader('X-Frame-Options', 'SAMEORIGIN')
+  }
   res.setHeader('X-XSS-Protection', '1; mode=block')
   res.setHeader('Referrer-Policy', 'strict-origin-when-cross-origin')
   next()
@@ -288,12 +311,20 @@ function cleanupRateLimit(map, windowMs) {
   }
 }
 app.use('/api/inquiry', (req, res, next) => {
+  if (req.method === 'POST') {
+    console.log('[INQUIRY-HIT] POST /api/inquiry reached this server (rate-limit middleware)', {
+      ip: getClientKey(req),
+      origin: req.headers.origin || null,
+      ua: (req.headers['user-agent'] || '').slice(0, 80) || null,
+    })
+  }
   cleanupRateLimit(rateLimitInquiry, rateLimitWindowMs)
   const key = getClientKey(req)
   const data = rateLimitInquiry.get(key) || { count: 0, start: Date.now() }
   data.count++
   rateLimitInquiry.set(key, data)
   if (data.count > rateLimitMaxInquiry) {
+    console.warn('[INQUIRY-HIT] rate limit 429 — too many POSTs from this IP', { ip: key })
     return res.status(429).json({ error: 'Too many requests. Please try again later.' })
   }
   next()
@@ -351,12 +382,12 @@ app.use(express.urlencoded({ extended: true }))
 
 // --- Inquiry (single handler: JSON for app, optional redirect when _next provided) ---
 const PACKAGE_PRICES = {
-  'signature-aria': 2750,
-  'aria-plus': 3950,
-  'grand-atelier': 5800,
-  'signature-aria-duo': 4950,
-  'aria-plus-duo': 6950,
-  'grand-atelier-duo': 9950,
+  'signature-aria': 1850,
+  'aria-plus': 2450,
+  'grand-atelier': 3250,
+  'signature-aria-duo': 3650,
+  'aria-plus-duo': 4250,
+  'grand-atelier-duo': 5250,
 }
 
 const PACKAGE_LABELS = {
@@ -370,6 +401,23 @@ const PACKAGE_LABELS = {
 
 function getPackageLabel(packageType) {
   return PACKAGE_LABELS[packageType] || packageType || ''
+}
+
+const REQUESTED_ARTIST_LABELS = {
+  'dr-stephanie-susberich': 'Dr. Stephanie Susberich',
+  'blake-friedman': 'Blake Friedman',
+  aja: 'Aja',
+  carina: 'Carina',
+  'eli-liv': 'Eli & Liv',
+  olice: 'Olice',
+  'riley-richard': 'Riley',
+  sydney: 'Sydney',
+  'garrett-tamara': 'Garrett & Tamara',
+}
+
+function getRequestedArtistLabel(id) {
+  if (!id || typeof id !== 'string' || !String(id).trim()) return ''
+  return REQUESTED_ARTIST_LABELS[id] || id
 }
 
 function getProposalPackageLabel(proposal, project) {
@@ -394,6 +442,80 @@ function parseAcceptedEnhancements(raw) {
   } catch {
     return []
   }
+}
+
+/** Full package line for PDF: base experience label + accepted add-on labels. */
+function combinePackageExperienceAndEnhancements(packageExperienceName, enhancements) {
+  const part = (enhancements || []).map((e) => e.label).join('; ')
+  if (!part) return packageExperienceName || ''
+  return packageExperienceName ? `${packageExperienceName} — ${part}` : part
+}
+
+/**
+ * Canonical snapshot at proposal acceptance — one object for pre-generated contract PDF + deposit invoice.
+ * Fields: proposal (customPackageName, clientName, title, acceptedEnhancements, value after accept),
+ * project (venue, weddingDate, requestedArtist, packageType act id, clientName/title fallbacks),
+ * client (email, phone).
+ */
+function buildAcceptedCommercialSnapshot(proposal, project, client, approvedTotalValue) {
+  const enhancements = parseAcceptedEnhancements(proposal?.acceptedEnhancements)
+  const packageExperienceName = getProposalPackageLabel(proposal, project) || ''
+  const packageTypeFull = combinePackageExperienceAndEnhancements(packageExperienceName, enhancements)
+  const eventTitle = (proposal.title || '').trim() || project.title || ''
+  const clientName = (proposal.clientName || '').trim() || project.clientName || ''
+  const clientEmail = (client?.email || '').trim()
+  return {
+    approvedTotalValue: Number(approvedTotalValue) || 0,
+    acceptedEnhancements: enhancements,
+    packageExperienceName,
+    packageTypeFull,
+    clientName,
+    clientEmail,
+    clientPhone: client?.phone || '',
+    venue: project.venue ?? null,
+    eventDate: project.weddingDate || '',
+    requestedArtistId: project.requestedArtist ?? null,
+    requestedArtistLabel: getRequestedArtistLabel(project.requestedArtist),
+    actType: project.packageType ?? null,
+    eventTitle,
+  }
+}
+
+function buildDepositInvoiceLineItemsFromSnapshot(snapshot) {
+  const packageLabel = snapshot.packageExperienceName || 'Performance package'
+  const enhancements = snapshot.acceptedEnhancements || []
+  const finalValue = snapshot.approvedTotalValue
+  const enhancementTotal = enhancements.reduce((sum, item) => sum + item.amount, 0)
+  const baseTotal = Math.max(0, Number(finalValue) - enhancementTotal)
+  const sourceItems = [
+    { description: packageLabel, amount: baseTotal },
+    ...enhancements.map((item) => ({ description: item.label, amount: item.amount })),
+  ].filter((item) => item.amount > 0)
+  if (sourceItems.length === 0) {
+    sourceItems.push({ description: packageLabel, amount: Number(finalValue) || 0 })
+  }
+  const depositTarget = Math.round((Number(finalValue) || 0) * 0.5)
+  const lineItems = sourceItems.map((item) => ({
+    description: `Retainer (50%) — ${item.description}`,
+    quantity: 1,
+    unitPrice: Math.round(item.amount * 0.5),
+  }))
+  const currentTotal = lineItems.reduce((sum, item) => sum + item.unitPrice, 0)
+  const diff = depositTarget - currentTotal
+  if (diff !== 0 && lineItems.length > 0) {
+    lineItems[0].unitPrice += diff
+  }
+  return lineItems
+}
+
+/** Act Type / package line on contract PDF: base experience + accepted add-ons (sax, piano, etc.). */
+function contractPackageTypeForPdf(proposal, project, override) {
+  const base =
+    override?.packageType != null && String(override.packageType).trim() !== ''
+      ? String(override.packageType).trim()
+      : getProposalPackageLabel(proposal, project) || ''
+  const enh = parseAcceptedEnhancements(proposal?.acceptedEnhancements)
+  return combinePackageExperienceAndEnhancements(base, enh)
 }
 
 function buildDepositInvoiceLineItems(proposal, project, finalValue) {
@@ -479,6 +601,7 @@ function mergeContractTemplateHtml(html, data) {
     package_type: data.packageType || '',
     performance_fee: `$${Number(data.value || 0).toLocaleString()}`,
     project_title: data.title || '',
+    requested_artist: data.requestedArtist || '',
     signature_client: '',
     signature_vendor: '',
   }
@@ -533,11 +656,16 @@ function wrapTextLines(text, maxChars = 90) {
   return out
 }
 
-const SIGNATURE_LINE_PATTERN = /(?:Signature\s*:|\b(?:Artist|Agency|Client)\s+Signature)\s*$/i
+const SIGNATURE_LINE_PATTERN = /(?:Signature\s*:|\b(?:Artist|Agency|Client)\s+Signature):?\s*$/i
 function createPdfFromEditorTemplate(contentHtml, mergeData) {
   const mergedHtml = mergeContractTemplateHtml(contentHtml, mergeData)
   const text = htmlToPlainText(mergedHtml)
-  const lines = wrapTextLines(text, 92)
+  let lines = wrapTextLines(text, 92)
+  const hasClientSigLine = lines.some((l) => /\b(Client|Artist)\s+Signature\s*:?\s*$/i.test(l))
+  const hasAgencySigLine = lines.some((l) => /\bAgency\s+Signature\s*:?\s*$/i.test(l))
+  if (!hasClientSigLine || !hasAgencySigLine) {
+    lines = [...lines, '', 'Signatures', 'Client Signature:', '', '', '', 'Agency Signature:', '']
+  }
   const signaturePositions = { client: null, vendor: null }
   const allMatches = []
 
@@ -563,7 +691,7 @@ function createPdfFromEditorTemplate(contentHtml, mergeData) {
       }
       if (line) {
         const isSignatureLine = SIGNATURE_LINE_PATTERN.test(line)
-        const isVendorLine = /\b(?:Agency|Vendor)\s+Signature\s*$/i.test(line)
+        const isVendorLine = /\b(?:Agency|Vendor)\s+Signature:?\s*$/i.test(line)
         if (isSignatureLine) {
           allMatches.push({ page: pageIndex, y, isVendor: isVendorLine })
         }
@@ -590,15 +718,26 @@ function createPdfFromEditorTemplate(contentHtml, mergeData) {
 
 async function createContractPdfFromTemplate(template, proposal, project, client, override) {
   if (!template) return null
+  const packageTypeMerged =
+    override?.mergePackageTypeAsFinal && override?.packageType != null && String(override.packageType).trim() !== ''
+      ? String(override.packageType).trim()
+      : contractPackageTypeForPdf(proposal, project, override)
   const mergeData = {
     clientName: override?.clientName || client?.name || project?.clientName || proposal?.clientName || '',
     weddingDate: override?.weddingDate || project?.weddingDate || '',
     venue: override?.venue ?? project?.venue ?? '',
-    packageType: override?.packageType || getProposalPackageLabel(proposal, project),
+    packageType: packageTypeMerged,
     value: override?.value ?? project?.value ?? proposal?.value ?? 0,
     title: override?.title || project?.title || proposal?.title || '',
     clientEmail: override?.clientEmail || client?.email || '',
-    clientPhone: client?.phone || '',
+    clientPhone:
+      override && Object.prototype.hasOwnProperty.call(override, 'clientPhone')
+        ? String(override.clientPhone || '')
+        : client?.phone || '',
+    requestedArtist:
+      override && Object.prototype.hasOwnProperty.call(override, 'requestedArtist')
+        ? String(override.requestedArtist || '')
+        : getRequestedArtistLabel(project?.requestedArtist),
   }
   if (template.contentHtml) {
     return createPdfFromEditorTemplate(template.contentHtml, mergeData)
@@ -610,6 +749,37 @@ async function createContractPdfFromTemplate(template, proposal, project, client
     }
   }
   return null
+}
+
+/** Disambiguate multiple proposals per project: prefer contract.proposalId, else newest accepted (sentAt), else any proposal for project. */
+function pickProposalForContract(state, projectId, contract) {
+  const proposals = state.proposals || []
+  const pid = contract?.proposalId
+  if (pid) {
+    const linked = proposals.find((p) => p.id === pid)
+    if (linked && linked.projectId === projectId) return linked
+  }
+  const accepted = proposals.filter((p) => p.projectId === projectId && p.status === 'accepted')
+  if (accepted.length === 1) return accepted[0]
+  if (accepted.length > 1) {
+    return accepted.sort((a, b) => {
+      const ta = a.sentAt ? Date.parse(a.sentAt) : 0
+      const tb = b.sentAt ? Date.parse(b.sentAt) : 0
+      if (tb !== ta) return tb - ta
+      return String(b.id).localeCompare(String(a.id))
+    })[0]
+  }
+  return proposals.find((p) => p.projectId === projectId) || null
+}
+
+function findContractForProposalAccept(contracts, proposal) {
+  const list = (contracts || []).filter((c) => c.projectId === proposal.projectId)
+  return (
+    list.find((c) => c.proposalId === proposal.id) ||
+    list.find((c) => !c.proposalId) ||
+    list[0] ||
+    null
+  )
 }
 
 function ensureDueFinalInvoices() {
@@ -633,10 +803,7 @@ function ensureDueFinalInvoices() {
     const hasSignedContract = contract?.status === 'signed'
     if (!hasPaidDeposit || !hasSignedContract) continue
 
-    const proposal =
-      (state.proposals || []).find((p) => p.projectId === project.id && p.status === 'accepted') ||
-      (state.proposals || []).find((p) => p.projectId === project.id) ||
-      null
+    const proposal = pickProposalForContract(state, project.id, contract)
     const client = (state.clients || []).find((c) => c.id === project.clientId)
     const totalValue = Number(project.value) || 0
     const depositAmount = depositInvoice ? Number(depositInvoice.amount) || 0 : Math.round(totalValue * 0.5)
@@ -800,6 +967,48 @@ async function sendContractSignedNotification(contractId, signedAt) {
   })
 }
 
+/** When client + agency have both signed: email PDF to client and agency (separate messages, attachment each). */
+async function sendFullySignedContractPdfEmails(contractId) {
+  if (!reminderTransporter) return
+  const state = getState()
+  const contract = state.contracts.find((c) => c.id === contractId)
+  if (!contract || !contract.signedAt || !contract.clientSignedAt) return
+  const project = state.projects.find((p) => p.id === contract.projectId)
+  const client = project ? state.clients.find((c) => c.id === project.clientId) : null
+  const buf = loadContractPdfBuffer(contract, state)
+  const base = (contract.title || 'contract').replace(/[^\w\- .]+/g, '').trim().slice(0, 80) || 'contract'
+  const filename = `Aurora-Sonnet-Agreement-${base.replace(/\s+/g, '-')}.pdf`
+  const attachments =
+    buf && Buffer.isBuffer(buf) ? [{ filename, content: buf, contentType: 'application/pdf' }] : []
+  const clientTo = (client?.email || '').trim()
+  const agencyTo = (INQUIRY_NOTIFY_EMAIL || '').trim()
+  const subject = `Your signed agreement — ${contract.title}`
+  const clientText = `Thank you. Your agreement for "${contract.title}" is fully signed.\n${attachments.length ? 'A PDF copy is attached.' : 'We could not attach the PDF; reply to this email if you need a copy.'}\n\n— Aurora Sonnet`
+  const agencyText = `Fully executed agreement (client and Aurora Sonnet have signed).\n\nEvent: ${contract.title}\nClient: ${contract.clientName}\n${attachments.length ? 'PDF attached for your records.' : 'Warning: PDF file was not on disk; re-export from the app if needed.'}`
+
+  const sendOne = async (to, text) => {
+    if (!to) return
+    await reminderTransporter.sendMail({
+      from: SMTP_FROM,
+      to,
+      subject,
+      text,
+      attachments,
+    })
+  }
+
+  try {
+    if (clientTo && agencyTo && clientTo.toLowerCase() === agencyTo.toLowerCase()) {
+      await sendOne(clientTo, `${clientText}\n\n---\n${agencyText}`)
+    } else {
+      await sendOne(clientTo, clientText)
+      await sendOne(agencyTo, agencyText)
+    }
+  } catch (err) {
+    logError('SMTP', 'Failed to send fully signed contract PDF emails', err)
+  }
+}
+
 async function sendInvoicePaidNotification(invoiceId, paidAt) {
   if (!reminderTransporter || !INQUIRY_NOTIFY_EMAIL) return
   const state = getState()
@@ -859,8 +1068,12 @@ async function sendProposalAcceptedNotification(proposalId) {
 }
 
 async function sendInquiryNotification(payload) {
+  console.log('[AGENCY-EMAIL] sendInquiryNotification invoked', {
+    hasTransporter: Boolean(reminderTransporter),
+    hasNotifyTo: Boolean(INQUIRY_NOTIFY_EMAIL),
+  })
   if (!reminderTransporter || !INQUIRY_NOTIFY_EMAIL) {
-    console.log('Inquiry notification skipped: SMTP not configured or no notify address')
+    console.log('[AGENCY-EMAIL] skipped: SMTP not configured or INQUIRY_NOTIFY_EMAIL missing')
     return
   }
   const {
@@ -903,14 +1116,104 @@ async function sendInquiryNotification(payload) {
       subject,
       text,
     })
-    console.log('Inquiry notification email sent to', INQUIRY_NOTIFY_EMAIL)
+    console.log('[AGENCY-EMAIL] sendMail OK — inquiry notification sent to', INQUIRY_NOTIFY_EMAIL)
   } catch (err) {
-    const msg = err.response ? `${err.message} ${err.response}` : (err.message || String(err))
+    console.error('[AGENCY-EMAIL] sendMail failed', { message: err && err.message, response: err && err.response })
     logError('SMTP', 'Failed to send inquiry notification email', err)
   }
 }
 
+/** First word of full name for greeting; empty if missing. */
+function inquiryFirstNameFromFullName(fullName) {
+  const s = String(fullName || '').trim()
+  if (!s) return ''
+  return (s.split(/\s+/)[0] || '').trim()
+}
+
+/** Same From address logic as agency inquiry mail (Hostinger often requires a real mailbox here). */
+function smtpFromAddress() {
+  const a = SMTP_FROM != null ? String(SMTP_FROM).trim() : ''
+  const b = SMTP_USER != null ? String(SMTP_USER).trim() : ''
+  return a || b || ''
+}
+
+/** Client-facing confirmation immediately after any inquiry form (solo / duo / general). */
+async function sendInquiryClientConfirmation(fullName, clientEmail) {
+  console.log('[CLIENT-EMAIL] sendInquiryClientConfirmation invoked', {
+    hasTransporter: Boolean(reminderTransporter),
+    clientEmailLen: clientEmail != null ? String(clientEmail).length : 0,
+    nameLen: fullName != null ? String(fullName).length : 0,
+  })
+  const mailFrom = smtpFromAddress()
+  if (!reminderTransporter) {
+    console.log('[CLIENT-EMAIL] skipped: no reminderTransporter (check SMTP_HOST, SMTP_PORT, SMTP_USER, SMTP_PASS)')
+    return
+  }
+  if (!mailFrom) {
+    console.log('[CLIENT-EMAIL] skipped: no From address (set SMTP_FROM or SMTP_USER)')
+    return
+  }
+  const to = String(clientEmail || '').trim()
+  if (!to) {
+    console.log('[CLIENT-EMAIL] skipped: recipient email empty after trim')
+    return
+  }
+  console.log('[CLIENT-EMAIL] sendMail attempt', { from: mailFrom, to })
+  const first = inquiryFirstNameFromFullName(fullName)
+  const greetingLine = first ? `Hi ${first},` : 'Hi there,'
+  const subject = 'We Received Your Inquiry'
+  const text = [
+    greetingLine,
+    '',
+    'Thank you for reaching out to Aurora Sonnet. We\'ve received your inquiry and are so glad to hear from you.',
+    '',
+    'We\'ll be in touch shortly to learn more about your wedding and help guide you toward the right vocal experience for your day.',
+    '',
+    'If you\'d prefer, you\'re also welcome to schedule a short consultation here: https://calendar.app.google/APPAKGdYYG8mAzsdA',
+    '',
+    'Warmly,',
+    'Lisa Dubocquet',
+    'Aurora Sonnet LLC',
+    'aurorasonnet.com',
+  ].join('\n')
+  try {
+    const info = await reminderTransporter.sendMail({
+      from: mailFrom,
+      to,
+      subject,
+      text,
+    })
+    console.log('[CLIENT-EMAIL] sendMail resolved', {
+      to,
+      messageId: info && info.messageId,
+      response: info && info.response,
+      accepted: info && info.accepted,
+      rejected: info && info.rejected,
+    })
+    if (info && Array.isArray(info.rejected) && info.rejected.length > 0) {
+      console.error('[CLIENT-EMAIL] server rejected recipient(s)', info.rejected)
+    }
+  } catch (err) {
+    const code = err && err.responseCode
+    const resp = err && err.response
+    console.error('[CLIENT-EMAIL] sendMail threw', {
+      to,
+      responseCode: code,
+      response: resp,
+      command: err && err.command,
+      message: err && err.message,
+    })
+    logError('SMTP', 'Failed to send inquiry client confirmation email', err)
+  }
+}
+
 app.post('/api/inquiry', async (req, res) => {
+  console.log('[INQUIRY-HIT] handler start POST /api/inquiry', {
+    ip: getClientKey(req),
+    origin: req.headers.origin || null,
+    contentType: req.headers['content-type'] || null,
+    bodyKeys: req.body && typeof req.body === 'object' && !Array.isArray(req.body) ? Object.keys(req.body) : [],
+  })
   try {
     const body = req.body || {}
     const name = String(body.name ?? '').trim()
@@ -918,17 +1221,31 @@ app.post('/api/inquiry', async (req, res) => {
     const rawNext = (body._next != null && body._next !== '') ? String(body._next).trim() : null
     const nextUrl = isAllowedRedirectUrl(rawNext) ? rawNext : null
     if (!name || !email) {
+      console.log('[INQUIRY-HIT] validation failed: missing name or email', {
+        nameLen: name.length,
+        emailLen: email.length,
+        nextUrl: Boolean(nextUrl),
+      })
       if (nextUrl) {
         return res.redirect(303, nextUrl + (nextUrl.includes('?') ? '&' : '?') + 'error=missing')
       }
       return res.status(400).json({ error: 'Name and email required' })
     }
+    console.log('[INQUIRY-HIT] validation OK, creating inquiry', { email, nameLen: name.length })
     const today = new Date().toISOString().slice(0, 10)
     const weddingDate = (body.weddingDate || '').trim() || today
     const venue = (body.venue || '').trim() || undefined
     const packageId = body.packageId || undefined
     const value = packageId && PACKAGE_PRICES[packageId] != null ? PACKAGE_PRICES[packageId] : 0
     const isGeneral = !venue && !packageId
+    const phone = String(body.phone ?? '').trim()
+    if (isGeneral && !phone) {
+      console.log('[INQUIRY-HIT] validation failed: general inquiry requires phone')
+      if (nextUrl) {
+        return res.redirect(303, nextUrl + (nextUrl.includes('?') ? '&' : '?') + 'error=missing')
+      }
+      return res.status(400).json({ error: 'Phone number required' })
+    }
     const title = isGeneral ? 'General inquiry' : (venue ? `${venue} Wedding` : 'Wedding inquiry')
     const inquiryMessage = (body.message || '').trim() || undefined
     const requestedArtist = (body.requestedArtist || '').trim() || undefined
@@ -940,7 +1257,7 @@ app.post('/api/inquiry', async (req, res) => {
     const { clientId, projectId } = createInquiryInTransaction({
       name,
       email,
-      phone: (body.phone || '').trim() || undefined,
+      phone: phone || undefined,
       today,
       weddingDate,
       venue: venue || undefined,
@@ -955,10 +1272,11 @@ app.post('/api/inquiry', async (req, res) => {
     })
 
     // Fire-and-forget email so the form response isn't blocked by slow SMTP
+    console.log('[AGENCY-EMAIL] before sendInquiryNotification (scheduling)')
     sendInquiryNotification({
       name,
       email,
-      phone: (body.phone || '').trim() || undefined,
+      phone: phone || undefined,
       title,
       isGeneral,
       weddingDate,
@@ -967,9 +1285,20 @@ app.post('/api/inquiry', async (req, res) => {
       message: inquiryMessage,
       requestedArtist,
       performanceMoment: performanceMoment.length > 0 ? performanceMoment.join(', ') : undefined,
-    }).catch((err) => {
-      logError('SMTP', 'Inquiry notification (non-blocking)', err)
     })
+      .then(() => console.log('[AGENCY-EMAIL] after sendInquiryNotification (promise settled)'))
+      .catch((err) => {
+        console.error('[AGENCY-EMAIL] promise rejection', err && err.message)
+        logError('SMTP', 'Inquiry notification (non-blocking)', err)
+      })
+
+    console.log('[CLIENT-EMAIL] before sendInquiryClientConfirmation (scheduling)', { to: email })
+    sendInquiryClientConfirmation(name, email)
+      .then(() => console.log('[CLIENT-EMAIL] after sendInquiryClientConfirmation (promise settled)'))
+      .catch((err) => {
+        console.error('[CLIENT-EMAIL] promise rejection (unexpected)', err && err.message, err)
+        logError('SMTP', 'Inquiry client confirmation (non-blocking)', err)
+      })
 
     if (nextUrl) {
       return res.redirect(303, nextUrl)
@@ -1552,7 +1881,6 @@ app.post('/api/proposals/:id/accept', async (req, res) => {
       if (!project) return res.status(400).json({ error: 'Project not found' })
     }
     const client = state.clients.find((c) => c.id === project.clientId)
-    const clientEmail = (client?.email || '').trim()
     const baseUrl = (req.body && req.body.baseUrl) || process.env.APP_URL || ''
 
     const finalValue = Number(bodyAcceptedTotal) > 0 ? Number(bodyAcceptedTotal) : proposal.value
@@ -1565,30 +1893,49 @@ app.post('/api/proposals/:id/accept', async (req, res) => {
     proposal = s.proposals.find((p) => p.id === id)
     project = s.projects.find((p) => p.id === proposal.projectId)
 
-    let contract = s.contracts.find((c) => c.projectId === proposal.projectId)
-    const packageLabel = getProposalPackageLabel(proposal, project)
+    const acceptedSnapshot = buildAcceptedCommercialSnapshot(proposal, project, client, finalValue)
+    const contractPackageTypeStored =
+      (acceptedSnapshot.packageExperienceName && String(acceptedSnapshot.packageExperienceName).trim()) ||
+      project.packageType ||
+      ''
+
+    let contract = findContractForProposalAccept(s.contracts, proposal)
+    const hadContractBefore = Boolean(contract)
+    const pdfMergeOverride = {
+      clientName: acceptedSnapshot.clientName,
+      title: acceptedSnapshot.eventTitle,
+      value: acceptedSnapshot.approvedTotalValue,
+      weddingDate: acceptedSnapshot.eventDate,
+      venue: acceptedSnapshot.venue,
+      packageType: acceptedSnapshot.packageTypeFull,
+      clientEmail: acceptedSnapshot.clientEmail,
+      clientPhone: acceptedSnapshot.clientPhone,
+      requestedArtist: acceptedSnapshot.requestedArtistLabel,
+      mergePackageTypeAsFinal: true,
+    }
     if (!contract) {
       const template = (s.contractTemplates || []).find((t) => /performance/i.test(t.name)) || (s.contractTemplates || [])[0]
-      const contractId = nextId('c', s.contracts)
+      const contractId = nextContractId()
       const signToken = randomAcceptToken()
       createContract({
         id: contractId,
         projectId: project.id,
-        clientName: project.clientName,
-        title: project.title,
+        clientName: acceptedSnapshot.clientName,
+        title: acceptedSnapshot.eventTitle,
         status: 'sent',
-        value: project.value,
-        weddingDate: project.weddingDate || '',
-        venue: project.venue,
-        packageType: packageLabel || project.packageType,
+        value: acceptedSnapshot.approvedTotalValue,
+        weddingDate: acceptedSnapshot.eventDate,
+        venue: acceptedSnapshot.venue,
+        packageType: contractPackageTypeStored,
         signedAt: null,
         createdAt: new Date().toISOString().slice(0, 10),
         templateId: template ? template.id : null,
         signToken,
         clientSignedAt: null,
         lastReminderSentAt: null,
+        proposalId: id,
       })
-      const contractPdf = await createContractPdfFromTemplate(template, proposal, project, client)
+      const contractPdf = await createContractPdfFromTemplate(template, proposal, project, client, pdfMergeOverride)
       if (contractPdf) {
         saveContractPdf(contractId, contractPdf)
       }
@@ -1596,12 +1943,29 @@ app.post('/api/proposals/:id/accept', async (req, res) => {
       contract = s.contracts.find((c) => c.id === contractId)
     } else if (contract.status !== 'sent' || !contract.signToken) {
       const signToken = randomAcceptToken()
-      updateContract(contract.id, { status: 'sent', signToken })
+      updateContract(contract.id, { status: 'sent', signToken, proposalId: id })
       s = getState()
       contract = s.contracts.find((c) => c.id === contract.id)
     }
-    if (contract && (contract.value !== finalValue || contract.packageType !== (packageLabel || project.packageType))) {
-      updateContract(contract.id, { value: finalValue, packageType: packageLabel || project.packageType })
+    if (
+      contract &&
+      (contract.value !== acceptedSnapshot.approvedTotalValue ||
+        contract.packageType !== contractPackageTypeStored ||
+        contract.clientName !== acceptedSnapshot.clientName ||
+        contract.title !== acceptedSnapshot.eventTitle ||
+        contract.proposalId !== id ||
+        (contract.weddingDate || '') !== (acceptedSnapshot.eventDate || '') ||
+        String(contract.venue ?? '') !== String(acceptedSnapshot.venue ?? ''))
+    ) {
+      updateContract(contract.id, {
+        value: acceptedSnapshot.approvedTotalValue,
+        packageType: contractPackageTypeStored,
+        clientName: acceptedSnapshot.clientName,
+        title: acceptedSnapshot.eventTitle,
+        weddingDate: acceptedSnapshot.eventDate,
+        venue: acceptedSnapshot.venue,
+        proposalId: id,
+      })
       s = getState()
       contract = s.contracts.find((c) => c.id === contract.id)
     }
@@ -1610,16 +1974,16 @@ app.post('/api/proposals/:id/accept', async (req, res) => {
       : ''
 
     let invoice = (s.invoices || []).find((inv) => inv.projectId === proposal.projectId && (inv.type === 'deposit' || inv.type === 'other'))
-    const retainer = Math.round((proposal?.value ?? finalValue) * 0.5)
-    const lineItems = buildDepositInvoiceLineItems(proposal, project, proposal?.value ?? finalValue)
+    const retainer = Math.round(acceptedSnapshot.approvedTotalValue * 0.5)
+    const lineItems = buildDepositInvoiceLineItemsFromSnapshot(acceptedSnapshot)
     if (!invoice) {
       const invoiceId = nextId('i', s.invoices || [])
       createInvoice({
         id: invoiceId,
         projectId: project.id,
-        clientName: project.clientName,
-        clientEmail: clientEmail || undefined,
-        projectTitle: `${project.title} — Retainer`,
+        clientName: acceptedSnapshot.clientName,
+        clientEmail: acceptedSnapshot.clientEmail || undefined,
+        projectTitle: `${acceptedSnapshot.eventTitle} — Retainer`,
         amount: retainer,
         status: 'sent',
         dueDate: new Date(Date.now() + 30 * 24 * 60 * 60 * 1000).toISOString().slice(0, 10),
@@ -1631,12 +1995,27 @@ app.post('/api/proposals/:id/accept', async (req, res) => {
     } else if (invoice.type === 'deposit' && !invoice.paidAt && invoice.status !== 'paid') {
       updateInvoice(invoice.id, {
         amount: retainer,
-        clientEmail: clientEmail || undefined,
-        projectTitle: `${project.title} — Retainer`,
+        clientEmail: acceptedSnapshot.clientEmail || undefined,
+        clientName: acceptedSnapshot.clientName,
+        projectTitle: `${acceptedSnapshot.eventTitle} — Retainer`,
         lineItems,
+        status: invoice.status === 'draft' ? 'sent' : invoice.status,
       })
       s = getState()
       invoice = s.invoices.find((i) => i.id === invoice.id)
+    }
+    if (hadContractBefore && contract) {
+      s = getState()
+      const cRow = s.contracts.find((x) => x.id === contract.id)
+      const templateForPdf =
+        (cRow?.templateId && (s.contractTemplates || []).find((t) => t.id === cRow.templateId)) ||
+        (s.contractTemplates || []).find((t) => /performance/i.test(t.name)) ||
+        (s.contractTemplates || [])[0]
+      const cl2 = s.clients.find((x) => x.id === project.clientId)
+      if (templateForPdf?.contentHtml && cRow) {
+        const pdfAgain = await createContractPdfFromTemplate(templateForPdf, proposal, project, cl2, pdfMergeOverride)
+        if (pdfAgain) saveContractPdf(cRow.id, pdfAgain)
+      }
     }
     const invoiceViewUrl = invoice && baseUrl
       ? `${baseUrl.replace(/\/$/, '')}/invoices/view/${invoice.id}`
@@ -1661,14 +2040,26 @@ app.post('/api/proposals/:id/accept', async (req, res) => {
 
 app.post('/api/contracts', (req, res) => {
   try {
-    const c = req.body
-    if (!c.id || !c.projectId || !c.clientName || !c.title || !c.status || c.value == null || !c.weddingDate || !c.createdAt)
+    const body = req.body
+    if (!body.projectId || !body.clientName || !body.title || !body.status || body.value == null || !body.weddingDate || !body.createdAt)
       return res.status(400).json({ error: 'Missing fields' })
+    const id = nextContractId()
+    const c = { ...body, id }
     createContract(c)
-    res.json({ id: c.id })
+    res.json({ id })
   } catch (err) {
     logError('DB', 'Failed to create contract', err)
     res.status(500).json({ error: 'Failed to create contract' })
+  }
+})
+
+app.post('/api/contracts/:id/restore', (req, res) => {
+  try {
+    restoreContract(req.params.id)
+    res.json({ ok: true })
+  } catch (err) {
+    logError('DB', 'Failed to restore contract', err)
+    res.status(500).json({ error: 'Failed to restore contract' })
   }
 })
 
@@ -1686,6 +2077,18 @@ app.patch('/api/contracts/:id', (req, res) => {
 function loadContractPdfBuffer(contract, state) {
   const signedPath = join(CONTRACTS_DIR, `${contract.id}.pdf`)
   if (existsSync(signedPath)) return readFileSync(signedPath)
+  try {
+    const fromDb = getContractPdfBlob(contract.id)
+    if (fromDb && fromDb.length > 0) {
+      try {
+        ensureContractsDir()
+        writeFileSync(signedPath, fromDb)
+      } catch (_) {}
+      return fromDb
+    }
+  } catch (_) {}
+  // Once anyone has signed, never fall back to the raw template — stamping that would drop the other party's signature.
+  if (contract?.signedAt || contract?.clientSignedAt) return null
   const templateId = contract.templateId
   if (!templateId) return null
   const s = state || getState()
@@ -1696,35 +2099,29 @@ function loadContractPdfBuffer(contract, state) {
   return readFileSync(templatePath)
 }
 
-/** Stamp a signature on the contract. Uses recorded positions from template if available; otherwise first page, fixed y. */
+const SIGNATURE_PAGE_SIZE = [595, 842]
+
+/** Stamp a signature: under template "Client/Agency Signature:" lines on the contract page, or under printed titles on a fallback signature page (file-based templates). */
 async function stampSignature(pdfBuffer, signatureDataUrl, label, signedDate, slot = 'client', contractId = null) {
   const pdf = await PDFDocument.load(pdfBuffer)
   const pages = pdf.getPages()
   if (pages.length === 0) return pdf.save()
   const margin = 50
-  let page = pages[0]
+  let page = pages[Math.max(0, pages.length - 1)]
   let x = margin
-  let y = slot === 'vendor' ? 120 : 180
+  let y = slot === 'vendor' ? 30 : 95
+  let positionFromTemplate = false
 
-  if (slot === 'vendor') {
-    // Always place agency signature on last page (page 2 for 2-page docs)
-    if (pages.length === 1) {
-      pdf.addPage([595, 842])
-      page = pdf.getPages()[1]
-      y = 120
-    } else {
-      page = pages[pages.length - 1]
-      y = 120
-    }
-  } else if (contractId) {
+  if (contractId) {
     try {
       const sigPath = join(CONTRACTS_DIR, `${contractId}.sig.json`)
       if (existsSync(sigPath)) {
         const pos = JSON.parse(readFileSync(sigPath, 'utf8'))
-        const slotPos = pos.client
+        const slotPos = slot === 'vendor' ? pos.vendor : pos.client
         if (slotPos && slotPos.page >= 0 && slotPos.page < pages.length) {
           page = pages[slotPos.page]
           y = slotPos.y
+          positionFromTemplate = true
         }
       }
     } catch (_) {}
@@ -1735,11 +2132,101 @@ async function stampSignature(pdfBuffer, signatureDataUrl, label, signedDate, sl
   const img = await pdf.embedPng(imgBytes)
   const imgW = Math.min(120, img.width)
   const imgH = (img.height / img.width) * imgW
+
+  if (positionFromTemplate) {
+    // Label baseline from PDF text flow — image sits directly under the title line.
+    y = Math.max(margin, y - imgH - 14)
+  } else if (contractId) {
+    const markerPath = join(CONTRACTS_DIR, `${contractId}.sig-page.json`)
+    let layout = null
+    if (existsSync(markerPath)) {
+      try {
+        layout = JSON.parse(readFileSync(markerPath, 'utf8'))
+      } catch (_) {}
+    }
+    const allPages = pdf.getPages()
+    const pIdx = layout?.page
+    const hasHoneyBookLayout =
+      layout &&
+      pIdx != null &&
+      pIdx >= 0 &&
+      pIdx < allPages.length &&
+      typeof layout.clientY === 'number' &&
+      typeof layout.agencyY === 'number'
+
+    if (hasHoneyBookLayout) {
+      page = allPages[pIdx]
+      const labelY = slot === 'vendor' ? layout.agencyY : layout.clientY
+      y = Math.max(margin, labelY - imgH - 14)
+      x = margin
+    } else if (pIdx != null && pIdx >= 0 && pIdx < allPages.length) {
+      // Legacy marker: page only (no printed titles)
+      page = allPages[pIdx]
+      x = margin
+      y = slot === 'vendor' ? 280 : 460
+      y = Math.max(margin + imgH + 28, Math.min(y, SIGNATURE_PAGE_SIZE[1] - margin - imgH))
+    } else {
+      page = pdf.addPage(SIGNATURE_PAGE_SIZE)
+      const newIdx = pdf.getPages().length - 1
+      const font = await pdf.embedFont(StandardFonts.Helvetica)
+      const fontBold = await pdf.embedFont(StandardFonts.HelveticaBold)
+      const PH = SIGNATURE_PAGE_SIZE[1]
+      let bl = PH - margin - 28
+      page.drawText('Signatures', { x: margin, y: bl, size: 12, font: fontBold, color: rgb(0.22, 0.22, 0.22) })
+      bl -= 36
+      page.drawText('Client Signature:', { x: margin, y: bl, size: 11, font, color: rgb(0, 0, 0) })
+      const clientLabelY = bl
+      bl -= 130
+      page.drawText('Agency Signature:', { x: margin, y: bl, size: 11, font, color: rgb(0, 0, 0) })
+      const agencyLabelY = bl
+      try {
+        ensureContractsDir()
+        writeFileSync(markerPath, JSON.stringify({ page: newIdx, clientY: clientLabelY, agencyY: agencyLabelY }))
+      } catch (_) {}
+      const labelY = slot === 'vendor' ? agencyLabelY : clientLabelY
+      y = Math.max(margin, labelY - imgH - 14)
+      x = margin
+    }
+  }
+
   page.drawImage(img, { x, y, width: imgW, height: imgH })
   const gray = { type: 'RGB', red: 0.4, green: 0.4, blue: 0.4 }
   page.drawText(label || '', { x, y: y - 14, size: 9, color: gray })
   if (signedDate) page.drawText(`Signed: ${signedDate}`, { x, y: y - 26, size: 8, color: gray })
   return pdf.save()
+}
+
+/** Re-stamp client signature after regenerating contract PDF from template (same idea as vendor-sig.json). */
+async function applyStoredClientSignature(contractId, contract, pdfBuffer) {
+  try {
+    const p = join(CONTRACTS_DIR, `${contractId}.client-sig.json`)
+    if (!existsSync(p)) return pdfBuffer
+    const raw = JSON.parse(readFileSync(p, 'utf8'))
+    const signatureDataUrl = raw.signatureDataUrl
+    const signedAt = raw.signedAt ? String(raw.signedAt) : ''
+    if (!signatureDataUrl || typeof signatureDataUrl !== 'string') return pdfBuffer
+    const label = contract?.clientName ? `${String(contract.clientName).trim()} (Client)` : 'Client'
+    const stamped = await stampSignature(pdfBuffer, signatureDataUrl, label, signedAt, 'client', contractId)
+    return Buffer.from(stamped)
+  } catch (_) {
+    return pdfBuffer
+  }
+}
+
+/** Re-stamp agency signature after regenerating contract PDF from template (Render sign-info / sync fallback). */
+async function applyStoredVendorSignature(contractId, pdfBuffer) {
+  try {
+    const p = join(CONTRACTS_DIR, `${contractId}.vendor-sig.json`)
+    if (!existsSync(p)) return pdfBuffer
+    const raw = JSON.parse(readFileSync(p, 'utf8'))
+    const signatureDataUrl = raw.signatureDataUrl
+    const signedAt = raw.signedAt ? String(raw.signedAt) : ''
+    if (!signatureDataUrl || typeof signatureDataUrl !== 'string') return pdfBuffer
+    const stamped = await stampSignature(pdfBuffer, signatureDataUrl, 'Aurora Sonnet (Agency)', signedAt, 'vendor', contractId)
+    return Buffer.from(stamped)
+  } catch (_) {
+    return pdfBuffer
+  }
 }
 
 app.get('/api/contracts/:id/file', (req, res) => {
@@ -1749,13 +2236,20 @@ app.get('/api/contracts/:id/file', (req, res) => {
     if (!contract) return res.status(404).json({ error: 'Contract not found' })
     const token = req.query.token
     if (token != null && token !== '') {
-      if (contract.status !== 'sent' || !contract.signToken || contract.signToken !== token) {
+      if (!contract.signToken || contract.signToken !== token) {
         return res.status(403).json({ error: 'Invalid or expired link' })
       }
     }
     const buf = loadContractPdfBuffer(contract, state)
-    if (!buf) return res.status(404).json({ error: 'Contract PDF not available' })
+    if (!buf) {
+      const missingSigned =
+        contract.signedAt && contract.clientSignedAt
+          ? 'Signed PDF is missing on this server (try re-syncing from the machine where signing finished).'
+          : 'Contract PDF not available'
+      return res.status(404).json({ error: missingSigned })
+    }
     res.setHeader('Content-Type', 'application/pdf')
+    res.setHeader('Cache-Control', 'private, no-store, must-revalidate')
     res.send(buf)
   } catch (err) {
     logError('API', 'Failed to read contract file', err)
@@ -1768,12 +2262,18 @@ app.put('/api/contracts/:id/file', (req, res) => {
     const state = getState()
     const contract = state.contracts.find((c) => c.id === req.params.id)
     if (!contract) return res.status(404).json({ error: 'Contract not found' })
+    if (contract.signedAt && contract.clientSignedAt) {
+      return res.status(409).json({ error: 'Fully signed contract PDF cannot be replaced.' })
+    }
     const { fileBase64 } = req.body
     if (!fileBase64 || typeof fileBase64 !== 'string') return res.status(400).json({ error: 'fileBase64 required' })
     ensureContractsDir()
     const filePath = join(CONTRACTS_DIR, `${contract.id}.pdf`)
     const buf = Buffer.from(fileBase64, 'base64')
     writeFileSync(filePath, buf)
+    try {
+      upsertContractPdfBlob(contract.id, buf)
+    } catch (_) {}
     res.json({ ok: true })
   } catch (err) {
     logError('API', 'Failed to save contract file', err)
@@ -1788,6 +2288,7 @@ app.post('/api/contracts/:id/generate-pdf-from-template', async (req, res) => {
     if (!contract) return res.status(404).json({ error: 'Contract not found' })
     const { contentHtml, mergeData } = req.body || {}
     if (!contentHtml || typeof contentHtml !== 'string') return res.status(400).json({ error: 'contentHtml required' })
+    const proj = state.projects.find((p) => p.id === contract.projectId)
     const data = {
       clientName: mergeData?.clientName ?? contract.clientName ?? '',
       weddingDate: mergeData?.weddingDate ?? contract.weddingDate ?? '',
@@ -1797,6 +2298,10 @@ app.post('/api/contracts/:id/generate-pdf-from-template', async (req, res) => {
       title: mergeData?.title ?? contract.title ?? '',
       clientEmail: mergeData?.clientEmail ?? '',
       clientPhone: mergeData?.clientPhone ?? '',
+      requestedArtist:
+        mergeData?.requestedArtist != null && String(mergeData.requestedArtist).trim() !== ''
+          ? String(mergeData.requestedArtist)
+          : getRequestedArtistLabel(proj?.requestedArtist),
     }
     const result = await createPdfFromEditorTemplate(contentHtml, data)
     if (!result?.buffer) return res.status(500).json({ error: 'Failed to generate PDF' })
@@ -1810,7 +2315,7 @@ app.post('/api/contracts/:id/generate-pdf-from-template', async (req, res) => {
 
 app.post('/api/contracts/sync-for-sign', async (req, res) => {
   try {
-    const { client, project, contract, template } = req.body || {}
+    const { client, project, contract, template, contractFileBase64, vendorSigFileBase64, clientSigFileBase64, sigPageMarkerBase64 } = req.body || {}
     if (!contract || !contract.id) return res.status(400).json({ error: 'contract required' })
     const now = new Date().toISOString().slice(0, 10)
     const state = getState()
@@ -1845,9 +2350,11 @@ app.post('/api/contracts/sync-for-sign', async (req, res) => {
         venue: contract.venue ?? null, packageType: contract.packageType ?? null, signedAt: contract.signedAt ?? null,
         createdAt: contract.createdAt || now, templateId: contract.templateId ?? template?.id ?? null,
         signToken: contract.signToken ?? null, clientSignedAt: contract.clientSignedAt ?? null, lastReminderSentAt: null,
+        proposalId: contract.proposalId ?? null,
       })
     } else {
       updateContract(contract.id, {
+        projectId: contract.projectId || existing.projectId,
         signToken: contract.signToken || existing.signToken,
         status: contract.status || existing.status,
         value: Number(contract.value) || existing.value,
@@ -1857,20 +2364,60 @@ app.post('/api/contracts/sync-for-sign', async (req, res) => {
         weddingDate: contract.weddingDate || existing.weddingDate,
         venue: contract.venue ?? existing.venue,
         packageType: contract.packageType ?? existing.packageType,
+        signedAt: contract.signedAt ?? existing.signedAt,
+        clientSignedAt: contract.clientSignedAt ?? existing.clientSignedAt,
+        proposalId: contract.proposalId ?? existing.proposalId ?? null,
       })
     }
 
-    if (template && template.contentHtml) {
+    if (vendorSigFileBase64 && typeof vendorSigFileBase64 === 'string' && contract.id) {
+      try {
+        ensureContractsDir()
+        writeFileSync(join(CONTRACTS_DIR, `${contract.id}.vendor-sig.json`), Buffer.from(vendorSigFileBase64, 'base64'))
+      } catch (_) {}
+    }
+
+    if (clientSigFileBase64 && typeof clientSigFileBase64 === 'string' && contract.id) {
+      try {
+        ensureContractsDir()
+        writeFileSync(join(CONTRACTS_DIR, `${contract.id}.client-sig.json`), Buffer.from(clientSigFileBase64, 'base64'))
+      } catch (_) {}
+    }
+
+    if (sigPageMarkerBase64 && typeof sigPageMarkerBase64 === 'string' && contract.id) {
+      try {
+        ensureContractsDir()
+        writeFileSync(join(CONTRACTS_DIR, `${contract.id}.sig-page.json`), Buffer.from(sigPageMarkerBase64, 'base64'))
+      } catch (_) {}
+    }
+
+    if (contractFileBase64 && typeof contractFileBase64 === 'string') {
+      try {
+        saveContractPdf(contract.id, Buffer.from(contractFileBase64, 'base64'))
+      } catch (_) {}
+    } else if (template && template.contentHtml) {
       const c = getState().contracts.find((x) => x.id === contract.id)
       if (c) {
         const t = getState().contractTemplates.find((x) => x.id === c.templateId)
         if (t) {
           const proj = getState().projects.find((p) => p.id === c.projectId)
-          const proposal = getState().proposals.find((p) => p.projectId === c.projectId)
+          const proposal = pickProposalForContract(getState(), c.projectId, c)
           const cl = client?.id ? getClientById(client.id) : null
-          const pdfResult = await createContractPdfFromTemplate(t, proposal, proj, cl)
+          const override = {
+            clientName: contract.clientName,
+            clientEmail: client?.email,
+            weddingDate: contract.weddingDate,
+            venue: contract.venue,
+            packageType: contract.packageType,
+            value: contract.value,
+            title: contract.title,
+          }
+          const pdfResult = await createContractPdfFromTemplate(t, proposal, proj, cl, override)
           if (pdfResult) {
-            saveContractPdf(c.id, pdfResult)
+            let buf = pdfResult.buffer
+            buf = await applyStoredClientSignature(c.id, c, buf)
+            buf = await applyStoredVendorSignature(c.id, buf)
+            saveContractPdf(c.id, { ...pdfResult, buffer: buf })
           }
         }
       }
@@ -1897,7 +2444,38 @@ app.post('/api/contracts/:id/push-to-render', async (req, res) => {
     const payload = {
       client: client ? { id: client.id, name: client.name, email: client.email, phone: client.phone, partnerName: client.partnerName, createdAt: client.createdAt } : undefined,
       project: project ? { id: project.id, clientId: project.clientId, clientName: project.clientName, title: project.title, stage: project.stage, value: project.value, weddingDate: project.weddingDate, venue: project.venue, packageType: project.packageType, dueDate: project.dueDate, createdAt: project.createdAt, notes: project.notes, requestedArtist: project.requestedArtist, cloudProjectId: project.cloudProjectId } : undefined,
-      contract: { id: contract.id, projectId: contract.projectId, clientName: contract.clientName, title: contract.title, status: contract.status, value: contract.value, weddingDate: contract.weddingDate, venue: contract.venue, packageType: contract.packageType, signedAt: contract.signedAt, createdAt: contract.createdAt, templateId: contract.templateId, signToken: contract.signToken, clientSignedAt: contract.clientSignedAt },
+      contract: { id: contract.id, projectId: contract.projectId, clientName: contract.clientName, title: contract.title, status: contract.status, value: contract.value, weddingDate: contract.weddingDate, venue: contract.venue, packageType: contract.packageType, signedAt: contract.signedAt, createdAt: contract.createdAt, templateId: contract.templateId, signToken: contract.signToken, clientSignedAt: contract.clientSignedAt, proposalId: contract.proposalId },
+      contractFileBase64: (() => {
+        const buf = loadContractPdfBuffer(contract, state)
+        return buf ? buf.toString('base64') : undefined
+      })(),
+      vendorSigFileBase64: (() => {
+        const p = join(CONTRACTS_DIR, `${id}.vendor-sig.json`)
+        if (!existsSync(p)) return undefined
+        try {
+          return readFileSync(p).toString('base64')
+        } catch (_) {
+          return undefined
+        }
+      })(),
+      clientSigFileBase64: (() => {
+        const p = join(CONTRACTS_DIR, `${id}.client-sig.json`)
+        if (!existsSync(p)) return undefined
+        try {
+          return readFileSync(p).toString('base64')
+        } catch (_) {
+          return undefined
+        }
+      })(),
+      sigPageMarkerBase64: (() => {
+        const p = join(CONTRACTS_DIR, `${id}.sig-page.json`)
+        if (!existsSync(p)) return undefined
+        try {
+          return readFileSync(p).toString('base64')
+        } catch (_) {
+          return undefined
+        }
+      })(),
       template: template ? { id: template.id, name: template.name, fileName: template.fileName, createdAt: template.createdAt, contentHtml: template.contentHtml } : undefined,
     }
     const syncUrl = `${baseUrl}/api/contracts/sync-for-sign`
@@ -2026,6 +2604,7 @@ app.get('/api/contracts/:id/sign-info', async (req, res) => {
           templateName: raw.tn || raw.templateName || null,
           clientId: raw.ci || raw.clientId || null,
           clientEmail: raw.ce || raw.clientEmail || null,
+          signedAt: raw.sa || raw.signedAt || null,
         }
         const now = new Date().toISOString().slice(0, 10)
         const contractId = req.params.id
@@ -2058,28 +2637,69 @@ app.get('/api/contracts/:id/sign-info', async (req, res) => {
 
         if (!contract) {
           try {
-            createContract({ id: contractId, projectId: decoded.projectId, clientName: decoded.clientName, title: decoded.title, status: 'sent', value: decoded.value, weddingDate: decoded.weddingDate || now, venue: decoded.venue || null, packageType: decoded.packageType || null, signedAt: null, createdAt: now, templateId: decoded.templateId, signToken, clientSignedAt: null, lastReminderSentAt: null })
+            createContract({
+              id: contractId,
+              projectId: decoded.projectId,
+              clientName: decoded.clientName,
+              title: decoded.title,
+              status: 'sent',
+              value: decoded.value,
+              weddingDate: decoded.weddingDate || now,
+              venue: decoded.venue || null,
+              packageType: decoded.packageType || null,
+              signedAt: decoded.signedAt || null,
+              createdAt: now,
+              templateId: decoded.templateId,
+              signToken,
+              clientSignedAt: null,
+              lastReminderSentAt: null,
+              proposalId: null,
+            })
           } catch (_) {
-            updateContract(contractId, { signToken, status: 'sent', templateId: decoded.templateId || undefined, clientSignedAt: null, clientName: decoded.clientName, title: decoded.title, weddingDate: decoded.weddingDate || now, venue: decoded.venue || null })
+            updateContract(contractId, {
+              signToken,
+              status: 'sent',
+              templateId: decoded.templateId || undefined,
+              clientSignedAt: null,
+              clientName: decoded.clientName,
+              title: decoded.title,
+              weddingDate: decoded.weddingDate || now,
+              venue: decoded.venue || null,
+              ...(decoded.signedAt ? { signedAt: decoded.signedAt } : {}),
+            })
           }
         } else {
-          updateContract(contractId, { signToken, status: 'sent', templateId: decoded.templateId || contract.templateId, clientSignedAt: null, clientName: decoded.clientName || contract.clientName, title: decoded.title || contract.title, weddingDate: decoded.weddingDate || contract.weddingDate, venue: decoded.venue ?? contract.venue })
+          updateContract(contractId, {
+            signToken,
+            status: 'sent',
+            templateId: decoded.templateId || contract.templateId,
+            clientSignedAt: null,
+            clientName: decoded.clientName || contract.clientName,
+            title: decoded.title || contract.title,
+            weddingDate: decoded.weddingDate || contract.weddingDate,
+            venue: decoded.venue ?? contract.venue,
+            ...(decoded.signedAt ? { signedAt: decoded.signedAt } : {}),
+          })
         }
 
         state = getState()
         contract = state.contracts.find((c) => c.id === contractId)
 
-        // Regenerate PDF with correct data (from d) when we have template
-        if (contract) {
+        // Regenerate PDF from d only when none on disk — avoids wiping agency-signed PDF from sync.
+        const pdfPath = join(CONTRACTS_DIR, `${contractId}.pdf`)
+        if (contract && !existsSync(pdfPath)) {
           const t = state.contractTemplates.find((x) => x.id === contract.templateId)
           if (t && (t.contentHtml || t.fileName)) {
             const proj = state.projects.find((p) => p.id === contract.projectId)
-            const proposal = state.proposals.find((p) => p.projectId === contract.projectId)
+            const proposal = pickProposalForContract(state, contract.projectId, contract)
             const cl = decoded.clientId ? getClientById(decoded.clientId) : null
             const override = { clientName: decoded.clientName, clientEmail: decoded.clientEmail, weddingDate: decoded.weddingDate, venue: decoded.venue, packageType: decoded.packageType, value: decoded.value, title: decoded.title }
             const pdfResult = await createContractPdfFromTemplate(t, proposal, proj, cl, override)
             if (pdfResult) {
-              saveContractPdf(contract.id, pdfResult)
+              let buf = pdfResult.buffer
+              buf = await applyStoredClientSignature(contract.id, contract, buf)
+              buf = await applyStoredVendorSignature(contract.id, buf)
+              saveContractPdf(contract.id, { ...pdfResult, buffer: buf })
             }
           }
         }
@@ -2098,6 +2718,15 @@ app.get('/api/contracts/:id/sign-info', async (req, res) => {
     }
     if (contract.clientSignedAt) {
       return res.json({ ...contract, awaiting: 'vendor', message: 'Client has signed. Awaiting vendor signature.' })
+    }
+    // Agency must sign before the client so the PDF they receive already includes Aurora Sonnet's signature.
+    if (!contract.signedAt) {
+      return res.json({
+        ...contract,
+        awaiting: 'pending_agency',
+        message:
+          'Aurora Sonnet will sign this agreement first. Please use this link again after they notify you, or contact them if you need help.',
+      })
     }
     let pdfBuf = loadContractPdfBuffer(contract, state)
     if (!pdfBuf) {
@@ -2130,19 +2759,45 @@ app.post('/api/contracts/:id/sign-client', async (req, res) => {
       return res.status(403).json({ error: 'Invalid or expired signing link' })
     }
     if (contract.clientSignedAt) return res.status(400).json({ error: 'Client has already signed' })
+    if (!contract.signedAt) {
+      return res.status(403).json({
+        error: 'Signing is not open yet. Aurora Sonnet must sign the agreement before you can sign.',
+      })
+    }
     const buf = loadContractPdfBuffer(contract, state)
     if (!buf) return res.status(400).json({ error: 'Contract PDF not available' })
     ensureContractsDir()
     const clientSignedAt = new Date().toISOString().slice(0, 10)
     const signedPdf = await stampSignature(buf, signatureDataUrl, `${contract.clientName} (Client)`, clientSignedAt, 'client', contract.id)
     writeFileSync(join(CONTRACTS_DIR, `${contract.id}.pdf`), signedPdf)
+    try {
+      upsertContractPdfBlob(contract.id, signedPdf)
+    } catch (_) {}
+    try {
+      ensureContractsDir()
+      writeFileSync(
+        join(CONTRACTS_DIR, `${contract.id}.client-sig.json`),
+        JSON.stringify({ signatureDataUrl, signedAt: clientSignedAt }),
+      )
+    } catch (_) {}
     const fullySigned = Boolean(contract.signedAt)
     updateContract(contract.id, { clientSignedAt, ...(fullySigned ? { status: 'signed' } : {}) })
     if (fullySigned) ensureSecuredBookingCalendarDates()
-    sendContractSignedNotification(contract.id, clientSignedAt).catch((err) => {
-      logError('SMTP', 'Failed to send contract signed notification email', err)
+    if (fullySigned) {
+      sendFullySignedContractPdfEmails(contract.id).catch((err) => {
+        logError('SMTP', 'Failed to send fully signed contract PDF emails', err)
+      })
+    } else {
+      sendContractSignedNotification(contract.id, clientSignedAt).catch((err) => {
+        logError('SMTP', 'Failed to send contract signed notification email', err)
+      })
+    }
+    res.json({
+      ok: true,
+      clientSignedAt,
+      agencySignedAt: contract.signedAt || null,
+      fullySigned,
     })
-    res.json({ ok: true, clientSignedAt })
   } catch (err) {
     logError('API', 'Failed to sign (client)', err)
     res.status(500).json({ error: err.message || 'Failed to sign' })
@@ -2163,9 +2818,21 @@ app.post('/api/contracts/:id/sign-vendor', async (req, res) => {
     const signedAt = new Date().toISOString().slice(0, 10)
     const signedPdf = await stampSignature(buf, signatureDataUrl, 'Aurora Sonnet (Agency)', signedAt, 'vendor', contract.id)
     writeFileSync(join(CONTRACTS_DIR, `${contract.id}.pdf`), signedPdf)
+    try {
+      upsertContractPdfBlob(contract.id, signedPdf)
+    } catch (_) {}
+    try {
+      ensureContractsDir()
+      writeFileSync(join(CONTRACTS_DIR, `${contract.id}.vendor-sig.json`), JSON.stringify({ signatureDataUrl, signedAt }))
+    } catch (_) {}
     const fullySigned = Boolean(contract.clientSignedAt)
     updateContract(contract.id, { signedAt, ...(fullySigned ? { status: 'signed' } : {}) })
     ensureSecuredBookingCalendarDates()
+    if (fullySigned) {
+      sendFullySignedContractPdfEmails(contract.id).catch((err) => {
+        logError('SMTP', 'Failed to send fully signed contract PDF emails', err)
+      })
+    }
     res.json({ ok: true, signedAt })
   } catch (err) {
     logError('API', 'Failed to sign (vendor)', err)
@@ -2233,10 +2900,7 @@ app.post('/api/contracts/:id/send-reminder', async (req, res) => {
 app.delete('/api/contracts/:id', (req, res) => {
   try {
     const id = req.params.id
-    const filePath = join(CONTRACTS_DIR, `${id}.pdf`)
-    if (existsSync(filePath)) unlinkSync(filePath)
-    const sigPath = join(CONTRACTS_DIR, `${id}.sig.json`)
-    if (existsSync(sigPath)) unlinkSync(sigPath)
+    // Soft-delete only: keep PDF/signature files so Undo can restore the same agreement.
     deleteContract(id)
     res.json({ ok: true })
   } catch (err) {
