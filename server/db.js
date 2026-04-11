@@ -155,6 +155,16 @@ try {
   if (!/duplicate column/i.test(e.message)) throw e
 }
 try {
+  db.exec('ALTER TABLE contracts ADD COLUMN deletedAt TEXT')
+} catch (e) {
+  if (!/duplicate column/i.test(e.message)) throw e
+}
+try {
+  db.exec('ALTER TABLE contracts ADD COLUMN proposalId TEXT')
+} catch (e) {
+  if (!/duplicate column/i.test(e.message)) throw e
+}
+try {
   db.exec('ALTER TABLE invoices ADD COLUMN templateId TEXT')
 } catch (e) {
   if (!/duplicate column/i.test(e.message)) throw e
@@ -174,6 +184,15 @@ try {
 } catch (e) {
   if (!/duplicate column/i.test(e.message)) throw e
 }
+
+db.exec(`
+  CREATE TABLE IF NOT EXISTS contract_pdf_blobs (
+    id TEXT PRIMARY KEY,
+    pdf BLOB NOT NULL,
+    updatedAt TEXT NOT NULL
+  )
+`)
+
 // Backfill invoiceNumber for existing rows that don't have one (INV-001, INV-002, ...)
 try {
   const withNumber = db.prepare("SELECT MAX(CAST(SUBSTR(invoiceNumber, 5) AS INTEGER)) AS n FROM invoices WHERE invoiceNumber GLOB 'INV-[0-9]*'").get()
@@ -399,6 +418,8 @@ function rowToContract(r) {
     signToken: r.signToken || undefined,
     clientSignedAt: r.clientSignedAt || undefined,
     lastReminderSentAt: r.lastReminderSentAt || undefined,
+    deletedAt: r.deletedAt || undefined,
+    proposalId: r.proposalId || undefined,
   }
 }
 
@@ -497,7 +518,7 @@ export function getState() {
     projects: db.prepare('SELECT * FROM projects WHERE deletedAt IS NULL').all().map(rowToProject),
     proposals: db.prepare('SELECT * FROM proposals').all().map(rowToProposal),
     invoices: db.prepare('SELECT * FROM invoices').all().map(rowToInvoice),
-    contracts: db.prepare('SELECT * FROM contracts').all().map(rowToContract),
+    contracts: db.prepare('SELECT * FROM contracts WHERE deletedAt IS NULL').all().map(rowToContract),
     expenses: db.prepare('SELECT * FROM expenses').all().map(rowToExpense),
     contractTemplates: db.prepare('SELECT * FROM contract_templates ORDER BY createdAt DESC').all(),
     invoiceTemplates: db.prepare('SELECT * FROM invoice_templates ORDER BY createdAt DESC').all(),
@@ -821,9 +842,20 @@ export function deleteProposal(id) {
   db.prepare('DELETE FROM proposals WHERE id = ?').run(id)
 }
 
+/** Next id `cN` (N integer); ignores ids like `c-timestamp-xyz` so they do not affect N. */
+export function nextContractId() {
+  const rows = db.prepare('SELECT id FROM contracts').all()
+  let max = 0
+  for (const r of rows) {
+    const m = /^c(\d+)$/.exec(r.id)
+    if (m) max = Math.max(max, parseInt(m[1], 10))
+  }
+  return `c${max + 1}`
+}
+
 export function createContract(contract) {
   db.prepare(
-    'INSERT INTO contracts (id, projectId, clientName, title, status, value, weddingDate, venue, packageType, signedAt, createdAt, templateId, signToken, clientSignedAt, lastReminderSentAt) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)'
+    'INSERT INTO contracts (id, projectId, clientName, title, status, value, weddingDate, venue, packageType, signedAt, createdAt, templateId, signToken, clientSignedAt, lastReminderSentAt, deletedAt, proposalId) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)'
   ).run(
     contract.id,
     contract.projectId,
@@ -839,7 +871,9 @@ export function createContract(contract) {
     contract.templateId ?? null,
     contract.signToken ?? null,
     contract.clientSignedAt ?? null,
-    contract.lastReminderSentAt ?? null
+    contract.lastReminderSentAt ?? null,
+    contract.deletedAt ?? null,
+    contract.proposalId ?? null
   )
   return contract.id
 }
@@ -849,7 +883,7 @@ export function updateContract(id, updates) {
   if (!row) return
   const c = { ...rowToContract(row), ...updates }
   db.prepare(
-    'UPDATE contracts SET projectId=?, clientName=?, title=?, status=?, value=?, weddingDate=?, venue=?, packageType=?, signedAt=?, createdAt=?, templateId=?, signToken=?, clientSignedAt=?, lastReminderSentAt=? WHERE id=?'
+    'UPDATE contracts SET projectId=?, clientName=?, title=?, status=?, value=?, weddingDate=?, venue=?, packageType=?, signedAt=?, createdAt=?, templateId=?, signToken=?, clientSignedAt=?, lastReminderSentAt=?, deletedAt=?, proposalId=? WHERE id=?'
   ).run(
     c.projectId,
     c.clientName,
@@ -865,12 +899,20 @@ export function updateContract(id, updates) {
     c.signToken ?? null,
     c.clientSignedAt ?? null,
     c.lastReminderSentAt ?? null,
+    c.deletedAt ?? null,
+    c.proposalId ?? null,
     id
   )
 }
 
+/** Soft-delete; keeps row and PDF files on disk for undo / new contract on same booking. */
 export function deleteContract(id) {
-  db.prepare('DELETE FROM contracts WHERE id = ?').run(id)
+  const ts = new Date().toISOString()
+  db.prepare('UPDATE contracts SET deletedAt = ? WHERE id = ? AND deletedAt IS NULL').run(ts, id)
+}
+
+export function restoreContract(id) {
+  db.prepare('UPDATE contracts SET deletedAt = NULL WHERE id = ?').run(id)
 }
 
 /** Next human-readable invoice number (INV-001, INV-002, ...). */
@@ -1069,6 +1111,23 @@ export function deletePipelineStage(id) {
   if (!fallback) return
   db.prepare('UPDATE projects SET stage = ? WHERE stage = ?').run(fallback.id, id)
   db.prepare('DELETE FROM pipeline_stages WHERE id = ?').run(id)
+}
+
+/** Persist contract PDF bytes so downloads still work if contracts/{id}.pdf is missing (e.g. ephemeral disk) while aurora.db remains. */
+export function upsertContractPdfBlob(contractId, buffer) {
+  if (!contractId || !buffer || !Buffer.isBuffer(buffer) || buffer.length === 0) return
+  const updatedAt = new Date().toISOString()
+  db.prepare(
+    `INSERT INTO contract_pdf_blobs (id, pdf, updatedAt) VALUES (?, ?, ?)
+     ON CONFLICT(id) DO UPDATE SET pdf = excluded.pdf, updatedAt = excluded.updatedAt`
+  ).run(contractId, buffer, updatedAt)
+}
+
+export function getContractPdfBlob(contractId) {
+  if (!contractId) return null
+  const row = db.prepare('SELECT pdf FROM contract_pdf_blobs WHERE id = ?').get(contractId)
+  if (!row || row.pdf == null) return null
+  return Buffer.isBuffer(row.pdf) ? row.pdf : Buffer.from(row.pdf)
 }
 
 export function seedDb(seed) {
