@@ -6,6 +6,7 @@ import { describe, it } from 'node:test'
 import assert from 'node:assert/strict'
 import {
   computePartnerReferralAmounts,
+  normalizeExpenseLineItems,
   referralStatusEligibleForBookingPayout,
   normalizeReferralStatusKey,
   PARTNER_REFERRAL_MIN_PAYOUT_AMOUNT,
@@ -35,6 +36,15 @@ describe('normalizeReferralStatusKey', () => {
   it('normalizes labels and hyphens', () => {
     assert.equal(normalizeReferralStatusKey('Under Review'), 'under_review')
     assert.equal(normalizeReferralStatusKey('closed-lost'), 'closed_lost')
+  })
+})
+
+describe('normalizeExpenseLineItems', () => {
+  it('parses JSON string and rounds amounts', () => {
+    const lines = normalizeExpenseLineItems('[{"id":"a","name":"Car","amount": 99.4}]')
+    assert.equal(lines.length, 1)
+    assert.equal(lines[0].amount, 99)
+    assert.equal(lines[0].name, 'Car')
   })
 })
 
@@ -69,6 +79,25 @@ describe('computePartnerReferralAmounts — user examples', () => {
       hotelExpenseAmount: 200,
       ...booked,
     })
+    assert.equal(r.totalExpenseAmount, 500)
+    assert.equal(r.commissionableAmount, 3500)
+    assert.equal(r.payoutAmount, 175)
+  })
+
+  it('expense line items replace travel/hotel when non-empty', () => {
+    const r = computePartnerReferralAmounts({
+      bookingAmount: 4000,
+      travelExpenseAmount: 300,
+      hotelExpenseAmount: 200,
+      expenseLineItems: [
+        { id: '1', name: 'Flights', amount: 400 },
+        { id: '2', name: 'Hotel', amount: 100 },
+      ],
+      ...booked,
+    })
+    assert.equal(r.totalExpenseAmount, 500)
+    assert.equal(r.travelExpenseAmount, 0)
+    assert.equal(r.hotelExpenseAmount, 0)
     assert.equal(r.commissionableAmount, 3500)
     assert.equal(r.payoutAmount, 175)
   })

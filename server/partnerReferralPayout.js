@@ -57,7 +57,30 @@ export function referralStatusEligibleForBookingPayout(referralStatusRaw) {
 }
 
 /**
- * Commissionable = booking total (must already include add-ons) − travel − hotel, floored at 0.
+ * Normalize expense line items from API/DB (array or JSON string).
+ * Whole USD amounts; empty names become "Expense".
+ */
+export function normalizeExpenseLineItems(raw) {
+  if (raw == null || raw === '') return []
+  let arr = raw
+  if (typeof raw === 'string') {
+    try {
+      arr = JSON.parse(raw)
+    } catch {
+      return []
+    }
+  }
+  if (!Array.isArray(arr)) return []
+  return arr.map((row, i) => ({
+    id: String(row?.id != null && String(row.id).trim() ? row.id : `exp-${i}`).slice(0, 64),
+    name: String(row?.name ?? 'Expense').trim() || 'Expense',
+    amount: Math.max(0, Math.round(Number(row?.amount) || 0)),
+  }))
+}
+
+/**
+ * Commissionable = booking total (must already include add-ons) − total expenses, floored at 0.
+ * Total expenses = sum of {@link normalizeExpenseLineItems} when that list is non-empty; otherwise legacy travel + hotel.
  * Earned payout when {@link referralStatusEligibleForBookingPayout}: max(round(5% × commissionable), $100).
  * Otherwise earned payout = 0 (overrides can still set a manual payout).
  */
@@ -65,7 +88,12 @@ export function computePartnerReferralAmounts(values) {
   const booking = Math.max(0, Math.round(Number(values.bookingAmount) || 0))
   const travel = Math.max(0, Math.round(Number(values.travelExpenseAmount) || 0))
   const hotel = Math.max(0, Math.round(Number(values.hotelExpenseAmount) || 0))
-  const autoCommissionable = Math.max(0, booking - travel - hotel)
+  const lines = normalizeExpenseLineItems(values.expenseLineItems)
+  const fromLines = lines.reduce((s, l) => s + l.amount, 0)
+  const totalExpenseAmount = lines.length > 0 ? fromLines : travel + hotel
+  const travelExpenseAmount = lines.length > 0 ? 0 : travel
+  const hotelExpenseAmount = lines.length > 0 ? 0 : hotel
+  const autoCommissionable = Math.max(0, booking - totalExpenseAmount)
 
   let commissionableOverrideAmount = values.commissionableOverrideAmount
   if (
@@ -100,8 +128,10 @@ export function computePartnerReferralAmounts(values) {
 
   return {
     bookingAmount: booking,
-    travelExpenseAmount: travel,
-    hotelExpenseAmount: hotel,
+    travelExpenseAmount,
+    hotelExpenseAmount,
+    totalExpenseAmount,
+    expenseLineItems: lines,
     commissionableAmount,
     commissionableOverrideAmount,
     payoutAmount,

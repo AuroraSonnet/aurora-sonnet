@@ -4,6 +4,7 @@ import { fileURLToPath } from 'url'
 import { dirname, join } from 'path'
 import {
   computePartnerReferralAmounts,
+  normalizeExpenseLineItems,
   PARTNER_REFERRAL_COMMISSION_RATE,
   PARTNER_REFERRAL_MIN_PAYOUT_AMOUNT,
   PARTNER_REFERRAL_STATUS_KEYS,
@@ -314,6 +315,56 @@ try {
   db.exec('ALTER TABLE calendar_reminders ADD COLUMN sentAt TEXT')
 } catch (e) {
   if (!/duplicate column/i.test(e.message)) throw e
+}
+try {
+  db.exec('ALTER TABLE partner_referrals ADD COLUMN expense_line_items TEXT')
+} catch (e) {
+  if (!/duplicate column/i.test(e.message)) throw e
+}
+try {
+  db.exec('ALTER TABLE partner_referrals ADD COLUMN referral_reference TEXT')
+} catch (e) {
+  if (!/duplicate column/i.test(e.message)) throw e
+}
+
+/** Assign REF-1001+ to rows missing a reference (stable display for legacy data). */
+function backfillPartnerReferralReferences() {
+  let maxNum = 1000
+  const withRef = db
+    .prepare(
+      "SELECT referral_reference FROM partner_referrals WHERE referral_reference IS NOT NULL AND referral_reference != ''"
+    )
+    .all()
+  for (const r of withRef) {
+    const m = String(r.referral_reference).match(/^REF-(\d+)$/i)
+    if (m) maxNum = Math.max(maxNum, parseInt(m[1], 10))
+  }
+  let nextNum = maxNum + 1
+  const orphans = db
+    .prepare(
+      "SELECT id FROM partner_referrals WHERE referral_reference IS NULL OR referral_reference = '' ORDER BY submissionDate ASC, rowid ASC"
+    )
+    .all()
+  const upd = db.prepare('UPDATE partner_referrals SET referral_reference = ? WHERE id = ?')
+  for (const o of orphans) {
+    upd.run(`REF-${nextNum}`, o.id)
+    nextNum += 1
+  }
+}
+backfillPartnerReferralReferences()
+
+function getNextReferralReference() {
+  let maxNum = 1000
+  const rows = db
+    .prepare(
+      "SELECT referral_reference FROM partner_referrals WHERE referral_reference IS NOT NULL AND referral_reference != ''"
+    )
+    .all()
+  for (const r of rows) {
+    const m = String(r.referral_reference).match(/^REF-(\d+)$/i)
+    if (m) maxNum = Math.max(maxNum, parseInt(m[1], 10))
+  }
+  return `REF-${maxNum + 1}`
 }
 
 // Ensure inquiry-related columns exist (handles old DBs on Render or restores)
@@ -658,8 +709,14 @@ export function updateMusicSelection(id, updates) {
 }
 
 function rowToPartnerReferral(row) {
+  const expenseLineItems = normalizeExpenseLineItems(row.expense_line_items)
+  const totalExpenseAmount =
+    expenseLineItems.length > 0
+      ? expenseLineItems.reduce((s, l) => s + l.amount, 0)
+      : (row.travelExpenseAmount ?? 0) + (row.hotelExpenseAmount ?? 0)
   return {
     id: row.id,
+    referralReference: row.referral_reference || undefined,
     partnerName: row.partnerName,
     companyName: row.companyName || undefined,
     partnerEmail: row.partnerEmail,
@@ -673,6 +730,8 @@ function rowToPartnerReferral(row) {
     bookingAmount: row.bookingAmount ?? 0,
     travelExpenseAmount: row.travelExpenseAmount ?? 0,
     hotelExpenseAmount: row.hotelExpenseAmount ?? 0,
+    expenseLineItems,
+    totalExpenseAmount,
     commissionableAmount: row.commissionableAmount ?? 0,
     commissionableOverrideAmount:
       row.commissionableOverrideAmount != null ? row.commissionableOverrideAmount : undefined,
@@ -697,6 +756,7 @@ export function getNextPartnerReferralId() {
 
 export function createPartnerReferral(data) {
   const id = data.id && String(data.id).trim() ? String(data.id).trim() : getNextPartnerReferralId()
+  const referralReference = getNextReferralReference()
   const now = new Date().toISOString()
   const submissionDate = data.submissionDate || now.slice(0, 10)
   const referralStatus = data.referralStatus != null ? String(data.referralStatus) : 'new'
@@ -706,6 +766,7 @@ export function createPartnerReferral(data) {
     bookingAmount: data.bookingAmount,
     travelExpenseAmount: data.travelExpenseAmount,
     hotelExpenseAmount: data.hotelExpenseAmount,
+    expenseLineItems: data.expenseLineItems,
     referralStatus,
     commissionableOverrideAmount: data.commissionableOverrideAmount,
     payoutOverrideAmount: data.payoutOverrideAmount,
@@ -713,14 +774,15 @@ export function createPartnerReferral(data) {
 
   db.prepare(
     `INSERT INTO partner_referrals (
-      id, partnerName, companyName, partnerEmail, clientName, clientEmail, clientPhone,
+      id, referral_reference, partnerName, companyName, partnerEmail, clientName, clientEmail, clientPhone,
       eventDate, eventLocation, notes, referralStatus,
-      bookingAmount, travelExpenseAmount, hotelExpenseAmount,
+      bookingAmount, travelExpenseAmount, hotelExpenseAmount, expense_line_items,
       commissionableAmount, commissionableOverrideAmount, payoutAmount, payoutOverrideAmount,
       payoutStatus, submissionDate, linkedVendorId, linkedLeadId, updatedAt
-    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
   ).run(
     id,
+    referralReference,
     data.partnerName,
     data.companyName ?? null,
     data.partnerEmail,
@@ -734,6 +796,7 @@ export function createPartnerReferral(data) {
     amounts.bookingAmount,
     amounts.travelExpenseAmount,
     amounts.hotelExpenseAmount,
+    JSON.stringify(amounts.expenseLineItems ?? []),
     amounts.commissionableAmount,
     amounts.commissionableOverrideAmount,
     amounts.payoutAmount,
@@ -744,12 +807,16 @@ export function createPartnerReferral(data) {
     data.linkedLeadId ?? null,
     now
   )
-  return id
+  return { id, referralReference }
 }
 
 export function updatePartnerReferral(id, updates) {
   const row = db.prepare('SELECT * FROM partner_referrals WHERE id = ?').get(id)
   if (!row) return null
+
+  const expenseLineItemsForCompute = Object.prototype.hasOwnProperty.call(updates, 'expenseLineItems')
+    ? updates.expenseLineItems
+    : normalizeExpenseLineItems(row.expense_line_items)
 
   const merged = {
     bookingAmount: updates.bookingAmount !== undefined ? updates.bookingAmount : row.bookingAmount,
@@ -768,6 +835,7 @@ export function updatePartnerReferral(id, updates) {
     bookingAmount: merged.bookingAmount,
     travelExpenseAmount: merged.travelExpenseAmount,
     hotelExpenseAmount: merged.hotelExpenseAmount,
+    expenseLineItems: expenseLineItemsForCompute,
     referralStatus: merged.referralStatus,
     commissionableOverrideAmount: merged.commissionableOverrideAmount,
     payoutOverrideAmount: merged.payoutOverrideAmount,
@@ -790,13 +858,15 @@ export function updatePartnerReferral(id, updates) {
 
   db.prepare(
     `UPDATE partner_referrals SET
+      referral_reference=?,
       partnerName=?, companyName=?, partnerEmail=?, clientName=?, clientEmail=?, clientPhone=?,
       eventDate=?, eventLocation=?, notes=?, referralStatus=?,
-      bookingAmount=?, travelExpenseAmount=?, hotelExpenseAmount=?,
+      bookingAmount=?, travelExpenseAmount=?, hotelExpenseAmount=?, expense_line_items=?,
       commissionableAmount=?, commissionableOverrideAmount=?, payoutAmount=?, payoutOverrideAmount=?,
       payoutStatus=?, submissionDate=?, linkedVendorId=?, linkedLeadId=?, updatedAt=?
     WHERE id=?`
   ).run(
+    row.referral_reference,
     partnerName,
     companyName ?? null,
     partnerEmail,
@@ -810,6 +880,7 @@ export function updatePartnerReferral(id, updates) {
     amounts.bookingAmount,
     amounts.travelExpenseAmount,
     amounts.hotelExpenseAmount,
+    JSON.stringify(amounts.expenseLineItems ?? []),
     amounts.commissionableAmount,
     amounts.commissionableOverrideAmount,
     amounts.payoutAmount,

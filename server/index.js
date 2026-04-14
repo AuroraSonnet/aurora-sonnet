@@ -1142,17 +1142,105 @@ async function sendInquiryNotification(payload) {
   }
 }
 
+/** Partner-facing confirmation — same From + logging pattern as sendInquiryClientConfirmation (smtpFromAddress, not raw SMTP_FROM). */
+async function sendPartnerReferralPartnerConfirmation(partnerEmail, data) {
+  const mailFrom = smtpFromAddress()
+  console.log('[PARTNER-REFERRAL-PARTNER-EMAIL] sendPartnerReferralPartnerConfirmation invoked', {
+    hasTransporter: Boolean(reminderTransporter),
+    partnerEmailLen: partnerEmail != null ? String(partnerEmail).length : 0,
+    mailFromLen: mailFrom.length,
+  })
+  if (!reminderTransporter) {
+    console.log('[PARTNER-REFERRAL-PARTNER-EMAIL] skipped: no reminderTransporter (check SMTP_HOST, SMTP_PORT, SMTP_USER, SMTP_PASS)')
+    return
+  }
+  if (!mailFrom) {
+    console.log('[PARTNER-REFERRAL-PARTNER-EMAIL] skipped: no From address (set SMTP_FROM or SMTP_USER)')
+    return
+  }
+  const to = String(partnerEmail || '').trim()
+  if (!to) {
+    console.log('[PARTNER-REFERRAL-PARTNER-EMAIL] skipped: partner email empty after trim')
+    return
+  }
+  const ref = String(data.referralReference || '').trim() || '—'
+  const clientName = String(data.clientName || '').trim() || 'your referred client'
+  const first = inquiryFirstNameFromFullName(data.partnerName)
+  const greeting = first ? `Dear ${first},` : 'Hello,'
+  const eventDateTrim = data.eventDate ? String(data.eventDate).trim() : ''
+  const subject = `We received your referral — ${ref}`
+  const lines = [
+    greeting,
+    '',
+    `Thank you for referring ${clientName} to Aurora Sonnet. We have received your referral and are grateful for your trust in us.`,
+    '',
+    `Your referral reference number is ${ref}. Please keep it for your records when corresponding with our team.`,
+  ]
+  if (eventDateTrim) {
+    lines.push('', `We've recorded the event date you shared: ${eventDateTrim}.`)
+  }
+  lines.push(
+    '',
+    'Aurora Sonnet will follow up with the client directly to explore how we can serve their celebration.',
+    '',
+    'Please note: referral fees apply to confirmed bookings only, in line with our partner arrangements.',
+    '',
+    'Warmly,',
+    'Lisa Dubocquet',
+    'Aurora Sonnet LLC',
+    'aurorasonnet.com',
+  )
+  const text = lines.join('\n')
+  console.log('[PARTNER-REFERRAL-PARTNER-EMAIL] sendMail attempt', { from: mailFrom, to })
+  try {
+    const info = await reminderTransporter.sendMail({
+      from: mailFrom,
+      to,
+      subject,
+      text,
+    })
+    console.log('[PARTNER-REFERRAL-PARTNER-EMAIL] sendMail resolved', {
+      to,
+      referralReference: ref,
+      messageId: info && info.messageId,
+      response: info && info.response,
+      accepted: info && info.accepted,
+      rejected: info && info.rejected,
+    })
+    if (info && Array.isArray(info.rejected) && info.rejected.length > 0) {
+      console.error('[PARTNER-REFERRAL-PARTNER-EMAIL] server rejected recipient(s)', info.rejected)
+    }
+  } catch (err) {
+    const code = err && err.responseCode
+    const resp = err && err.response
+    console.error('[PARTNER-REFERRAL-PARTNER-EMAIL] sendMail threw', {
+      to,
+      responseCode: code,
+      response: resp,
+      command: err && err.command,
+      message: err && err.message,
+    })
+    logError('SMTP', 'Failed to send partner referral confirmation email', err)
+  }
+}
+
 /** Agency notification when a partner submits the website referral form (same SMTP / INQUIRY_NOTIFY_EMAIL as inquiries). */
 async function sendPartnerReferralAgencyNotification(referralId, data) {
   if (!reminderTransporter || !INQUIRY_NOTIFY_EMAIL) {
     console.log('[PARTNER-REFERRAL-EMAIL] skipped: SMTP not configured or INQUIRY_NOTIFY_EMAIL missing')
     return
   }
-  const subject = `New partner referral: ${data.partnerName} → ${data.clientName}`
+  const ref = String(data.referralReference || '').trim() || '—'
+  const subject =
+    ref !== '—'
+      ? `New partner referral — Referral Reference: ${ref}`
+      : `New partner referral: ${data.partnerName} → ${data.clientName}`
   const lines = [
     'A new partner referral was submitted via the website form.',
     '',
-    `Referral ID: ${referralId}`,
+    `Referral Reference: ${ref}`,
+    '',
+    `Record ID (internal): ${referralId}`,
     '',
     '— Partner —',
     `Name: ${data.partnerName}`,
@@ -3189,20 +3277,95 @@ app.post('/api/partner-referrals', (req, res) => {
       eventLocation: String(b.eventLocation || '').trim() || null,
       notes: String(b.notes || '').trim() || null,
     }
+    if (b.referralStatus != null && String(b.referralStatus).trim()) {
+      payload.referralStatus = String(b.referralStatus).trim()
+    }
+    if (b.payoutStatus != null && String(b.payoutStatus).trim()) {
+      payload.payoutStatus = String(b.payoutStatus).trim()
+    }
+    if (b.submissionDate != null && String(b.submissionDate).trim()) {
+      payload.submissionDate = String(b.submissionDate).trim()
+    }
+    if (b.bookingAmount != null && b.bookingAmount !== '') {
+      const n = Math.round(Number(b.bookingAmount))
+      if (Number.isFinite(n)) payload.bookingAmount = Math.max(0, n)
+    }
+    if (Array.isArray(b.expenseLineItems)) {
+      payload.expenseLineItems = b.expenseLineItems
+    }
+    if (b.travelExpenseAmount != null && b.travelExpenseAmount !== '') {
+      const n = Math.round(Number(b.travelExpenseAmount))
+      if (Number.isFinite(n)) payload.travelExpenseAmount = Math.max(0, n)
+    }
+    if (b.hotelExpenseAmount != null && b.hotelExpenseAmount !== '') {
+      const n = Math.round(Number(b.hotelExpenseAmount))
+      if (Number.isFinite(n)) payload.hotelExpenseAmount = Math.max(0, n)
+    }
+    if (Object.prototype.hasOwnProperty.call(b, 'commissionableOverrideAmount')) {
+      const v = b.commissionableOverrideAmount
+      if (v === null || v === undefined || v === '') payload.commissionableOverrideAmount = null
+      else {
+        const n = Math.round(Number(v))
+        if (Number.isFinite(n)) payload.commissionableOverrideAmount = Math.max(0, n)
+      }
+    }
+    if (Object.prototype.hasOwnProperty.call(b, 'payoutOverrideAmount')) {
+      const v = b.payoutOverrideAmount
+      if (v === null || v === undefined || v === '') payload.payoutOverrideAmount = null
+      else {
+        const n = Math.round(Number(v))
+        if (Number.isFinite(n)) payload.payoutOverrideAmount = Math.max(0, n)
+      }
+    }
     if (b.id != null && String(b.id).trim()) {
       if (getPartnerReferral(String(b.id).trim())) {
         return res.status(409).json({ error: 'Referral id already exists' })
       }
       payload.id = String(b.id).trim()
+    } else if (b.skipPartnerConfirmation === true) {
+      // CRM / Electron manual create: avoid pref-* collision with Render (separate DBs reuse the same id sequence).
+      payload.id = `pref-crm-${Date.now()}-${Math.random().toString(36).slice(2, 10)}`
     }
+    const created = createPartnerReferral(payload)
+    // Partner confirmation: send for all public/website creates (id pref-<n>). Omit only for CRM path above
+    // (pref-crm-*) — do not rely on referralSource or skip flags alone (proxies/old embeds can strip or mis-send them).
+    const omitPartnerConfirmationEmail = String(created.id || '').startsWith('pref-crm-')
+    // Payload check: embed must send partnerEmail (not email). Logs help confirm live body without printing full address.
     console.log('[PARTNER-REFERRAL-HIT] POST /api/partner-referrals', {
       ip: getClientKey(req),
       origin: req.headers.origin || null,
+      createdId: created.id,
+      bodyHasPartnerEmailKey: Object.prototype.hasOwnProperty.call(b, 'partnerEmail'),
+      bodyHasEmailKey: Object.prototype.hasOwnProperty.call(b, 'email'),
+      partnerEmailLen: partnerEmail.length,
+      vendorMailDomain: partnerEmail.includes('@') ? partnerEmail.split('@').pop() : null,
+      referralSource: b.referralSource ?? null,
+      skipPartnerConfirmation: b.skipPartnerConfirmation ?? null,
+      omitPartnerConfirmationEmail,
+      willSendPartnerConfirmation: !omitPartnerConfirmationEmail,
     })
-    const id = createPartnerReferral(payload)
-    sendPartnerReferralAgencyNotification(id, payload)
-      .catch((err) => logError('SMTP', 'Partner referral agency email (non-blocking)', err))
-    res.json({ id })
+    const notifyPayload = { ...payload, referralReference: created.referralReference }
+    // Same as inquiry: non-blocking SMTP so response is not tied to mail latency / lifecycle.
+    sendPartnerReferralAgencyNotification(created.id, notifyPayload)
+      .then(() => console.log('[PARTNER-REFERRAL-EMAIL] after agency notification (promise settled)'))
+      .catch((err) => {
+        console.error('[PARTNER-REFERRAL-EMAIL] agency promise rejection', err && err.message)
+        logError('SMTP', 'Partner referral agency email (non-blocking)', err)
+      })
+    if (!omitPartnerConfirmationEmail) {
+      console.log('[PARTNER-REFERRAL-PARTNER-EMAIL] scheduling (same pattern as CLIENT-EMAIL)', { to: partnerEmail })
+      sendPartnerReferralPartnerConfirmation(partnerEmail, notifyPayload)
+        .then(() =>
+          console.log('[PARTNER-REFERRAL-PARTNER-EMAIL] after sendPartnerReferralPartnerConfirmation (promise settled)')
+        )
+        .catch((err) => {
+          console.error('[PARTNER-REFERRAL-PARTNER-EMAIL] promise rejection (unexpected)', err && err.message, err)
+          logError('SMTP', 'Partner referral partner confirmation (non-blocking)', err)
+        })
+    } else {
+      console.log('[PARTNER-REFERRAL-PARTNER-EMAIL] omitted: CRM row (id pref-crm-*)')
+    }
+    res.json({ id: created.id, referralReference: created.referralReference })
   } catch (err) {
     logError('DB', 'Failed to create partner referral', err)
     res.status(500).json({ error: 'Failed to create partner referral' })
