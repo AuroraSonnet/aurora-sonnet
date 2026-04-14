@@ -58,6 +58,10 @@ import {
   getShortLink,
   upsertContractPdfBlob,
   getContractPdfBlob,
+  createPartnerReferral,
+  updatePartnerReferral,
+  deletePartnerReferral,
+  getPartnerReferral,
 } from './db.js'
 import {
   seedClients,
@@ -268,7 +272,7 @@ const allowedOrigins = [
   'https://www.aurorasonnet.com',
   'https://aurora-sonnet-1.onrender.com',
 ].filter(Boolean)
-const publicEndpoints = ['/api/state', '/api/inquiry', '/api/music-selection']
+const publicEndpoints = ['/api/state', '/api/inquiry', '/api/music-selection', '/api/partner-referrals']
 const clientBulkEndpoints = ['/api/clients/delete-all', '/api/clients/restore-all']
 const desktopSyncEndpoints = ['/api/proposals/sync-for-accept', '/api/proposals', '/api/short-links']
 app.use((req, res, next) => {
@@ -299,8 +303,10 @@ app.use((req, res, next) => {
 const rateLimitWindowMs = 60 * 1000
 const rateLimitMaxInquiry = 15
 const rateLimitMaxState = 60
+const rateLimitMaxPartnerReferral = 12
 const rateLimitInquiry = new Map()
 const rateLimitState = new Map()
+const rateLimitPartnerReferral = new Map()
 function getClientKey(req) {
   return req.headers['x-forwarded-for']?.split(',')[0]?.trim() || req.socket?.remoteAddress || 'unknown'
 }
@@ -337,6 +343,19 @@ app.use('/api/state', (req, res, next) => {
   rateLimitState.set(key, data)
   if (data.count > rateLimitMaxState) {
     return res.status(429).json({ error: 'Too many requests.' })
+  }
+  next()
+})
+
+app.use('/api/partner-referrals', (req, res, next) => {
+  if (req.method !== 'POST') return next()
+  cleanupRateLimit(rateLimitPartnerReferral, rateLimitWindowMs)
+  const key = getClientKey(req)
+  const data = rateLimitPartnerReferral.get(key) || { count: 0, start: Date.now() }
+  data.count++
+  rateLimitPartnerReferral.set(key, data)
+  if (data.count > rateLimitMaxPartnerReferral) {
+    return res.status(429).json({ error: 'Too many submissions. Please try again later.' })
   }
   next()
 })
@@ -1120,6 +1139,45 @@ async function sendInquiryNotification(payload) {
   } catch (err) {
     console.error('[AGENCY-EMAIL] sendMail failed', { message: err && err.message, response: err && err.response })
     logError('SMTP', 'Failed to send inquiry notification email', err)
+  }
+}
+
+/** Agency notification when a partner submits the website referral form (same SMTP / INQUIRY_NOTIFY_EMAIL as inquiries). */
+async function sendPartnerReferralAgencyNotification(referralId, data) {
+  if (!reminderTransporter || !INQUIRY_NOTIFY_EMAIL) {
+    console.log('[PARTNER-REFERRAL-EMAIL] skipped: SMTP not configured or INQUIRY_NOTIFY_EMAIL missing')
+    return
+  }
+  const subject = `New partner referral: ${data.partnerName} → ${data.clientName}`
+  const lines = [
+    'A new partner referral was submitted via the website form.',
+    '',
+    `Referral ID: ${referralId}`,
+    '',
+    '— Partner —',
+    `Name: ${data.partnerName}`,
+    `Email: ${data.partnerEmail}`,
+    ...(data.companyName ? [`Company: ${data.companyName}`] : []),
+    '',
+    '— Referred client —',
+    `Name: ${data.clientName}`,
+    `Email: ${data.clientEmail}`,
+    ...(data.clientPhone ? [`Phone: ${data.clientPhone}`] : []),
+    ...(data.eventDate ? [`Event date: ${data.eventDate}`] : []),
+    ...(data.eventLocation ? [`Event location: ${data.eventLocation}`] : []),
+    ...(data.notes ? ['', '— Notes —', data.notes] : []),
+  ]
+  try {
+    await reminderTransporter.sendMail({
+      from: SMTP_FROM,
+      to: INQUIRY_NOTIFY_EMAIL,
+      subject,
+      text: lines.join('\n'),
+    })
+    console.log('[PARTNER-REFERRAL-EMAIL] agency notification sent to', INQUIRY_NOTIFY_EMAIL)
+  } catch (err) {
+    console.error('[PARTNER-REFERRAL-EMAIL] sendMail failed', { message: err && err.message, response: err && err.response })
+    logError('SMTP', 'Failed to send partner referral notification email', err)
   }
 }
 
@@ -3105,6 +3163,71 @@ app.delete('/api/expenses/:id', (req, res) => {
   } catch (err) {
     logError('DB', 'Failed to delete expense', err)
     res.status(500).json({ error: 'Failed to delete expense' })
+  }
+})
+
+app.post('/api/partner-referrals', (req, res) => {
+  try {
+    const b = req.body || {}
+    const partnerName = String(b.partnerName || '').trim()
+    const partnerEmail = String(b.partnerEmail || '').trim()
+    const clientName = String(b.clientName || '').trim()
+    const clientEmail = String(b.clientEmail || '').trim()
+    if (!partnerName || !partnerEmail || !clientName || !clientEmail) {
+      return res.status(400).json({
+        error: 'Missing required fields: partnerName, partnerEmail, clientName, clientEmail',
+      })
+    }
+    const payload = {
+      partnerName,
+      partnerEmail,
+      clientName,
+      clientEmail,
+      companyName: String(b.companyName || '').trim() || null,
+      clientPhone: String(b.clientPhone || '').trim() || null,
+      eventDate: String(b.eventDate || '').trim() || null,
+      eventLocation: String(b.eventLocation || '').trim() || null,
+      notes: String(b.notes || '').trim() || null,
+    }
+    if (b.id != null && String(b.id).trim()) {
+      if (getPartnerReferral(String(b.id).trim())) {
+        return res.status(409).json({ error: 'Referral id already exists' })
+      }
+      payload.id = String(b.id).trim()
+    }
+    console.log('[PARTNER-REFERRAL-HIT] POST /api/partner-referrals', {
+      ip: getClientKey(req),
+      origin: req.headers.origin || null,
+    })
+    const id = createPartnerReferral(payload)
+    sendPartnerReferralAgencyNotification(id, payload)
+      .catch((err) => logError('SMTP', 'Partner referral agency email (non-blocking)', err))
+    res.json({ id })
+  } catch (err) {
+    logError('DB', 'Failed to create partner referral', err)
+    res.status(500).json({ error: 'Failed to create partner referral' })
+  }
+})
+
+app.patch('/api/partner-referrals/:id', (req, res) => {
+  try {
+    const updated = updatePartnerReferral(req.params.id, req.body || {})
+    if (!updated) return res.status(404).json({ error: 'Partner referral not found' })
+    res.json(updated)
+  } catch (err) {
+    logError('DB', 'Failed to update partner referral', err)
+    res.status(500).json({ error: 'Failed to update partner referral' })
+  }
+})
+
+app.delete('/api/partner-referrals/:id', (req, res) => {
+  try {
+    const ok = deletePartnerReferral(req.params.id)
+    if (!ok) return res.status(404).json({ error: 'Partner referral not found' })
+    res.json({ ok: true })
+  } catch (err) {
+    logError('DB', 'Failed to delete partner referral', err)
+    res.status(500).json({ error: 'Failed to delete partner referral' })
   }
 })
 
