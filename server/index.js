@@ -50,8 +50,8 @@ import {
   updateExperience,
   deleteExperience,
   createMusicSelection,
-  updateMusicSelection,
   getMusicSelectionById,
+  updateMusicSelection,
   seedDb,
   getNextClientId,
   getNextProjectId,
@@ -1335,6 +1335,17 @@ function isSoloOperaRepertoireSubmission(ms) {
   return ids.every((x) => typeof x === 'string' && x.startsWith('op-'))
 }
 
+/** Duo / wedding repertoire embed track ids (Hostinger music-selection embed), not opera (`op-`). */
+const DUO_REPERTOIRE_SONG_ID_RE = /^(ga|pr|rc|ch|fd|pd|hl)-[A-Za-z0-9-]+$/
+
+function isDuoRepertoireSubmission(ms) {
+  const ids = Array.isArray(ms.songIds) ? ms.songIds : []
+  if (ids.length === 0) return false
+  return ids.every(
+    (x) => typeof x === 'string' && !x.startsWith('op-') && DUO_REPERTOIRE_SONG_ID_RE.test(x)
+  )
+}
+
 /** Same From address logic as agency inquiry mail (Hostinger often requires a real mailbox here). */
 function smtpFromAddress() {
   const a = SMTP_FROM != null ? String(SMTP_FROM).trim() : ''
@@ -1494,6 +1505,171 @@ async function sendOperaRepertoireAgencyNotification(saved) {
       response: err && err.response,
     })
     logError('SMTP', 'Failed to send opera repertoire agency notification email', err)
+  }
+}
+
+/** Client confirmation for duo / wedding repertoire only; uses saved row (CRM) as source of truth. */
+async function sendDuoRepertoireClientConfirmation(saved) {
+  const mailFrom = smtpFromAddress()
+  console.log('[DUO-REPERTOIRE-CLIENT-EMAIL] sendDuoRepertoireClientConfirmation invoked', {
+    hasTransporter: Boolean(reminderTransporter),
+    id: saved && saved.id,
+    mailFromLen: mailFrom.length,
+  })
+  if (!reminderTransporter) {
+    console.log('[DUO-REPERTOIRE-CLIENT-EMAIL] skipped: no reminderTransporter')
+    return
+  }
+  if (!mailFrom) {
+    console.log('[DUO-REPERTOIRE-CLIENT-EMAIL] skipped: no From address')
+    return
+  }
+  const to = String(saved.submitterEmail || '').trim()
+  if (!to) {
+    console.log('[DUO-REPERTOIRE-CLIENT-EMAIL] skipped: empty submitter email')
+    return
+  }
+
+  const fullName = String(saved.submitterName || '').trim()
+  const first = inquiryFirstNameFromFullName(fullName)
+  const greetingLine = first ? `Hi ${first},` : 'Hi there,'
+  const subject = 'We received your song selections'
+  const labelTrim = saved.label ? String(saved.label).trim() : ''
+
+  const allLines = musicSelectionSongLinesFromStoredText(saved.songsText)
+  const specialMarker = /^special requests:/i
+  const selectedLines = allLines.filter((l) => !specialMarker.test(l.trim()))
+  const specialRaw = allLines
+    .filter((l) => specialMarker.test(l.trim()))
+    .map((l) => l.replace(/^special requests:\s*/i, '').trim())
+    .filter(Boolean)
+    .join('\n\n')
+
+  const bodyLines = [
+    greetingLine,
+    '',
+    'Thank you for submitting your song selections.',
+    '',
+  ]
+  if (fullName) {
+    bodyLines.push(`Full name: ${fullName}`)
+    bodyLines.push('')
+  }
+  if (labelTrim) {
+    bodyLines.push(`Selection label: ${labelTrim}`)
+    bodyLines.push('')
+  }
+  bodyLines.push('We received the following selections:')
+  bodyLines.push('')
+  if (selectedLines.length > 0) {
+    for (const s of selectedLines) bodyLines.push(`• ${s}`)
+    bodyLines.push('')
+  }
+  if (specialRaw) {
+    bodyLines.push('Special request songs:')
+    bodyLines.push(specialRaw)
+    bodyLines.push('')
+  }
+  bodyLines.push('We will review everything and be in touch shortly.')
+  bodyLines.push('')
+  bodyLines.push('Warmly,')
+  bodyLines.push('Lisa Dubocquet')
+
+  const text = bodyLines.join('\n')
+
+  console.log('[DUO-REPERTOIRE-CLIENT-EMAIL] sendMail attempt', { from: mailFrom, to })
+  try {
+    const info = await reminderTransporter.sendMail({
+      from: mailFrom,
+      to,
+      subject,
+      text,
+    })
+    console.log('[DUO-REPERTOIRE-CLIENT-EMAIL] sendMail resolved', {
+      to,
+      messageId: info && info.messageId,
+      accepted: info && info.accepted,
+      rejected: info && info.rejected,
+    })
+    if (info && Array.isArray(info.rejected) && info.rejected.length > 0) {
+      console.error('[DUO-REPERTOIRE-CLIENT-EMAIL] server rejected recipient(s)', info.rejected)
+    }
+  } catch (err) {
+    console.error('[DUO-REPERTOIRE-CLIENT-EMAIL] sendMail threw', {
+      to,
+      message: err && err.message,
+    })
+    logError('SMTP', 'Failed to send duo repertoire client confirmation email', err)
+  }
+}
+
+/** Agency notification for duo / wedding repertoire only; uses saved row (CRM) as source of truth. */
+async function sendDuoRepertoireAgencyNotification(saved) {
+  console.log('[DUO-REPERTOIRE-AGENCY-EMAIL] sendDuoRepertoireAgencyNotification invoked', {
+    hasTransporter: Boolean(reminderTransporter),
+    hasNotifyTo: Boolean(INQUIRY_NOTIFY_EMAIL),
+    id: saved && saved.id,
+  })
+  if (!reminderTransporter || !INQUIRY_NOTIFY_EMAIL) {
+    console.log('[DUO-REPERTOIRE-AGENCY-EMAIL] skipped: SMTP not configured or INQUIRY_NOTIFY_EMAIL missing')
+    return
+  }
+  const submitterName = String(saved.submitterName || '').trim() || '—'
+  const submitterEmail = String(saved.submitterEmail || '').trim() || '—'
+  const labelTrim = saved.label ? String(saved.label).trim() : ''
+
+  const allLines = musicSelectionSongLinesFromStoredText(saved.songsText)
+  const specialMarker = /^special requests:/i
+  const selectedLines = allLines.filter((l) => !specialMarker.test(l.trim()))
+  const specialRaw = allLines
+    .filter((l) => specialMarker.test(l.trim()))
+    .map((l) => l.replace(/^special requests:\s*/i, '').trim())
+    .filter(Boolean)
+    .join('\n\n')
+
+  const ids = Array.isArray(saved.songIds) ? saved.songIds : []
+  const idsLine = ids.length ? ids.join(', ') : '—'
+
+  const lines = [
+    'A new duo / wedding repertoire submission was saved in CRM.',
+    '',
+    '— Record —',
+    `Submission ID: ${saved.id}`,
+    ...(saved.clientId ? [`Client ID: ${saved.clientId}`] : []),
+    `Song IDs: ${idsLine}`,
+    '',
+    '— Submitter —',
+    `Name: ${submitterName}`,
+    `Email: ${submitterEmail}`,
+    ...(labelTrim ? [`Label: ${labelTrim}`] : []),
+    '',
+    '— Selected songs —',
+  ]
+  if (selectedLines.length > 0) {
+    for (const s of selectedLines) lines.push(`• ${s}`)
+  } else {
+    lines.push('• (No titles parsed from stored songsText — see CRM row.)')
+  }
+  if (specialRaw) {
+    lines.push('', '— Special request songs —', specialRaw)
+  }
+
+  const subject = `New duo repertoire selections — ${submitterName}`
+  const text = lines.join('\n')
+  try {
+    await reminderTransporter.sendMail({
+      from: SMTP_FROM,
+      to: INQUIRY_NOTIFY_EMAIL,
+      subject,
+      text,
+    })
+    console.log('[DUO-REPERTOIRE-AGENCY-EMAIL] sendMail OK — sent to', INQUIRY_NOTIFY_EMAIL)
+  } catch (err) {
+    console.error('[DUO-REPERTOIRE-AGENCY-EMAIL] sendMail failed', {
+      message: err && err.message,
+      response: err && err.response,
+    })
+    logError('SMTP', 'Failed to send duo repertoire agency notification email', err)
   }
 }
 
@@ -1727,6 +1903,13 @@ app.post('/api/music-selection', (req, res) => {
       )
       sendOperaRepertoireAgencyNotification(saved).catch((err) =>
         logError('SMTP', 'Opera repertoire agency notification promise rejected', err)
+      )
+    } else if (saved && isDuoRepertoireSubmission(saved)) {
+      sendDuoRepertoireClientConfirmation(saved).catch((err) =>
+        logError('SMTP', 'Duo repertoire client confirmation promise rejected', err)
+      )
+      sendDuoRepertoireAgencyNotification(saved).catch((err) =>
+        logError('SMTP', 'Duo repertoire agency notification promise rejected', err)
       )
     }
     return res.status(201).json({ id, clientId })
