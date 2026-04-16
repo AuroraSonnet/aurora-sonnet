@@ -1427,6 +1427,76 @@ async function sendOperaRepertoireClientConfirmation(saved) {
   }
 }
 
+/** Agency notification for solo opera repertoire only; uses saved row (CRM) as source of truth. */
+async function sendOperaRepertoireAgencyNotification(saved) {
+  console.log('[OPERA-REPERTOIRE-AGENCY-EMAIL] sendOperaRepertoireAgencyNotification invoked', {
+    hasTransporter: Boolean(reminderTransporter),
+    hasNotifyTo: Boolean(INQUIRY_NOTIFY_EMAIL),
+    id: saved && saved.id,
+  })
+  if (!reminderTransporter || !INQUIRY_NOTIFY_EMAIL) {
+    console.log('[OPERA-REPERTOIRE-AGENCY-EMAIL] skipped: SMTP not configured or INQUIRY_NOTIFY_EMAIL missing')
+    return
+  }
+  const submitterName = String(saved.submitterName || '').trim() || '—'
+  const submitterEmail = String(saved.submitterEmail || '').trim() || '—'
+  const labelTrim = saved.label ? String(saved.label).trim() : ''
+
+  const allLines = musicSelectionSongLinesFromStoredText(saved.songsText)
+  const specialMarker = /^special requests:/i
+  const selectedLines = allLines.filter((l) => !specialMarker.test(l.trim()))
+  const specialRaw = allLines
+    .filter((l) => specialMarker.test(l.trim()))
+    .map((l) => l.replace(/^special requests:\s*/i, '').trim())
+    .filter(Boolean)
+    .join('\n\n')
+
+  const ids = Array.isArray(saved.songIds) ? saved.songIds : []
+  const idsLine = ids.length ? ids.join(', ') : '—'
+
+  const lines = [
+    'A new solo opera repertoire submission was saved in CRM.',
+    '',
+    '— Record —',
+    `Submission ID: ${saved.id}`,
+    ...(saved.clientId ? [`Client ID: ${saved.clientId}`] : []),
+    `Song IDs: ${idsLine}`,
+    '',
+    '— Submitter —',
+    `Name: ${submitterName}`,
+    `Email: ${submitterEmail}`,
+    ...(labelTrim ? [`Label: ${labelTrim}`] : []),
+    '',
+    '— Selected songs —',
+  ]
+  if (selectedLines.length > 0) {
+    for (const s of selectedLines) lines.push(`• ${s}`)
+  } else {
+    lines.push('• (No titles parsed from stored songsText — see CRM row.)')
+  }
+  if (specialRaw) {
+    lines.push('', '— Special request songs —', specialRaw)
+  }
+
+  const subject = `New opera repertoire selections — ${submitterName}`
+  const text = lines.join('\n')
+  try {
+    await reminderTransporter.sendMail({
+      from: SMTP_FROM,
+      to: INQUIRY_NOTIFY_EMAIL,
+      subject,
+      text,
+    })
+    console.log('[OPERA-REPERTOIRE-AGENCY-EMAIL] sendMail OK — sent to', INQUIRY_NOTIFY_EMAIL)
+  } catch (err) {
+    console.error('[OPERA-REPERTOIRE-AGENCY-EMAIL] sendMail failed', {
+      message: err && err.message,
+      response: err && err.response,
+    })
+    logError('SMTP', 'Failed to send opera repertoire agency notification email', err)
+  }
+}
+
 /** Client-facing confirmation immediately after any inquiry form (solo / duo / general). */
 async function sendInquiryClientConfirmation(fullName, clientEmail) {
   console.log('[CLIENT-EMAIL] sendInquiryClientConfirmation invoked', {
@@ -1654,6 +1724,9 @@ app.post('/api/music-selection', (req, res) => {
     if (saved && isSoloOperaRepertoireSubmission(saved)) {
       sendOperaRepertoireClientConfirmation(saved).catch((err) =>
         logError('SMTP', 'Opera repertoire client confirmation promise rejected', err)
+      )
+      sendOperaRepertoireAgencyNotification(saved).catch((err) =>
+        logError('SMTP', 'Opera repertoire agency notification promise rejected', err)
       )
     }
     return res.status(201).json({ id, clientId })
