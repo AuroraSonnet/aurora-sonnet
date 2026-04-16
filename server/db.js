@@ -692,6 +692,13 @@ export function createMusicSelection(ms) {
   return ms.id
 }
 
+/** Single music selection row after insert/update (same shape as getState().musicSelections[]). */
+export function getMusicSelectionById(id) {
+  if (!id || typeof id !== 'string') return null
+  const r = db.prepare('SELECT * FROM music_selections WHERE id = ?').get(id)
+  return r ? rowToMusicSelection(r) : null
+}
+
 export function updateMusicSelection(id, updates) {
   if (!id || typeof id !== 'string') return
   const allowed = ['label']

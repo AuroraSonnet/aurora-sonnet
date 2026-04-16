@@ -51,6 +51,7 @@ import {
   deleteExperience,
   createMusicSelection,
   updateMusicSelection,
+  getMusicSelectionById,
   seedDb,
   getNextClientId,
   getNextProjectId,
@@ -1276,11 +1277,154 @@ function inquiryFirstNameFromFullName(fullName) {
   return (s.split(/\s+/)[0] || '').trim()
 }
 
+/** Same rules as ClientDetail.tsx `songLines` / `splitSpecialRequest` so email matches CRM display. */
+function musicSelectionSplitSpecialRequestLine(line) {
+  const marker = /Special requests:/i
+  const m = line.match(marker)
+  if (!m || m.index == null) return [line]
+  const i = m.index
+  const songPart = line.slice(0, i).replace(/,\s*$/, '').trim()
+  const requestPart = line.slice(i).trim()
+  const out = []
+  if (songPart) out.push(songPart)
+  if (requestPart) out.push(requestPart)
+  return out.length ? out : [line]
+}
+
+function musicSelectionSongLinesFromStoredText(songsText) {
+  const raw = songsText != null ? String(songsText).trim() : ''
+  if (!raw) return []
+  const parts = raw.split(',').map((s) => s.trim()).filter(Boolean)
+  const lines = []
+  let current = ''
+
+  for (const part of parts) {
+    if (!current) {
+      current = part
+      continue
+    }
+
+    const currentHasArtist = current.includes(' — ')
+    const partHasArtist = part.includes(' — ')
+
+    if (!currentHasArtist) {
+      current = `${current}, ${part}`
+      continue
+    }
+
+    if (partHasArtist) {
+      lines.push(current)
+      current = part
+    } else {
+      current = `${current}, ${part}`
+    }
+  }
+
+  if (current) lines.push(current)
+
+  const result = []
+  for (const line of lines) {
+    result.push(...musicSelectionSplitSpecialRequestLine(line))
+  }
+  return result
+}
+
+function isSoloOperaRepertoireSubmission(ms) {
+  const ids = Array.isArray(ms.songIds) ? ms.songIds : []
+  if (ids.length === 0) return false
+  return ids.every((x) => typeof x === 'string' && x.startsWith('op-'))
+}
+
 /** Same From address logic as agency inquiry mail (Hostinger often requires a real mailbox here). */
 function smtpFromAddress() {
   const a = SMTP_FROM != null ? String(SMTP_FROM).trim() : ''
   const b = SMTP_USER != null ? String(SMTP_USER).trim() : ''
   return a || b || ''
+}
+
+/** Client confirmation for solo opera repertoire only; uses saved row (CRM) as source of truth. */
+async function sendOperaRepertoireClientConfirmation(saved) {
+  const mailFrom = smtpFromAddress()
+  console.log('[OPERA-REPERTOIRE-CLIENT-EMAIL] sendOperaRepertoireClientConfirmation invoked', {
+    hasTransporter: Boolean(reminderTransporter),
+    id: saved && saved.id,
+    mailFromLen: mailFrom.length,
+  })
+  if (!reminderTransporter) {
+    console.log('[OPERA-REPERTOIRE-CLIENT-EMAIL] skipped: no reminderTransporter')
+    return
+  }
+  if (!mailFrom) {
+    console.log('[OPERA-REPERTOIRE-CLIENT-EMAIL] skipped: no From address')
+    return
+  }
+  const to = String(saved.submitterEmail || '').trim()
+  if (!to) {
+    console.log('[OPERA-REPERTOIRE-CLIENT-EMAIL] skipped: empty submitter email')
+    return
+  }
+
+  const first = inquiryFirstNameFromFullName(saved.submitterName)
+  const greetingLine = first ? `Hi ${first},` : 'Hi there,'
+  const subject = 'We received your song selections'
+
+  const allLines = musicSelectionSongLinesFromStoredText(saved.songsText)
+  const specialMarker = /^special requests:/i
+  const selectedLines = allLines.filter((l) => !specialMarker.test(l.trim()))
+  const specialRaw = allLines
+    .filter((l) => specialMarker.test(l.trim()))
+    .map((l) => l.replace(/^special requests:\s*/i, '').trim())
+    .filter(Boolean)
+    .join('\n\n')
+
+  const bodyLines = [
+    greetingLine,
+    '',
+    'Thank you for submitting your song selections.',
+    '',
+    'We received the following selections:',
+    '',
+  ]
+  if (selectedLines.length > 0) {
+    for (const s of selectedLines) bodyLines.push(`• ${s}`)
+    bodyLines.push('')
+  }
+  if (specialRaw) {
+    bodyLines.push('Special request songs:')
+    bodyLines.push(specialRaw)
+    bodyLines.push('')
+  }
+  bodyLines.push('We will review everything and be in touch shortly.')
+  bodyLines.push('')
+  bodyLines.push('Warmly,')
+  bodyLines.push('Lisa Dubocquet')
+
+  const text = bodyLines.join('\n')
+
+  console.log('[OPERA-REPERTOIRE-CLIENT-EMAIL] sendMail attempt', { from: mailFrom, to })
+  try {
+    const info = await reminderTransporter.sendMail({
+      from: mailFrom,
+      to,
+      subject,
+      text,
+    })
+    console.log('[OPERA-REPERTOIRE-CLIENT-EMAIL] sendMail resolved', {
+      to,
+      messageId: info && info.messageId,
+      accepted: info && info.accepted,
+      rejected: info && info.rejected,
+    })
+    if (info && Array.isArray(info.rejected) && info.rejected.length > 0) {
+      console.error('[OPERA-REPERTOIRE-CLIENT-EMAIL] server rejected recipient(s)', info.rejected)
+    }
+  } catch (err) {
+    console.error('[OPERA-REPERTOIRE-CLIENT-EMAIL] sendMail threw', {
+      to,
+      message: err && err.message,
+    })
+    logError('SMTP', 'Failed to send opera repertoire client confirmation email', err)
+  }
 }
 
 /** Client-facing confirmation immediately after any inquiry form (solo / duo / general). */
@@ -1506,6 +1650,12 @@ app.post('/api/music-selection', (req, res) => {
       songsText,
       createdAt: new Date().toISOString(),
     })
+    const saved = getMusicSelectionById(id)
+    if (saved && isSoloOperaRepertoireSubmission(saved)) {
+      sendOperaRepertoireClientConfirmation(saved).catch((err) =>
+        logError('SMTP', 'Opera repertoire client confirmation promise rejected', err)
+      )
+    }
     return res.status(201).json({ id, clientId })
   } catch (err) {
     logError('DB', 'Failed to create music selection', err)
