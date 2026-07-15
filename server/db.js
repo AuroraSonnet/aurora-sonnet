@@ -377,6 +377,30 @@ try {
 } catch (e) {
   if (!/duplicate column/i.test(e.message)) throw e
 }
+
+/** One-time stage ID renames for Partnership Outreach pipeline redesign (idempotent). */
+function migratePartnershipOutreachStages() {
+  const now = new Date().toISOString()
+  const stmt = db.prepare(
+    'UPDATE partnership_contacts SET stage = ?, updatedAt = ? WHERE stage = ? AND deletedAt IS NULL'
+  )
+  const emailMigrations = [
+    ['follow_up_needed', 'follow_up_1'],
+    ['interested', 'replied'],
+    ['demo_or_showcase', 'meeting_scheduled'],
+    ['partnered', 'partner'],
+    ['closed_not_fit', 'not_interested'],
+  ]
+  const formMigrations = [
+    ['form_follow_up_due', 'form_follow_up_1'],
+    ['form_partnered', 'form_partner'],
+  ]
+  for (const [from, to] of [...emailMigrations, ...formMigrations]) {
+    stmt.run(to, now, from)
+  }
+}
+migratePartnershipOutreachStages()
+
 try {
   db.exec('ALTER TABLE partner_referrals ADD COLUMN expense_line_items TEXT')
 } catch (e) {

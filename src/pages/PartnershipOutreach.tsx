@@ -26,13 +26,14 @@ import styles from './PartnershipOutreach.module.css'
 const EMAIL_STAGES: { id: string; label: string }[] = [
   { id: 'not_contacted', label: 'Not Contacted' },
   { id: 'first_email_sent', label: 'First Email Sent' },
-  { id: 'follow_up_needed', label: 'Follow-Up Needed' },
+  { id: 'follow_up_1', label: 'Follow-up #1' },
+  { id: 'follow_up_2', label: 'Follow-up #2' },
+  { id: 'follow_up_3', label: 'Follow-up #3' },
   { id: 'replied', label: 'Replied' },
-  { id: 'interested', label: 'Interested' },
   { id: 'meeting_scheduled', label: 'Meeting Scheduled' },
-  { id: 'demo_or_showcase', label: 'Demo / Showcase' },
-  { id: 'partnered', label: 'Partnered' },
-  { id: 'closed_not_fit', label: 'Closed / Not Fit' },
+  { id: 'partner', label: 'Partner' },
+  { id: 'not_interested', label: 'Not Interested' },
+  { id: 'archived_no_response', label: 'Archived (No Response)' },
 ]
 
 const ALL_STAGES = [...EMAIL_STAGES, ...FORM_CONTACT_STAGES]

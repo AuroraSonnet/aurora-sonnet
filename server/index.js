@@ -3863,21 +3863,26 @@ const PARTNERSHIP_CONTACT_TYPES = ['venue', 'planner', 'photographer', 'hotel', 
 const EMAIL_OUTREACH_STAGES = [
   'not_contacted',
   'first_email_sent',
-  'follow_up_needed',
+  'follow_up_1',
+  'follow_up_2',
+  'follow_up_3',
   'replied',
-  'interested',
   'meeting_scheduled',
-  'demo_or_showcase',
-  'partnered',
-  'closed_not_fit',
+  'partner',
+  'not_interested',
+  'archived_no_response',
 ]
 const FORM_OUTREACH_STAGES = [
   'form_to_contact',
   'form_submitted',
-  'form_follow_up_due',
+  'form_follow_up_1',
+  'form_follow_up_2',
+  'form_follow_up_3',
   'form_replied',
   'form_meeting_scheduled',
-  'form_partnered',
+  'form_partner',
+  'form_not_interested',
+  'form_archived_no_response',
 ]
 const PARTNERSHIP_CONTACT_STAGES = [...EMAIL_OUTREACH_STAGES, ...FORM_OUTREACH_STAGES]
 const PARTNERSHIP_CONTACT_FIT_LEVELS = ['high', 'medium', 'low']
@@ -4209,7 +4214,7 @@ app.post('/api/partnership-contacts/:id/send-email', async (req, res) => {
 
     const contactUpdates = { lastEmailSentAt: now }
     if (!contact.firstEmailSentAt) contactUpdates.firstEmailSentAt = now
-    if (contact.stage === 'not_contacted' || contact.stage === 'follow_up_needed') contactUpdates.stage = 'first_email_sent'
+    if (contact.stage === 'not_contacted') contactUpdates.stage = 'first_email_sent'
     const updatedContact = updatePartnershipContact(id, contactUpdates)
     if (contactUpdates.stage && contactUpdates.stage !== contact.stage) {
       createOutreachActivity({

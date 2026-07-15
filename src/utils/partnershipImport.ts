@@ -43,13 +43,19 @@ export const MAPPABLE_FIELDS: { id: MappableField; label: string; required?: boo
 const STAGE_OPTIONS: { id: string; label: string }[] = [
   { id: 'not_contacted', label: 'Not Contacted' },
   { id: 'first_email_sent', label: 'First Email Sent' },
-  { id: 'follow_up_needed', label: 'Follow-Up Needed' },
+  { id: 'follow_up_1', label: 'Follow-up #1' },
+  { id: 'follow_up_1', label: 'Follow-Up Needed' },
+  { id: 'follow_up_2', label: 'Follow-up #2' },
+  { id: 'follow_up_3', label: 'Follow-up #3' },
   { id: 'replied', label: 'Replied' },
-  { id: 'interested', label: 'Interested' },
+  { id: 'replied', label: 'Interested' },
   { id: 'meeting_scheduled', label: 'Meeting Scheduled' },
-  { id: 'demo_or_showcase', label: 'Demo / Showcase' },
-  { id: 'partnered', label: 'Partnered' },
-  { id: 'closed_not_fit', label: 'Closed / Not Fit' },
+  { id: 'meeting_scheduled', label: 'Demo / Showcase' },
+  { id: 'partner', label: 'Partner' },
+  { id: 'partner', label: 'Partnered' },
+  { id: 'not_interested', label: 'Not Interested' },
+  { id: 'not_interested', label: 'Closed / Not Fit' },
+  { id: 'archived_no_response', label: 'Archived (No Response)' },
 ]
 const FIT_LEVEL_OPTIONS: { id: string; label: string }[] = [
   { id: 'high', label: 'High' },
@@ -65,11 +71,15 @@ export const FORM_CONTACT_PLACEHOLDER_DOMAIN = '@partnership.placeholder'
 
 export const FORM_CONTACT_STAGES: { id: string; label: string }[] = [
   { id: 'form_to_contact', label: 'To Contact' },
-  { id: 'form_submitted', label: 'Contact Form Submitted' },
-  { id: 'form_follow_up_due', label: 'Follow-up Due' },
+  { id: 'form_submitted', label: 'Form Submitted' },
+  { id: 'form_follow_up_1', label: 'Follow-up #1' },
+  { id: 'form_follow_up_2', label: 'Follow-up #2' },
+  { id: 'form_follow_up_3', label: 'Follow-up #3' },
   { id: 'form_replied', label: 'Replied' },
   { id: 'form_meeting_scheduled', label: 'Meeting Scheduled' },
-  { id: 'form_partnered', label: 'Partner' },
+  { id: 'form_partner', label: 'Partner' },
+  { id: 'form_not_interested', label: 'Not Interested' },
+  { id: 'form_archived_no_response', label: 'Archived (No Response)' },
 ]
 
 const CONTACT_FORM_PLACEHOLDER_RE =
