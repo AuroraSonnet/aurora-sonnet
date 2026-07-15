@@ -1,5 +1,7 @@
 import { Routes, Route, Navigate, useLocation } from 'react-router-dom'
 import Layout from './components/Layout'
+import Login from './pages/Login'
+import { useAuth } from './context/AuthContext'
 import Dashboard from './pages/Dashboard'
 import MonthlyTargets from './pages/MonthlyTargets'
 import Clients from './pages/Clients'
@@ -21,26 +23,22 @@ import InquireCombined from './pages/InquireCombined'
 import InquireGeneral from './pages/InquireGeneral'
 import SignContract from './pages/SignContract'
 import AcceptProposal from './pages/AcceptProposal'
-import RestrictedAccess from './pages/RestrictedAccess'
 import WeddingMusicSelection from './pages/WeddingMusicSelection'
+import PartnershipOutreach from './pages/PartnershipOutreach'
 
-const isLocalOrigin = () => {
-  const h = typeof window !== 'undefined' ? window.location.hostname : ''
-  return h === 'localhost' || h === '127.0.0.1'
-}
-
-/** When true, only public routes (invoice view, sign, embed) are allowed; rest show Restricted. */
-const isPublicApp = () => !isLocalOrigin()
-
-const isPublicPath = (pathname: string) =>
-  /^\/invoices\/view\/[^/]+$/.test(pathname) ||
-  /^\/sign\/[^/]+$/.test(pathname) ||
-  /^\/accept-proposal\/[^/]+$/.test(pathname) ||
-  pathname === '/embed/inquire-general'
-
-function LayoutOrRestricted() {
+function RequireAuthLayout() {
+  const { authenticated, loading } = useAuth()
   const { pathname } = useLocation()
-  if (isPublicApp() && !isPublicPath(pathname)) return <RestrictedAccess />
+  if (loading) {
+    return (
+      <div style={{ padding: '2rem', textAlign: 'center', color: 'var(--text-muted)' }}>
+        Loading…
+      </div>
+    )
+  }
+  if (!authenticated) {
+    return <Navigate to="/login" state={{ from: pathname }} replace />
+  }
   return <Layout />
 }
 
@@ -51,7 +49,8 @@ export default function App() {
       <Route path="/accept-proposal/:proposalId" element={<AcceptProposal />} />
       <Route path="/embed/inquire-general" element={<InquireGeneral />} />
       <Route path="/invoices/view/:id" element={<InvoiceView />} />
-      <Route path="/" element={<LayoutOrRestricted />}>
+      <Route path="/login" element={<Login />} />
+      <Route path="/" element={<RequireAuthLayout />}>
         <Route index element={<Dashboard />} />
         <Route path="monthly-targets" element={<MonthlyTargets />} />
         <Route path="clients" element={<Clients />} />
@@ -59,6 +58,7 @@ export default function App() {
         <Route path="newsletter" element={<Newsletter />} />
         <Route path="bookings" element={<Projects />} />
         <Route path="proposals" element={<Proposals />} />
+        <Route path="partnership-outreach" element={<PartnershipOutreach />} />
         <Route path="contracts" element={<Contracts />} />
         <Route path="invoices" element={<Invoices />} />
         <Route path="experiences" element={<Experiences />} />

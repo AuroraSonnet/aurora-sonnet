@@ -63,6 +63,18 @@ import {
   updatePartnerReferral,
   deletePartnerReferral,
   getPartnerReferral,
+  getPartnershipContactByEmail,
+  getPartnershipContactById,
+  createPartnershipContact,
+  updatePartnershipContact,
+  deletePartnershipContact,
+  createOutreachActivity,
+  listOutreachActivityForContact,
+  createEmailTemplate,
+  updateEmailTemplate,
+  deleteEmailTemplate,
+  getEmailTemplateById,
+  getNextCalendarReminderId,
 } from './db.js'
 import {
   seedClients,
@@ -72,6 +84,13 @@ import {
   seedContracts,
   seedExpenses,
 } from './seedData.js'
+import {
+  validateAuthConfig,
+  createSessionMiddleware,
+  loginRateLimitMiddleware,
+  requireAuth,
+  registerAuthRoutes,
+} from './auth.js'
 
 const __dirname = dirname(fileURLToPath(import.meta.url))
 dotenv.config({ path: join(__dirname, '.env') })
@@ -88,6 +107,19 @@ try {
 
 const app = express()
 const PORT = process.env.PORT || 3001
+const isProductionDeploy =
+  process.env.NODE_ENV === 'production' ||
+  process.env.RENDER === 'true' ||
+  Boolean((process.env.RENDER_EXTERNAL_URL || '').includes('onrender.com'))
+
+if (isProductionDeploy) {
+  app.set('trust proxy', 1)
+}
+
+if (!validateAuthConfig() && isProductionDeploy) {
+  console.error('[AUTH] Refusing to start: authentication environment variables are missing or invalid.')
+  process.exit(1)
+}
 
 let stripeSecret = process.env.STRIPE_SECRET_KEY
 let stripe = stripeSecret ? new Stripe(stripeSecret) : null
@@ -289,6 +321,7 @@ app.use((req, res, next) => {
     (origin && origin.startsWith('https://') && (isStateGet || isPublicEndpoint))
   if (allow) {
     res.setHeader('Access-Control-Allow-Origin', origin)
+    res.setHeader('Access-Control-Allow-Credentials', 'true')
   } else if ((isStateGet || isDesktopSync) && (!origin || origin === 'null' || origin === 'file://' || !origin.startsWith('https://'))) {
     res.setHeader('Access-Control-Allow-Origin', '*')
   } else if (isClientBulk && (!origin || origin === 'null' || origin === 'file://')) {
@@ -361,6 +394,26 @@ app.use('/api/partner-referrals', (req, res, next) => {
   next()
 })
 
+// Partnership outreach send-email has no server-side auth (same as the rest of this CRM's API), and unlike
+// the read/write data routes it can send real mail through the business's SMTP account — so it gets its own,
+// stricter cap on top of the existing per-contact double-send guard, to bound damage if the endpoint is ever
+// hit directly (not through the app UI) by something other than the business owner.
+const rateLimitWindowMsHour = 60 * 60 * 1000
+const rateLimitMaxOutreachEmailPerHour = 40
+const rateLimitOutreachEmail = new Map()
+app.use('/api/partnership-contacts/:id/send-email', (req, res, next) => {
+  if (req.method !== 'POST') return next()
+  cleanupRateLimit(rateLimitOutreachEmail, rateLimitWindowMsHour)
+  const key = getClientKey(req)
+  const data = rateLimitOutreachEmail.get(key) || { count: 0, start: Date.now() }
+  data.count++
+  rateLimitOutreachEmail.set(key, data)
+  if (data.count > rateLimitMaxOutreachEmailPerHour) {
+    return res.status(429).json({ error: 'Too many outreach emails sent recently from this connection. Please wait before sending more.' })
+  }
+  next()
+})
+
 // Webhook must get raw body for Stripe signature verification (register before express.json)
 app.post(
   '/api/stripe-webhook',
@@ -399,6 +452,11 @@ app.post(
 // Large limit so PDF template uploads (base64) don't get 413
 app.use(express.json({ limit: '50mb' }))
 app.use(express.urlencoded({ extended: true }))
+
+app.use(createSessionMiddleware())
+app.use(loginRateLimitMiddleware)
+app.use(requireAuth)
+registerAuthRoutes(app)
 
 // --- Inquiry (single handler: JSON for app, optional redirect when _next provided) ---
 const PACKAGE_PRICES = {
@@ -1551,10 +1609,6 @@ async function sendDuoRepertoireClientConfirmation(saved) {
     'Thank you for submitting your song selections.',
     '',
   ]
-  if (fullName) {
-    bodyLines.push(`Full name: ${fullName}`)
-    bodyLines.push('')
-  }
   if (labelTrim) {
     bodyLines.push(`Selection label: ${labelTrim}`)
     bodyLines.push('')
@@ -3797,6 +3851,355 @@ app.delete('/api/partner-referrals/:id', (req, res) => {
   } catch (err) {
     logError('DB', 'Failed to delete partner referral', err)
     res.status(500).json({ error: 'Failed to delete partner referral' })
+  }
+})
+
+// ---------------------------------------------------------------------------
+// Partnership Outreach module (cold outreach to venues/planners/photographers/etc.)
+// CRUD only in this phase — no email sending yet.
+// ---------------------------------------------------------------------------
+
+const PARTNERSHIP_CONTACT_TYPES = ['venue', 'planner', 'photographer', 'hotel', 'private_club', 'florist', 'other']
+const PARTNERSHIP_CONTACT_STAGES = [
+  'not_contacted',
+  'first_email_sent',
+  'follow_up_needed',
+  'replied',
+  'interested',
+  'meeting_scheduled',
+  'demo_or_showcase',
+  'partnered',
+  'closed_not_fit',
+]
+const PARTNERSHIP_CONTACT_FIT_LEVELS = ['high', 'medium', 'low']
+// email_sent and stage_change are written automatically by the server (send-email route, stage updates);
+// manual entries via POST /:id/activity are limited to these so the log can't be faked.
+const MANUAL_OUTREACH_ACTIVITY_TYPES = ['note', 'reply', 'meeting', 'demo']
+const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/
+
+function isValidEmailFormat(email) {
+  return typeof email === 'string' && EMAIL_RE.test(email.trim())
+}
+
+app.post('/api/partnership-contacts', (req, res) => {
+  try {
+    const b = req.body || {}
+    const companyName = String(b.companyName || '').trim()
+    const email = String(b.email || '').trim()
+    if (!companyName) return res.status(400).json({ error: 'companyName is required' })
+    if (!email) return res.status(400).json({ error: 'email is required' })
+    if (!isValidEmailFormat(email)) return res.status(400).json({ error: 'email is not a valid email address' })
+
+    const partnerType = b.partnerType != null && String(b.partnerType).trim() ? String(b.partnerType).trim() : undefined
+    if (partnerType && !PARTNERSHIP_CONTACT_TYPES.includes(partnerType)) {
+      return res.status(400).json({ error: `partnerType must be one of: ${PARTNERSHIP_CONTACT_TYPES.join(', ')}` })
+    }
+    const stage = b.stage != null && String(b.stage).trim() ? String(b.stage).trim() : undefined
+    if (stage && !PARTNERSHIP_CONTACT_STAGES.includes(stage)) {
+      return res.status(400).json({ error: `stage must be one of: ${PARTNERSHIP_CONTACT_STAGES.join(', ')}` })
+    }
+    const fitLevel = b.fitLevel != null && String(b.fitLevel).trim() ? String(b.fitLevel).trim() : undefined
+    if (fitLevel && !PARTNERSHIP_CONTACT_FIT_LEVELS.includes(fitLevel)) {
+      return res.status(400).json({ error: `fitLevel must be one of: ${PARTNERSHIP_CONTACT_FIT_LEVELS.join(', ')}` })
+    }
+
+    const existing = getPartnershipContactByEmail(email)
+    if (existing) {
+      return res.status(409).json({ error: 'A partnership contact with this email already exists', existingId: existing.id })
+    }
+
+    let id
+    if (b.id != null && String(b.id).trim()) {
+      id = String(b.id).trim()
+      if (getPartnershipContactById(id)) return res.status(409).json({ error: 'Contact id already exists' })
+    }
+
+    const createdId = createPartnershipContact({
+      id,
+      companyName,
+      email,
+      partnerType,
+      contactName: String(b.contactName || '').trim() || undefined,
+      jobTitle: String(b.jobTitle || '').trim() || undefined,
+      website: String(b.website || '').trim() || undefined,
+      instagram: String(b.instagram || '').trim() || undefined,
+      city: String(b.city || '').trim() || undefined,
+      region: String(b.region || '').trim() || undefined,
+      fitLevel,
+      notes: String(b.notes || '').trim() || undefined,
+      stage,
+      source: String(b.source || '').trim() || 'manual',
+    })
+    res.json({ id: createdId })
+  } catch (err) {
+    logError('DB', 'Failed to create partnership contact', err)
+    res.status(500).json({ error: 'Failed to create partnership contact' })
+  }
+})
+
+app.patch('/api/partnership-contacts/:id', (req, res) => {
+  try {
+    const id = req.params.id
+    const existing = getPartnershipContactById(id)
+    if (!existing) return res.status(404).json({ error: 'Partnership contact not found' })
+    if (existing.deletedAt) return res.status(400).json({ error: 'Partnership contact is deleted' })
+
+    const b = req.body || {}
+    const updates = {}
+
+    if (b.companyName !== undefined) {
+      const companyName = String(b.companyName || '').trim()
+      if (!companyName) return res.status(400).json({ error: 'companyName cannot be empty' })
+      updates.companyName = companyName
+    }
+    if (b.email !== undefined) {
+      const email = String(b.email || '').trim()
+      if (!email) return res.status(400).json({ error: 'email cannot be empty' })
+      if (!isValidEmailFormat(email)) return res.status(400).json({ error: 'email is not a valid email address' })
+      const dupe = getPartnershipContactByEmail(email)
+      if (dupe && dupe.id !== id) {
+        return res.status(409).json({ error: 'Another partnership contact already uses this email', existingId: dupe.id })
+      }
+      updates.email = email
+    }
+    if (b.partnerType !== undefined) {
+      const partnerType = String(b.partnerType || '').trim()
+      if (partnerType && !PARTNERSHIP_CONTACT_TYPES.includes(partnerType)) {
+        return res.status(400).json({ error: `partnerType must be one of: ${PARTNERSHIP_CONTACT_TYPES.join(', ')}` })
+      }
+      updates.partnerType = partnerType || undefined
+    }
+    if (b.fitLevel !== undefined) {
+      const fitLevel = String(b.fitLevel || '').trim()
+      if (fitLevel && !PARTNERSHIP_CONTACT_FIT_LEVELS.includes(fitLevel)) {
+        return res.status(400).json({ error: `fitLevel must be one of: ${PARTNERSHIP_CONTACT_FIT_LEVELS.join(', ')}` })
+      }
+      updates.fitLevel = fitLevel || undefined
+    }
+    let stageChanged = false
+    if (b.stage !== undefined) {
+      const stage = String(b.stage || '').trim()
+      if (!stage || !PARTNERSHIP_CONTACT_STAGES.includes(stage)) {
+        return res.status(400).json({ error: `stage must be one of: ${PARTNERSHIP_CONTACT_STAGES.join(', ')}` })
+      }
+      if (stage !== existing.stage) stageChanged = true
+      updates.stage = stage
+    }
+    for (const field of ['contactName', 'jobTitle', 'website', 'instagram', 'city', 'region', 'notes']) {
+      if (b[field] !== undefined) updates[field] = String(b[field] || '').trim() || undefined
+    }
+
+    const updated = updatePartnershipContact(id, updates)
+    if (stageChanged) {
+      createOutreachActivity({
+        partnershipContactId: id,
+        type: 'stage_change',
+        body: `Stage changed from "${existing.stage}" to "${updated.stage}"`,
+      })
+    }
+    res.json(updated)
+  } catch (err) {
+    logError('DB', 'Failed to update partnership contact', err)
+    res.status(500).json({ error: 'Failed to update partnership contact' })
+  }
+})
+
+app.delete('/api/partnership-contacts/:id', (req, res) => {
+  try {
+    const id = req.params.id
+    const existing = getPartnershipContactById(id)
+    if (!existing) return res.status(404).json({ error: 'Partnership contact not found' })
+    if (existing.deletedAt) return res.status(400).json({ error: 'Partnership contact already deleted' })
+    deletePartnershipContact(id)
+    res.json({ ok: true })
+  } catch (err) {
+    logError('DB', 'Failed to delete partnership contact', err)
+    res.status(500).json({ error: 'Failed to delete partnership contact' })
+  }
+})
+
+// Manual timeline entries only (note/reply/meeting/demo). email_sent and stage_change are
+// written by the server itself elsewhere so the log always reflects what actually happened.
+app.post('/api/partnership-contacts/:id/activity', (req, res) => {
+  try {
+    const id = req.params.id
+    const contact = getPartnershipContactById(id)
+    if (!contact) return res.status(404).json({ error: 'Partnership contact not found' })
+    if (contact.deletedAt) return res.status(400).json({ error: 'Partnership contact is deleted' })
+
+    const b = req.body || {}
+    const type = String(b.type || '').trim()
+    if (!type || !MANUAL_OUTREACH_ACTIVITY_TYPES.includes(type)) {
+      return res.status(400).json({ error: `type must be one of: ${MANUAL_OUTREACH_ACTIVITY_TYPES.join(', ')}` })
+    }
+    const subject = String(b.subject || '').trim() || undefined
+    const body = String(b.body || '').trim() || undefined
+    if (!subject && !body) return res.status(400).json({ error: 'Provide a subject or body for the activity entry' })
+
+    const activityId = createOutreachActivity({ partnershipContactId: id, type, subject, body })
+    res.json({ id: activityId })
+  } catch (err) {
+    logError('DB', 'Failed to log partnership outreach activity', err)
+    res.status(500).json({ error: 'Failed to log partnership outreach activity' })
+  }
+})
+
+app.post('/api/email-templates', (req, res) => {
+  try {
+    const b = req.body || {}
+    const name = String(b.name || '').trim()
+    const subject = String(b.subject || '').trim()
+    const body = String(b.body || '').trim()
+    if (!name) return res.status(400).json({ error: 'name is required' })
+    if (!subject) return res.status(400).json({ error: 'subject is required' })
+    if (!body) return res.status(400).json({ error: 'body is required' })
+    const id = createEmailTemplate({ name, subject, body, category: String(b.category || '').trim() || undefined })
+    res.json({ id })
+  } catch (err) {
+    logError('DB', 'Failed to create email template', err)
+    res.status(500).json({ error: 'Failed to create email template' })
+  }
+})
+
+app.patch('/api/email-templates/:id', (req, res) => {
+  try {
+    const b = req.body || {}
+    const updates = {}
+    if (b.name !== undefined) {
+      const name = String(b.name || '').trim()
+      if (!name) return res.status(400).json({ error: 'name cannot be empty' })
+      updates.name = name
+    }
+    if (b.subject !== undefined) {
+      const subject = String(b.subject || '').trim()
+      if (!subject) return res.status(400).json({ error: 'subject cannot be empty' })
+      updates.subject = subject
+    }
+    if (b.body !== undefined) {
+      const body = String(b.body || '').trim()
+      if (!body) return res.status(400).json({ error: 'body cannot be empty' })
+      updates.body = body
+    }
+    if (b.category !== undefined) updates.category = String(b.category || '').trim() || undefined
+    const updated = updateEmailTemplate(req.params.id, updates)
+    if (!updated) return res.status(404).json({ error: 'Email template not found' })
+    res.json(updated)
+  } catch (err) {
+    logError('DB', 'Failed to update email template', err)
+    res.status(500).json({ error: 'Failed to update email template' })
+  }
+})
+
+app.delete('/api/email-templates/:id', (req, res) => {
+  try {
+    const ok = deleteEmailTemplate(req.params.id)
+    if (!ok) return res.status(404).json({ error: 'Email template not found' })
+    res.json({ ok: true })
+  } catch (err) {
+    logError('DB', 'Failed to delete email template', err)
+    res.status(500).json({ error: 'Failed to delete email template' })
+  }
+})
+
+// Blocks a second send to the same contact within this window, to absorb double-clicks/retries.
+// Deliberately short — sending a genuine follow-up hours or days later is never blocked.
+const OUTREACH_EMAIL_DEDUP_WINDOW_MS = 10_000
+
+// Sends one outreach email (single contact only in this phase — no bulk sending).
+// Subject/body arrive already merged and possibly hand-edited by the sender; the server sends exactly
+// what it's given and logs that exact text, so the timeline always reflects what actually went out.
+app.post('/api/partnership-contacts/:id/send-email', async (req, res) => {
+  try {
+    const id = req.params.id
+    const contact = getPartnershipContactById(id)
+    if (!contact) return res.status(404).json({ error: 'Partnership contact not found' })
+    if (contact.deletedAt) return res.status(400).json({ error: 'Partnership contact is deleted' })
+
+    if (!reminderTransporter) {
+      return res.status(503).json({ error: 'Email is not configured. Set SMTP_HOST/SMTP_PORT/SMTP_USER/SMTP_PASS in server settings.' })
+    }
+    const mailFrom = SMTP_FROM || SMTP_USER
+    if (!mailFrom) {
+      return res.status(503).json({ error: 'No sending address configured (set SMTP_FROM or SMTP_USER).' })
+    }
+
+    const b = req.body || {}
+    const subject = String(b.subject || '').trim()
+    const body = String(b.body || '').trim()
+    if (!subject) return res.status(400).json({ error: 'subject is required' })
+    if (!body) return res.status(400).json({ error: 'body is required' })
+
+    const templateId = b.templateId != null && String(b.templateId).trim() ? String(b.templateId).trim() : undefined
+    if (templateId && !getEmailTemplateById(templateId)) {
+      return res.status(400).json({ error: 'templateId does not exist' })
+    }
+
+    // Double-send guard
+    const recentActivity = listOutreachActivityForContact(id)
+    const justSent = recentActivity.find(
+      (a) => a.type === 'email_sent' && Date.now() - new Date(a.createdAt).getTime() < OUTREACH_EMAIL_DEDUP_WINDOW_MS
+    )
+    if (justSent) {
+      return res.status(429).json({ error: 'An email was just sent to this contact moments ago. Wait a few seconds before sending another.' })
+    }
+
+    const to = String(contact.email || '').trim()
+    if (!isValidEmailFormat(to)) {
+      return res.status(400).json({ error: 'This contact does not have a valid email address' })
+    }
+
+    console.log('[PARTNERSHIP-OUTREACH-EMAIL] sendMail attempt', { from: mailFrom, to, templateId, contactId: id })
+    try {
+      const info = await reminderTransporter.sendMail({ from: mailFrom, to, subject, text: body })
+      console.log('[PARTNERSHIP-OUTREACH-EMAIL] sendMail resolved', {
+        to,
+        messageId: info && info.messageId,
+        accepted: info && info.accepted,
+        rejected: info && info.rejected,
+      })
+    } catch (err) {
+      logError('PARTNERSHIP-OUTREACH-EMAIL', 'sendMail threw', err)
+      return res.status(502).json({ error: 'Failed to send email. Check SMTP settings and try again.' })
+    }
+
+    const now = new Date().toISOString()
+    const activityId = createOutreachActivity({ partnershipContactId: id, type: 'email_sent', subject, body, templateId })
+
+    const contactUpdates = { lastEmailSentAt: now }
+    if (!contact.firstEmailSentAt) contactUpdates.firstEmailSentAt = now
+    if (contact.stage === 'not_contacted' || contact.stage === 'follow_up_needed') contactUpdates.stage = 'first_email_sent'
+    const updatedContact = updatePartnershipContact(id, contactUpdates)
+    if (contactUpdates.stage && contactUpdates.stage !== contact.stage) {
+      createOutreachActivity({
+        partnershipContactId: id,
+        type: 'stage_change',
+        body: `Stage changed from "${contact.stage}" to "${contactUpdates.stage}" (automatic — email sent)`,
+      })
+    }
+
+    // Optional auto-created follow-up reminder, reusing the existing calendar_reminders system so it
+    // shows up in the same Calendar page and send-due reminder job as any other reminder.
+    let reminder = null
+    const r = b.reminder
+    if (r && r.date) {
+      const reminderId = getNextCalendarReminderId()
+      const title = String(r.title || '').trim() || `Follow up with ${contact.companyName}`
+      createCalendarReminder({
+        id: reminderId,
+        date: String(r.date),
+        title,
+        notes: r.notes != null && String(r.notes).trim() ? String(r.notes).trim() : undefined,
+        reminderAt: r.reminderAt != null && String(r.reminderAt).trim() ? String(r.reminderAt).trim() : undefined,
+        partnershipContactId: id,
+        createdAt: now,
+      })
+      reminder = { id: reminderId, date: r.date, title, partnershipContactId: id }
+    }
+
+    res.json({ ok: true, activityId, contact: updatedContact, reminder })
+  } catch (err) {
+    logError('DB', 'Failed to send partnership outreach email', err)
+    res.status(500).json({ error: 'Failed to send email' })
   }
 })
 

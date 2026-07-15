@@ -148,6 +148,29 @@
   border-radius: 4px;
 }
 
+.userLabel {
+  display: block;
+  margin-top: 0.5rem;
+  font-size: 0.75rem;
+  color: rgba(255, 255, 255, 0.65);
+}
+
+.logoutBtn {
+  display: block;
+  width: 100%;
+  margin-top: 0.5rem;
+  padding: 0.45rem 0.75rem;
+  font-size: 0.8125rem;
+  background: transparent;
+  border: 1px solid var(--border-sidebar);
+  color: rgba(255, 255, 255, 0.85);
+  border-radius: var(--radius-sm);
+}
+
+.logoutBtn:hover {
+  background: rgba(255, 255, 255, 0.08);
+}
+
 .main {
   flex: 1;
   overflow-x: hidden;

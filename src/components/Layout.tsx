@@ -2,6 +2,7 @@ import { Outlet, useLocation } from 'react-router-dom'
 import { NavLink } from 'react-router-dom'
 import { useState, useEffect, useRef } from 'react'
 import { useApp } from '../context/AppContext'
+import { useAuth } from '../context/AuthContext'
 import { getInquiryApiBaseUrl } from '../utils/inquiryApiUrl'
 import UndoBar from './UndoBar'
 import styles from './Layout.module.css'
@@ -20,6 +21,7 @@ const nav = [
   { to: '/bookings', label: 'Bookings', icon: '▷' },
   { to: '/clients', label: 'Clients', icon: '◇' },
   { to: '/proposals', label: 'Proposals', icon: '◆' },
+  { to: '/partnership-outreach', label: 'Partnership Outreach', icon: '🤝' },
   { to: '/contracts', label: 'Contracts', icon: '▣' },
   { to: '/invoices', label: 'Invoices', icon: '◎' },
   { to: '/calendar', label: 'Calendar', icon: '📅' },
@@ -31,11 +33,12 @@ const nav = [
   { to: '/automations', label: 'Automations', icon: '⚡' },
   { to: '/settings', label: 'Settings', icon: '⚙' },
 ]
-const navBeforeLeadForms = 10 // Dashboard through Repertoire, then Lead forms
+const navBeforeLeadForms = 11 // Dashboard through Repertoire, then Lead forms
 
 export default function Layout() {
   const location = useLocation()
   const { actions } = useApp()
+  const { logout, username } = useAuth()
   const isInLeadForms = leadFormRoutes.some((r) => location.pathname === r)
   const [leadFormsOpen, setLeadFormsOpen] = useState(isInLeadForms)
   const [refreshing, setRefreshing] = useState(false)
@@ -175,6 +178,10 @@ export default function Layout() {
             {refreshing ? 'Syncing…' : refreshedAt != null ? 'Synced' : 'Sync inquiries'}
           </button>
           <span className={styles.badge}>Pro</span>
+          {username ? <span className={styles.userLabel}>{username}</span> : null}
+          <button type="button" className={styles.logoutBtn} onClick={() => logout()}>
+            Log out
+          </button>
         </div>
       </aside>
       <main className={styles.main}>

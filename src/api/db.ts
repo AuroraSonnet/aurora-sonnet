@@ -1,5 +1,9 @@
 const API = '/api'
 
+function apiFetch(input: RequestInfo | URL, init?: RequestInit): Promise<Response> {
+  return apiFetch(input, { credentials: 'include', ...init })
+}
+
 export interface DocumentTemplate {
   id: string
   name: string
@@ -42,7 +46,7 @@ export interface AppState {
 
 export async function fetchState(): Promise<AppState | null> {
   try {
-    const res = await fetch(`${API}/state`)
+    const res = await apiFetch(`${API}/state`)
     if (!res.ok) return null
     return res.json()
   } catch {
@@ -52,7 +56,7 @@ export async function fetchState(): Promise<AppState | null> {
 
 export async function getPublicAppUrl(): Promise<string> {
   try {
-    const res = await fetch(`${API}/settings/public-url`)
+    const res = await apiFetch(`${API}/settings/public-url`)
     if (!res.ok) return ''
     const data = await res.json().catch(() => ({}))
     return typeof data.publicAppUrl === 'string' ? data.publicAppUrl : ''
@@ -63,7 +67,7 @@ export async function getPublicAppUrl(): Promise<string> {
 
 export async function savePublicAppUrl(publicAppUrl: string): Promise<boolean> {
   try {
-    const res = await fetch(`${API}/settings/public-url`, {
+    const res = await apiFetch(`${API}/settings/public-url`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ publicAppUrl: publicAppUrl.trim() }),
@@ -77,7 +81,7 @@ export async function savePublicAppUrl(publicAppUrl: string): Promise<boolean> {
 /** Seed the database with sample data (only works when DB is empty). Returns new state or null. */
 export async function seedDatabase(): Promise<AppState | null> {
   try {
-    const res = await fetch(`${API}/seed`, { method: 'POST' })
+    const res = await apiFetch(`${API}/seed`, { method: 'POST' })
     if (!res.ok) return null
     return res.json()
   } catch {
@@ -87,7 +91,7 @@ export async function seedDatabase(): Promise<AppState | null> {
 
 export async function apiCreateClient(client: { id?: string; name: string; email: string; phone?: string; partnerName?: string; createdAt: string }): Promise<{ ok: true; id: string } | { ok: false; error: string }> {
   try {
-    const res = await fetch(`${API}/clients`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(client) })
+    const res = await apiFetch(`${API}/clients`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(client) })
     const body = await res.json().catch(() => ({}))
     const msg = (body && typeof body.error === 'string') ? body.error : 'Failed to create client'
     if (res.ok) return { ok: true, id: typeof body.id === 'string' ? body.id : String(client.id || '') }
@@ -99,7 +103,7 @@ export async function apiCreateClient(client: { id?: string; name: string; email
 
 export async function apiUpdateClient(id: string, updates: Record<string, unknown>): Promise<{ ok: true } | { ok: false; error: string }> {
   try {
-    const res = await fetch(`${API}/clients/${id}`, { method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(updates) })
+    const res = await apiFetch(`${API}/clients/${id}`, { method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(updates) })
     const body = await res.json().catch(() => ({}))
     const msg = (body && typeof body.error === 'string') ? body.error : 'Failed to update client'
     if (res.ok) return { ok: true }
@@ -112,7 +116,7 @@ export async function apiUpdateClient(id: string, updates: Record<string, unknow
 /** Submit inquiry form (creates client + project in one call). For in-app or website form. */
 export async function apiSubmitInquiry(data: { name: string; email: string; phone?: string; weddingDate?: string; venue?: string; packageId?: string; requestedArtist?: string; performanceMoment?: string[]; message?: string }): Promise<{ clientId: string; projectId: string } | null> {
   try {
-    const res = await fetch(`${API}/inquiry`, {
+    const res = await apiFetch(`${API}/inquiry`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(data),
@@ -127,7 +131,7 @@ export async function apiSubmitInquiry(data: { name: string; email: string; phon
 
 export async function apiCreateProject(project: Record<string, unknown>): Promise<boolean> {
   try {
-    const res = await fetch(`${API}/projects`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(project) })
+    const res = await apiFetch(`${API}/projects`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(project) })
     return res.ok
   } catch {
     return false
@@ -136,7 +140,7 @@ export async function apiCreateProject(project: Record<string, unknown>): Promis
 
 export async function apiUpdateProject(id: string, updates: Record<string, unknown>): Promise<boolean> {
   try {
-    const res = await fetch(`${API}/projects/${id}`, { method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(updates) })
+    const res = await apiFetch(`${API}/projects/${id}`, { method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(updates) })
     return res.ok
   } catch {
     return false
@@ -145,7 +149,7 @@ export async function apiUpdateProject(id: string, updates: Record<string, unkno
 
 export async function apiCreateProposal(proposal: Record<string, unknown>): Promise<boolean> {
   try {
-    const res = await fetch(`${API}/proposals`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(proposal) })
+    const res = await apiFetch(`${API}/proposals`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(proposal) })
     return res.ok
   } catch {
     return false
@@ -154,7 +158,7 @@ export async function apiCreateProposal(proposal: Record<string, unknown>): Prom
 
 export async function apiCreateContract(contract: Record<string, unknown>): Promise<boolean> {
   try {
-    const res = await fetch(`${API}/contracts`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(contract) })
+    const res = await apiFetch(`${API}/contracts`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(contract) })
     return res.ok
   } catch {
     return false
@@ -163,7 +167,7 @@ export async function apiCreateContract(contract: Record<string, unknown>): Prom
 
 export async function apiUpdateContract(id: string, updates: Record<string, unknown>): Promise<boolean> {
   try {
-    const res = await fetch(`${API}/contracts/${id}`, { method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(updates) })
+    const res = await apiFetch(`${API}/contracts/${id}`, { method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(updates) })
     return res.ok
   } catch {
     return false
@@ -172,7 +176,7 @@ export async function apiUpdateContract(id: string, updates: Record<string, unkn
 
 export async function apiCreateInvoice(invoice: Record<string, unknown>): Promise<{ ok: true; invoiceNumber: string } | { ok: false }> {
   try {
-    const res = await fetch(`${API}/invoices`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(invoice) })
+    const res = await apiFetch(`${API}/invoices`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(invoice) })
     if (!res.ok) return { ok: false }
     const data = await res.json().catch(() => ({}))
     return { ok: true, invoiceNumber: data.invoiceNumber ?? '' }
@@ -183,7 +187,7 @@ export async function apiCreateInvoice(invoice: Record<string, unknown>): Promis
 
 export async function apiUpdateInvoice(id: string, updates: Record<string, unknown>): Promise<boolean> {
   try {
-    const res = await fetch(`${API}/invoices/${id}`, { method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(updates) })
+    const res = await apiFetch(`${API}/invoices/${id}`, { method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(updates) })
     return res.ok
   } catch {
     return false
@@ -193,7 +197,7 @@ export async function apiUpdateInvoice(id: string, updates: Record<string, unkno
 /** Send overdue "please pay" reminder email to client (requires SMTP). */
 export async function apiSendInvoiceReminder(invoiceId: string, baseUrl?: string): Promise<{ ok: true; sentAt: string } | { ok: false; error: string }> {
   try {
-    const res = await fetch(`${API}/invoices/${invoiceId}/send-reminder`, {
+    const res = await apiFetch(`${API}/invoices/${invoiceId}/send-reminder`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ baseUrl: baseUrl || (typeof window !== 'undefined' ? window.location.origin : '') }),
@@ -209,7 +213,7 @@ export async function apiSendInvoiceReminder(invoiceId: string, baseUrl?: string
 
 export async function apiCreateExpense(expense: Record<string, unknown>): Promise<boolean> {
   try {
-    const res = await fetch(`${API}/expenses`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(expense) })
+    const res = await apiFetch(`${API}/expenses`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(expense) })
     return res.ok
   } catch {
     return false
@@ -221,7 +225,7 @@ export async function apiUpdateExpense(
   updates: { date?: string; description?: string; amount?: number; category?: string }
 ): Promise<boolean> {
   try {
-    const res = await fetch(`${API}/expenses/${id}`, {
+    const res = await apiFetch(`${API}/expenses/${id}`, {
       method: 'PATCH',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(updates),
@@ -234,7 +238,7 @@ export async function apiUpdateExpense(
 
 export async function apiDeleteClient(id: string): Promise<boolean> {
   try {
-    const res = await fetch(`${API}/clients/${id}`, { method: 'DELETE' })
+    const res = await apiFetch(`${API}/clients/${id}`, { method: 'DELETE' })
     if (res.ok || res.status === 404) return true
     return false
   } catch {
@@ -247,7 +251,7 @@ export async function apiDeleteClientOnRemote(baseUrl: string, id: string): Prom
   if (!baseUrl || !baseUrl.startsWith('http')) return true
   try {
     const base = baseUrl.replace(/\/$/, '')
-    const res = await fetch(`${base}/api/clients/${id}`, { method: 'DELETE' })
+    const res = await apiFetch(`${base}/api/clients/${id}`, { method: 'DELETE' })
     return res.ok || res.status === 404
   } catch {
     return false
@@ -259,7 +263,7 @@ export async function apiDeleteAllClientsOnRemote(baseUrl: string): Promise<{ ok
   if (!baseUrl || !baseUrl.startsWith('http')) return { ok: true, deleted: 0 }
   try {
     const base = baseUrl.replace(/\/$/, '')
-    const res = await fetch(`${base}/api/clients/delete-all`, { method: 'POST' })
+    const res = await apiFetch(`${base}/api/clients/delete-all`, { method: 'POST' })
     if (res.status === 502 || res.status === 503) return { ok: false, reason: 'waking_up' }
     if (!res.ok) return { ok: false, reason: res.status.toString() }
     const data = await res.json().catch(() => ({}))
@@ -272,7 +276,7 @@ export async function apiDeleteAllClientsOnRemote(baseUrl: string): Promise<{ ok
 /** Soft-delete all clients on the current (same-origin) API. */
 export async function apiDeleteAllClients(): Promise<{ ok: boolean; deleted?: number }> {
   try {
-    const res = await fetch(`${API}/clients/delete-all`, { method: 'POST' })
+    const res = await apiFetch(`${API}/clients/delete-all`, { method: 'POST' })
     if (!res.ok) return { ok: false }
     const data = await res.json().catch(() => ({}))
     return { ok: true, deleted: typeof data.deleted === 'number' ? data.deleted : 0 }
@@ -286,7 +290,7 @@ export async function apiRestoreAllClientsOnRemote(baseUrl: string): Promise<{ o
   if (!baseUrl || !baseUrl.startsWith('http')) return { ok: true, restored: 0 }
   try {
     const base = baseUrl.replace(/\/$/, '')
-    const res = await fetch(`${base}/api/clients/restore-all`, { method: 'POST' })
+    const res = await apiFetch(`${base}/api/clients/restore-all`, { method: 'POST' })
     if (!res.ok) return { ok: false }
     const data = await res.json().catch(() => ({}))
     return { ok: true, restored: typeof data.restored === 'number' ? data.restored : 0 }
@@ -298,7 +302,7 @@ export async function apiRestoreAllClientsOnRemote(baseUrl: string): Promise<{ o
 /** Restore all soft-deleted clients on the current (same-origin) API. */
 export async function apiRestoreAllClients(): Promise<{ ok: boolean; restored?: number }> {
   try {
-    const res = await fetch(`${API}/clients/restore-all`, { method: 'POST' })
+    const res = await apiFetch(`${API}/clients/restore-all`, { method: 'POST' })
     if (!res.ok) return { ok: false }
     const data = await res.json().catch(() => ({}))
     return { ok: true, restored: typeof data.restored === 'number' ? data.restored : 0 }
@@ -309,7 +313,7 @@ export async function apiRestoreAllClients(): Promise<{ ok: boolean; restored?: 
 
 export async function apiRestoreClient(id: string): Promise<boolean> {
   try {
-    const res = await fetch(`${API}/clients/${id}/restore`, { method: 'POST' })
+    const res = await apiFetch(`${API}/clients/${id}/restore`, { method: 'POST' })
     return res.ok
   } catch {
     return false
@@ -318,7 +322,7 @@ export async function apiRestoreClient(id: string): Promise<boolean> {
 
 export async function apiDeleteProject(id: string): Promise<boolean> {
   try {
-    const res = await fetch(`${API}/projects/${id}`, { method: 'DELETE' })
+    const res = await apiFetch(`${API}/projects/${id}`, { method: 'DELETE' })
     return res.ok
   } catch {
     return false
@@ -327,7 +331,7 @@ export async function apiDeleteProject(id: string): Promise<boolean> {
 
 export async function apiUpdateProposal(id: string, updates: Record<string, unknown>): Promise<boolean> {
   try {
-    const res = await fetch(`${API}/proposals/${id}`, { method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(updates) })
+    const res = await apiFetch(`${API}/proposals/${id}`, { method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(updates) })
     return res.ok
   } catch {
     return false
@@ -336,7 +340,7 @@ export async function apiUpdateProposal(id: string, updates: Record<string, unkn
 
 export async function apiDeleteProposal(id: string): Promise<boolean> {
   try {
-    const res = await fetch(`${API}/proposals/${id}`, { method: 'DELETE' })
+    const res = await apiFetch(`${API}/proposals/${id}`, { method: 'DELETE' })
     return res.ok
   } catch {
     return false
@@ -345,7 +349,7 @@ export async function apiDeleteProposal(id: string): Promise<boolean> {
 
 export async function apiEnsureProposalAcceptToken(proposalId: string): Promise<{ acceptToken: string } | null> {
   try {
-    const res = await fetch(`${API}/proposals/${proposalId}/ensure-accept-token`, { method: 'POST' })
+    const res = await apiFetch(`${API}/proposals/${proposalId}/ensure-accept-token`, { method: 'POST' })
     if (!res.ok) return null
     const data = (await res.json()) as { acceptToken?: string }
     return data.acceptToken ? { acceptToken: data.acceptToken } : null
@@ -361,7 +365,7 @@ async function warmUpRender(publicBaseUrl: string): Promise<boolean> {
     try {
       const controller = new AbortController()
       const tid = setTimeout(() => controller.abort(), 30000)
-      const res = await fetch(`${base}/api/state`, { signal: controller.signal }).finally(() => clearTimeout(tid))
+      const res = await apiFetch(`${base}/api/state`, { signal: controller.signal }).finally(() => clearTimeout(tid))
       if (res.ok || res.status < 500) return true
     } catch { /* still waking */ }
     if (i < 2) await new Promise((r) => setTimeout(r, 5000))
@@ -378,7 +382,7 @@ export async function apiCreateShortLink(
 ): Promise<string | null> {
   try {
     const base = publicBaseUrl.replace(/\/$/, '')
-    const res = await fetch(`${base}/api/short-links`, {
+    const res = await apiFetch(`${base}/api/short-links`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ proposalId, token, d }),
@@ -402,7 +406,7 @@ export async function apiSyncProposalForAccept(
   // Method 1: server-side push (reads local DB, pushes to Render — no CORS)
   for (let attempt = 0; attempt < 2; attempt++) {
     try {
-      const res = await fetch(`${API}/proposals/${payload.proposal.id}/push-to-render`, {
+      const res = await apiFetch(`${API}/proposals/${payload.proposal.id}/push-to-render`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ baseUrl: publicBaseUrl }),
@@ -415,7 +419,7 @@ export async function apiSyncProposalForAccept(
   // Method 2: proxy with payload
   for (let attempt = 0; attempt < 2; attempt++) {
     try {
-      const res = await fetch(`${API}/proxy-sync-proposal`, {
+      const res = await apiFetch(`${API}/proxy-sync-proposal`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ base: publicBaseUrl, payload }),
@@ -428,7 +432,7 @@ export async function apiSyncProposalForAccept(
   // Method 3: direct browser→Render (last resort)
   for (let attempt = 0; attempt < 2; attempt++) {
     try {
-      const res = await fetch(`${publicBaseUrl.replace(/\/$/, '')}/api/proposals/sync-for-accept`, {
+      const res = await apiFetch(`${publicBaseUrl.replace(/\/$/, '')}/api/proposals/sync-for-accept`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(payload),
@@ -448,7 +452,7 @@ export async function apiSyncInvoiceForView(
   await warmUpRender(publicBaseUrl)
   for (let attempt = 0; attempt < 2; attempt++) {
     try {
-      const res = await fetch(`${API}/invoices/${invoiceId}/push-to-render`, {
+      const res = await apiFetch(`${API}/invoices/${invoiceId}/push-to-render`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ baseUrl: publicBaseUrl }),
@@ -468,7 +472,7 @@ export async function apiSyncContractForSign(
   await warmUpRender(publicBaseUrl)
   for (let attempt = 0; attempt < 2; attempt++) {
     try {
-      const res = await fetch(`${API}/contracts/${contractId}/push-to-render`, {
+      const res = await apiFetch(`${API}/contracts/${contractId}/push-to-render`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ baseUrl: publicBaseUrl }),
@@ -483,7 +487,7 @@ export async function apiSyncContractForSign(
 
 export async function apiDeleteContract(id: string): Promise<boolean> {
   try {
-    const res = await fetch(`${API}/contracts/${id}`, { method: 'DELETE' })
+    const res = await apiFetch(`${API}/contracts/${id}`, { method: 'DELETE' })
     return res.ok
   } catch {
     return false
@@ -497,7 +501,7 @@ export function getContractFileUrl(id: string, token?: string): string {
 
 export async function apiSignContractClient(id: string, token: string, signatureDataUrl: string): Promise<{ ok: boolean; clientSignedAt?: string }> {
   try {
-    const res = await fetch(`${API}/contracts/${id}/sign-client`, {
+    const res = await apiFetch(`${API}/contracts/${id}/sign-client`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ token, signatureDataUrl }),
@@ -512,7 +516,7 @@ export async function apiSignContractClient(id: string, token: string, signature
 
 export async function apiSignContractVendor(id: string, signatureDataUrl: string): Promise<{ ok: boolean; signedAt?: string }> {
   try {
-    const res = await fetch(`${API}/contracts/${id}/sign-vendor`, {
+    const res = await apiFetch(`${API}/contracts/${id}/sign-vendor`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ signatureDataUrl }),
@@ -530,7 +534,7 @@ export async function apiSendContractReminder(
   baseUrl?: string
 ): Promise<{ ok: true; sentAt: string } | { ok: false; error: string }> {
   try {
-    const res = await fetch(`${API}/contracts/${id}/send-reminder`, {
+    const res = await apiFetch(`${API}/contracts/${id}/send-reminder`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ baseUrl: baseUrl || '' }),
@@ -545,7 +549,7 @@ export async function apiSendContractReminder(
 
 export async function apiDeleteInvoice(id: string): Promise<boolean> {
   try {
-    const res = await fetch(`${API}/invoices/${id}`, { method: 'DELETE' })
+    const res = await apiFetch(`${API}/invoices/${id}`, { method: 'DELETE' })
     return res.ok
   } catch {
     return false
@@ -554,7 +558,7 @@ export async function apiDeleteInvoice(id: string): Promise<boolean> {
 
 export async function apiDeleteExpense(id: string): Promise<boolean> {
   try {
-    const res = await fetch(`${API}/expenses/${id}`, { method: 'DELETE' })
+    const res = await apiFetch(`${API}/expenses/${id}`, { method: 'DELETE' })
     return res.ok
   } catch {
     return false
@@ -572,7 +576,7 @@ export async function apiCreateCalendarReminder(reminder: {
   createdAt: string
 }): Promise<boolean> {
   try {
-    const res = await fetch(`${API}/calendar-reminders`, {
+    const res = await apiFetch(`${API}/calendar-reminders`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(reminder),
@@ -585,7 +589,7 @@ export async function apiCreateCalendarReminder(reminder: {
 
 export async function apiUpdateCalendarReminder(id: string, updates: Record<string, unknown>): Promise<boolean> {
   try {
-    const res = await fetch(`${API}/calendar-reminders/${id}`, {
+    const res = await apiFetch(`${API}/calendar-reminders/${id}`, {
       method: 'PATCH',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(updates),
@@ -598,7 +602,7 @@ export async function apiUpdateCalendarReminder(id: string, updates: Record<stri
 
 export async function apiDeleteCalendarReminder(id: string): Promise<boolean> {
   try {
-    const res = await fetch(`${API}/calendar-reminders/${id}`, { method: 'DELETE' })
+    const res = await apiFetch(`${API}/calendar-reminders/${id}`, { method: 'DELETE' })
     return res.ok
   } catch {
     return false
@@ -614,7 +618,7 @@ export async function apiCreateExperience(experience: {
   sortOrder?: number
 }): Promise<{ ok: true; experience: Experience } | { ok: false; error: string }> {
   try {
-    const res = await fetch(`${API}/experiences`, {
+    const res = await apiFetch(`${API}/experiences`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
@@ -639,7 +643,7 @@ export async function apiUpdateExperience(
   updates: { name?: string; description?: string; bullets?: string[]; fromPrice?: number; imageUrl?: string | null; sortOrder?: number }
 ): Promise<{ ok: true; experience: Experience } | { ok: false; error: string }> {
   try {
-    const res = await fetch(`${API}/experiences/${id}`, {
+    const res = await apiFetch(`${API}/experiences/${id}`, {
       method: 'PATCH',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(updates),
@@ -654,7 +658,7 @@ export async function apiUpdateExperience(
 
 export async function apiDeleteExperience(id: string): Promise<boolean> {
   try {
-    const res = await fetch(`${API}/experiences/${id}`, { method: 'DELETE' })
+    const res = await apiFetch(`${API}/experiences/${id}`, { method: 'DELETE' })
     return res.ok
   } catch {
     return false
@@ -664,7 +668,7 @@ export async function apiDeleteExperience(id: string): Promise<boolean> {
 // Pipeline stages
 export async function apiCreatePipelineStage(label: string): Promise<PipelineStage | null> {
   try {
-    const res = await fetch(`${API}/pipeline-stages`, {
+    const res = await apiFetch(`${API}/pipeline-stages`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ label: label.trim() }),
@@ -678,7 +682,7 @@ export async function apiCreatePipelineStage(label: string): Promise<PipelineSta
 
 export async function apiUpdatePipelineStage(id: string, updates: { label?: string; sortOrder?: number }): Promise<boolean> {
   try {
-    const res = await fetch(`${API}/pipeline-stages/${id}`, {
+    const res = await apiFetch(`${API}/pipeline-stages/${id}`, {
       method: 'PATCH',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(updates),
@@ -691,7 +695,7 @@ export async function apiUpdatePipelineStage(id: string, updates: { label?: stri
 
 export async function apiDeletePipelineStage(id: string): Promise<boolean> {
   try {
-    const res = await fetch(`${API}/pipeline-stages/${id}`, { method: 'DELETE' })
+    const res = await apiFetch(`${API}/pipeline-stages/${id}`, { method: 'DELETE' })
     return res.ok
   } catch {
     return false
@@ -700,7 +704,7 @@ export async function apiDeletePipelineStage(id: string): Promise<boolean> {
 
 // Document templates
 export async function apiUploadContractTemplate(name: string, fileBase64: string): Promise<string | null> {
-  const res = await fetch(`${API}/templates/contracts`, {
+  const res = await apiFetch(`${API}/templates/contracts`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ name, fileBase64 }),
@@ -726,7 +730,7 @@ export function getContractTemplateFileUrl(id: string): string {
 
 export async function apiUpdateContractTemplateName(id: string, name: string): Promise<boolean> {
   try {
-    const res = await fetch(`${API}/templates/contracts/${id}`, {
+    const res = await apiFetch(`${API}/templates/contracts/${id}`, {
       method: 'PATCH',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ name }),
@@ -739,7 +743,7 @@ export async function apiUpdateContractTemplateName(id: string, name: string): P
 
 export async function apiDeleteContractTemplate(id: string): Promise<boolean> {
   try {
-    const res = await fetch(`${API}/templates/contracts/${id}`, { method: 'DELETE' })
+    const res = await apiFetch(`${API}/templates/contracts/${id}`, { method: 'DELETE' })
     return res.ok
   } catch {
     return false
@@ -747,7 +751,7 @@ export async function apiDeleteContractTemplate(id: string): Promise<boolean> {
 }
 
 export async function apiReplaceContractTemplateFile(id: string, fileBase64: string): Promise<void> {
-  const res = await fetch(`${API}/templates/contracts/${id}/file`, {
+  const res = await apiFetch(`${API}/templates/contracts/${id}/file`, {
     method: 'PUT',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ fileBase64 }),
@@ -767,7 +771,7 @@ export async function apiReplaceContractTemplateFile(id: string, fileBase64: str
 
 /** Create an editor-only contract template (no PDF). */
 export async function apiCreateContractTemplateEditor(name: string, contentHtml: string): Promise<string | null> {
-  const res = await fetch(`${API}/templates/contracts`, {
+  const res = await apiFetch(`${API}/templates/contracts`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ name, contentHtml: contentHtml || '' }),
@@ -789,7 +793,7 @@ export async function apiCreateContractTemplateEditor(name: string, contentHtml:
 
 export async function apiUpdateContractTemplateContent(id: string, contentHtml: string): Promise<boolean> {
   try {
-    const res = await fetch(`${API}/templates/contracts/${id}`, {
+    const res = await apiFetch(`${API}/templates/contracts/${id}`, {
       method: 'PATCH',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ contentHtml }),
@@ -802,7 +806,7 @@ export async function apiUpdateContractTemplateContent(id: string, contentHtml: 
 
 /** Fetch contract template PDF as base64 (for copying into a new contract so template edits don't affect it). */
 export async function fetchContractTemplateFileAsBase64(templateId: string): Promise<string> {
-  const res = await fetch(`${API}/templates/contracts/${templateId}/file`)
+  const res = await apiFetch(`${API}/templates/contracts/${templateId}/file`)
   if (!res.ok) throw new Error('Failed to load template PDF')
   const blob = await res.blob()
   const buf = await blob.arrayBuffer()
@@ -818,7 +822,7 @@ export async function apiGenerateContractPdfFromTemplate(
   contentHtml: string,
   mergeData: { clientName: string; weddingDate: string; venue?: string; packageType?: string; value: number; title: string; clientEmail?: string; clientPhone?: string }
 ): Promise<void> {
-  const res = await fetch(`${API}/contracts/${contractId}/generate-pdf-from-template`, {
+  const res = await apiFetch(`${API}/contracts/${contractId}/generate-pdf-from-template`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ contentHtml, mergeData }),
@@ -838,7 +842,7 @@ export async function apiGenerateContractPdfFromTemplate(
 
 /** Upload generated PDF for a contract (e.g. from editor template merge or file-based template copy). */
 export async function apiUploadContractFile(contractId: string, fileBase64: string): Promise<void> {
-  const res = await fetch(`${API}/contracts/${contractId}/file`, {
+  const res = await apiFetch(`${API}/contracts/${contractId}/file`, {
     method: 'PUT',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ fileBase64 }),
@@ -857,7 +861,7 @@ export async function apiUploadContractFile(contractId: string, fileBase64: stri
 }
 
 export async function apiUploadInvoiceTemplate(name: string, fileBase64: string): Promise<string | null> {
-  const res = await fetch(`${API}/templates/invoices`, {
+  const res = await apiFetch(`${API}/templates/invoices`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ name, fileBase64 }),
@@ -883,7 +887,7 @@ export function getInvoiceTemplateFileUrl(id: string): string {
 
 export async function apiUpdateInvoiceTemplateName(id: string, name: string): Promise<boolean> {
   try {
-    const res = await fetch(`${API}/templates/invoices/${id}`, {
+    const res = await apiFetch(`${API}/templates/invoices/${id}`, {
       method: 'PATCH',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ name }),
@@ -896,7 +900,7 @@ export async function apiUpdateInvoiceTemplateName(id: string, name: string): Pr
 
 export async function apiDeleteInvoiceTemplate(id: string): Promise<boolean> {
   try {
-    const res = await fetch(`${API}/templates/invoices/${id}`, { method: 'DELETE' })
+    const res = await apiFetch(`${API}/templates/invoices/${id}`, { method: 'DELETE' })
     return res.ok
   } catch {
     return false
@@ -904,7 +908,7 @@ export async function apiDeleteInvoiceTemplate(id: string): Promise<boolean> {
 }
 
 export async function apiReplaceInvoiceTemplateFile(id: string, fileBase64: string): Promise<void> {
-  const res = await fetch(`${API}/templates/invoices/${id}/file`, {
+  const res = await apiFetch(`${API}/templates/invoices/${id}/file`, {
     method: 'PUT',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ fileBase64 }),
@@ -922,9 +926,187 @@ export async function apiReplaceInvoiceTemplateFile(id: string, fileBase64: stri
   }
 }
 
+// Partnership Outreach module
+
+export interface PartnershipContact {
+  id: string
+  companyName: string
+  partnerType?: string
+  contactName?: string
+  jobTitle?: string
+  email: string
+  website?: string
+  instagram?: string
+  city?: string
+  region?: string
+  fitLevel?: string
+  notes?: string
+  stage: string
+  source?: string
+  firstEmailSentAt?: string
+  lastEmailSentAt?: string
+  linkedReferralId?: string
+  createdAt: string
+  updatedAt: string
+}
+
+export interface OutreachActivity {
+  id: string
+  partnershipContactId: string
+  type: string
+  subject?: string
+  body?: string
+  templateId?: string
+  createdAt: string
+}
+
+export async function apiCreatePartnershipContact(
+  contact: Record<string, unknown>
+): Promise<{ ok: true; id: string } | { ok: false; error: string; existingId?: string }> {
+  try {
+    const res = await apiFetch(`${API}/partnership-contacts`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(contact),
+    })
+    const body = await res.json().catch(() => ({}))
+    if (res.ok && body.id) return { ok: true, id: body.id }
+    return { ok: false, error: (body && body.error) || 'Failed to create contact', existingId: body?.existingId }
+  } catch {
+    return { ok: false, error: 'Network error' }
+  }
+}
+
+export async function apiUpdatePartnershipContact(
+  id: string,
+  updates: Record<string, unknown>
+): Promise<{ ok: true; contact: PartnershipContact } | { ok: false; error: string; existingId?: string }> {
+  try {
+    const res = await apiFetch(`${API}/partnership-contacts/${id}`, {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(updates),
+    })
+    const body = await res.json().catch(() => ({}))
+    if (res.ok) return { ok: true, contact: body as PartnershipContact }
+    return { ok: false, error: (body && body.error) || 'Failed to update contact', existingId: body?.existingId }
+  } catch {
+    return { ok: false, error: 'Network error' }
+  }
+}
+
+export async function apiDeletePartnershipContact(id: string): Promise<boolean> {
+  try {
+    const res = await apiFetch(`${API}/partnership-contacts/${id}`, { method: 'DELETE' })
+    return res.ok
+  } catch {
+    return false
+  }
+}
+
+export async function apiAddOutreachActivity(
+  contactId: string,
+  activity: { type: string; subject?: string; body?: string }
+): Promise<{ ok: true; id: string } | { ok: false; error: string }> {
+  try {
+    const res = await apiFetch(`${API}/partnership-contacts/${contactId}/activity`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(activity),
+    })
+    const body = await res.json().catch(() => ({}))
+    if (res.ok && body.id) return { ok: true, id: body.id }
+    return { ok: false, error: (body && body.error) || 'Failed to add activity' }
+  } catch {
+    return { ok: false, error: 'Network error' }
+  }
+}
+
+export interface EmailTemplate {
+  id: string
+  name: string
+  subject: string
+  body: string
+  category?: string
+  createdAt: string
+  updatedAt: string
+}
+
+export async function apiCreateEmailTemplate(
+  template: { name: string; subject: string; body: string; category?: string }
+): Promise<{ ok: true; id: string } | { ok: false; error: string }> {
+  try {
+    const res = await apiFetch(`${API}/email-templates`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(template),
+    })
+    const body = await res.json().catch(() => ({}))
+    if (res.ok && body.id) return { ok: true, id: body.id }
+    return { ok: false, error: (body && body.error) || 'Failed to create template' }
+  } catch {
+    return { ok: false, error: 'Network error' }
+  }
+}
+
+export async function apiUpdateEmailTemplate(
+  id: string,
+  updates: { name?: string; subject?: string; body?: string; category?: string }
+): Promise<{ ok: true; template: EmailTemplate } | { ok: false; error: string }> {
+  try {
+    const res = await apiFetch(`${API}/email-templates/${id}`, {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(updates),
+    })
+    const body = await res.json().catch(() => ({}))
+    if (res.ok) return { ok: true, template: body as EmailTemplate }
+    return { ok: false, error: (body && body.error) || 'Failed to update template' }
+  } catch {
+    return { ok: false, error: 'Network error' }
+  }
+}
+
+export async function apiDeleteEmailTemplate(id: string): Promise<boolean> {
+  try {
+    const res = await apiFetch(`${API}/email-templates/${id}`, { method: 'DELETE' })
+    return res.ok
+  } catch {
+    return false
+  }
+}
+
+export async function apiSendPartnershipEmail(
+  contactId: string,
+  payload: {
+    templateId?: string
+    subject: string
+    body: string
+    reminder?: { date: string; title?: string; notes?: string; reminderAt?: string } | null
+  }
+): Promise<
+  | { ok: true; activityId: string; contact: PartnershipContact; reminder: { id: string; date: string; title: string } | null }
+  | { ok: false; error: string }
+> {
+  try {
+    const res = await apiFetch(`${API}/partnership-contacts/${contactId}/send-email`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(payload),
+    })
+    const data = await res.json().catch(() => ({}))
+    if (res.ok && data.ok) {
+      return { ok: true, activityId: data.activityId, contact: data.contact as PartnershipContact, reminder: data.reminder ?? null }
+    }
+    return { ok: false, error: (data && data.error) || 'Failed to send email' }
+  } catch {
+    return { ok: false, error: 'Network error — check your connection and try again.' }
+  }
+}
+
 export async function apiUpdateMusicSelection(id: string, updates: { label?: string }): Promise<{ ok: true } | { ok: false; error: string }> {
   try {
-    const res = await fetch(`${API}/music-selection/${id}`, {
+    const res = await apiFetch(`${API}/music-selection/${id}`, {
       method: 'PATCH',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(updates),

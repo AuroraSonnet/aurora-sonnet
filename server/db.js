@@ -177,6 +177,51 @@ db.exec(`
   );
 `)
 
+// Partnership Outreach module (cold outreach to venues/planners/photographers/etc.) — additive only,
+// does not alter any existing table above. See partnershipOutreach section further down for CRUD helpers.
+db.exec(`
+  CREATE TABLE IF NOT EXISTS partnership_contacts (
+    id TEXT PRIMARY KEY,
+    companyName TEXT NOT NULL,
+    partnerType TEXT,
+    contactName TEXT,
+    jobTitle TEXT,
+    email TEXT NOT NULL,
+    website TEXT,
+    instagram TEXT,
+    city TEXT,
+    region TEXT,
+    fitLevel TEXT,
+    notes TEXT,
+    stage TEXT NOT NULL DEFAULT 'not_contacted',
+    source TEXT,
+    firstEmailSentAt TEXT,
+    lastEmailSentAt TEXT,
+    linkedReferralId TEXT,
+    createdAt TEXT NOT NULL,
+    updatedAt TEXT NOT NULL,
+    deletedAt TEXT
+  );
+  CREATE TABLE IF NOT EXISTS outreach_activity (
+    id TEXT PRIMARY KEY,
+    partnershipContactId TEXT NOT NULL,
+    type TEXT NOT NULL,
+    subject TEXT,
+    body TEXT,
+    templateId TEXT,
+    createdAt TEXT NOT NULL
+  );
+  CREATE TABLE IF NOT EXISTS email_templates (
+    id TEXT PRIMARY KEY,
+    name TEXT NOT NULL,
+    subject TEXT NOT NULL,
+    body TEXT NOT NULL,
+    category TEXT,
+    createdAt TEXT NOT NULL,
+    updatedAt TEXT NOT NULL
+  );
+`)
+
 // Optional templateId for "create from template" (migrate existing DBs)
 try {
   db.exec('ALTER TABLE contracts ADD COLUMN templateId TEXT')
@@ -313,6 +358,12 @@ try {
 // sentAt for calendar reminders (whether email was sent)
 try {
   db.exec('ALTER TABLE calendar_reminders ADD COLUMN sentAt TEXT')
+} catch (e) {
+  if (!/duplicate column/i.test(e.message)) throw e
+}
+// Lets a follow-up reminder point at a Partnership Outreach contact (nullable, unused by existing reminders)
+try {
+  db.exec('ALTER TABLE calendar_reminders ADD COLUMN partnershipContactId TEXT')
 } catch (e) {
   if (!/duplicate column/i.test(e.message)) throw e
 }
@@ -542,6 +593,7 @@ function rowToCalendarReminder(r) {
     projectId: r.projectId || undefined,
     reminderAt: r.reminderAt || undefined,
     sentAt: r.sentAt || undefined,
+    partnershipContactId: r.partnershipContactId || undefined,
     createdAt: r.createdAt,
   }
 }
@@ -622,6 +674,9 @@ export function getState() {
     experiences: db.prepare('SELECT * FROM experiences ORDER BY sortOrder ASC, createdAt ASC').all().map(rowToExperience),
     musicSelections: db.prepare('SELECT * FROM music_selections ORDER BY createdAt DESC').all().map(rowToMusicSelection),
     partnerReferrals: db.prepare('SELECT * FROM partner_referrals ORDER BY submissionDate DESC, updatedAt DESC').all().map(rowToPartnerReferral),
+    partnershipContacts: db.prepare('SELECT * FROM partnership_contacts WHERE deletedAt IS NULL ORDER BY updatedAt DESC').all().map(rowToPartnershipContact),
+    outreachActivity: db.prepare('SELECT * FROM outreach_activity ORDER BY createdAt DESC').all().map(rowToOutreachActivity),
+    emailTemplates: db.prepare('SELECT * FROM email_templates ORDER BY createdAt DESC').all().map(rowToEmailTemplate),
   }
 }
 
@@ -910,6 +965,225 @@ export function deletePartnerReferral(id) {
 export function getPartnerReferral(id) {
   const row = db.prepare('SELECT * FROM partner_referrals WHERE id = ?').get(id)
   return row ? rowToPartnerReferral(row) : null
+}
+
+// ---------------------------------------------------------------------------
+// Partnership Outreach module (cold outreach to venues/planners/photographers/etc.)
+// Separate from Leads (clients/projects) and the Referral Program (partner_referrals).
+// ---------------------------------------------------------------------------
+
+function rowToPartnershipContact(r) {
+  return {
+    id: r.id,
+    companyName: r.companyName,
+    partnerType: r.partnerType || undefined,
+    contactName: r.contactName || undefined,
+    jobTitle: r.jobTitle || undefined,
+    email: r.email,
+    website: r.website || undefined,
+    instagram: r.instagram || undefined,
+    city: r.city || undefined,
+    region: r.region || undefined,
+    fitLevel: r.fitLevel || undefined,
+    notes: r.notes || undefined,
+    stage: r.stage || 'not_contacted',
+    source: r.source || undefined,
+    firstEmailSentAt: r.firstEmailSentAt || undefined,
+    lastEmailSentAt: r.lastEmailSentAt || undefined,
+    linkedReferralId: r.linkedReferralId || undefined,
+    createdAt: r.createdAt,
+    updatedAt: r.updatedAt,
+    deletedAt: r.deletedAt || undefined,
+  }
+}
+
+function rowToOutreachActivity(r) {
+  return {
+    id: r.id,
+    partnershipContactId: r.partnershipContactId,
+    type: r.type,
+    subject: r.subject || undefined,
+    body: r.body || undefined,
+    templateId: r.templateId || undefined,
+    createdAt: r.createdAt,
+  }
+}
+
+function rowToEmailTemplate(r) {
+  return {
+    id: r.id,
+    name: r.name,
+    subject: r.subject,
+    body: r.body,
+    category: r.category || undefined,
+    createdAt: r.createdAt,
+    updatedAt: r.updatedAt,
+  }
+}
+
+export function getNextPartnershipContactId() {
+  const rows = db.prepare("SELECT id FROM partnership_contacts WHERE id LIKE 'poc-%'").all()
+  const max = rows.reduce((m, r) => {
+    const n = parseInt(String(r.id).replace(/^poc-/, ''), 10)
+    return Number.isNaN(n) ? m : Math.max(m, n)
+  }, 0)
+  return `poc-${max + 1}`
+}
+
+/** Find active (non-deleted) partnership contact by email (case-insensitive). Returns contact or null. */
+export function getPartnershipContactByEmail(email) {
+  if (!email || typeof email !== 'string') return null
+  const e = String(email).trim().toLowerCase()
+  if (!e) return null
+  const row = db.prepare('SELECT * FROM partnership_contacts WHERE deletedAt IS NULL AND LOWER(TRIM(email)) = ?').get(e)
+  return row ? rowToPartnershipContact(row) : null
+}
+
+export function getPartnershipContactById(id) {
+  const row = db.prepare('SELECT * FROM partnership_contacts WHERE id = ?').get(id)
+  return row ? rowToPartnershipContact(row) : null
+}
+
+export function createPartnershipContact(contact) {
+  const id = contact.id || getNextPartnershipContactId()
+  const now = new Date().toISOString()
+  db.prepare(
+    `INSERT INTO partnership_contacts
+      (id, companyName, partnerType, contactName, jobTitle, email, website, instagram, city, region, fitLevel, notes, stage, source, createdAt, updatedAt)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+  ).run(
+    id,
+    contact.companyName,
+    contact.partnerType ?? null,
+    contact.contactName ?? null,
+    contact.jobTitle ?? null,
+    contact.email,
+    contact.website ?? null,
+    contact.instagram ?? null,
+    contact.city ?? null,
+    contact.region ?? null,
+    contact.fitLevel ?? null,
+    contact.notes ?? null,
+    contact.stage || 'not_contacted',
+    contact.source ?? null,
+    now,
+    now
+  )
+  return id
+}
+
+export function updatePartnershipContact(id, updates) {
+  const row = db.prepare('SELECT * FROM partnership_contacts WHERE id = ?').get(id)
+  if (!row) return null
+  const c = { ...rowToPartnershipContact(row), ...updates }
+  db.prepare(
+    `UPDATE partnership_contacts SET
+      companyName=?, partnerType=?, contactName=?, jobTitle=?, email=?, website=?, instagram=?, city=?, region=?,
+      fitLevel=?, notes=?, stage=?, source=?, firstEmailSentAt=?, lastEmailSentAt=?, linkedReferralId=?, updatedAt=?
+     WHERE id=?`
+  ).run(
+    c.companyName,
+    c.partnerType ?? null,
+    c.contactName ?? null,
+    c.jobTitle ?? null,
+    c.email,
+    c.website ?? null,
+    c.instagram ?? null,
+    c.city ?? null,
+    c.region ?? null,
+    c.fitLevel ?? null,
+    c.notes ?? null,
+    c.stage || 'not_contacted',
+    c.source ?? null,
+    c.firstEmailSentAt ?? null,
+    c.lastEmailSentAt ?? null,
+    c.linkedReferralId ?? null,
+    new Date().toISOString(),
+    id
+  )
+  return getPartnershipContactById(id)
+}
+
+/** Soft delete, consistent with clients/projects/contracts (row stays for history, hidden from getState()). */
+export function deletePartnershipContact(id) {
+  const r = db.prepare('UPDATE partnership_contacts SET deletedAt = ? WHERE id = ? AND deletedAt IS NULL').run(new Date().toISOString(), id)
+  return r.changes > 0
+}
+
+export function getNextOutreachActivityId() {
+  const rows = db.prepare("SELECT id FROM outreach_activity WHERE id LIKE 'oa-%'").all()
+  const max = rows.reduce((m, r) => {
+    const n = parseInt(String(r.id).replace(/^oa-/, ''), 10)
+    return Number.isNaN(n) ? m : Math.max(m, n)
+  }, 0)
+  return `oa-${max + 1}`
+}
+
+/** Log one timeline entry (email_sent | note | reply | meeting | demo | stage_change) for a partnership contact. */
+export function createOutreachActivity(activity) {
+  const id = activity.id || getNextOutreachActivityId()
+  db.prepare(
+    'INSERT INTO outreach_activity (id, partnershipContactId, type, subject, body, templateId, createdAt) VALUES (?, ?, ?, ?, ?, ?, ?)'
+  ).run(
+    id,
+    activity.partnershipContactId,
+    activity.type,
+    activity.subject ?? null,
+    activity.body ?? null,
+    activity.templateId ?? null,
+    activity.createdAt || new Date().toISOString()
+  )
+  return id
+}
+
+export function listOutreachActivityForContact(partnershipContactId) {
+  return db
+    .prepare('SELECT * FROM outreach_activity WHERE partnershipContactId = ? ORDER BY createdAt DESC')
+    .all(partnershipContactId)
+    .map(rowToOutreachActivity)
+}
+
+export function getNextEmailTemplateId() {
+  const rows = db.prepare("SELECT id FROM email_templates WHERE id LIKE 'tpl-%'").all()
+  const max = rows.reduce((m, r) => {
+    const n = parseInt(String(r.id).replace(/^tpl-/, ''), 10)
+    return Number.isNaN(n) ? m : Math.max(m, n)
+  }, 0)
+  return `tpl-${max + 1}`
+}
+
+export function createEmailTemplate(tpl) {
+  const id = tpl.id || getNextEmailTemplateId()
+  const now = new Date().toISOString()
+  db.prepare(
+    'INSERT INTO email_templates (id, name, subject, body, category, createdAt, updatedAt) VALUES (?, ?, ?, ?, ?, ?, ?)'
+  ).run(id, tpl.name, tpl.subject, tpl.body, tpl.category ?? null, now, now)
+  return id
+}
+
+export function updateEmailTemplate(id, updates) {
+  const row = db.prepare('SELECT * FROM email_templates WHERE id = ?').get(id)
+  if (!row) return null
+  const t = { ...rowToEmailTemplate(row), ...updates }
+  db.prepare('UPDATE email_templates SET name=?, subject=?, body=?, category=?, updatedAt=? WHERE id=?').run(
+    t.name,
+    t.subject,
+    t.body,
+    t.category ?? null,
+    new Date().toISOString(),
+    id
+  )
+  return rowToEmailTemplate(db.prepare('SELECT * FROM email_templates WHERE id = ?').get(id))
+}
+
+export function deleteEmailTemplate(id) {
+  const r = db.prepare('DELETE FROM email_templates WHERE id = ?').run(id)
+  return r.changes > 0
+}
+
+export function getEmailTemplateById(id) {
+  const row = db.prepare('SELECT * FROM email_templates WHERE id = ?').get(id)
+  return row ? rowToEmailTemplate(row) : null
 }
 
 /** Find active client by email (case-insensitive). Returns client or null. */
@@ -1310,9 +1584,13 @@ export function deleteExpense(id) {
 }
 
 // Calendar reminders
+// Note: partnershipContactId was added to the table via ALTER TABLE (see migrations above) so that
+// Partnership Outreach follow-up reminders can link back to a contact and reuse this existing reminder
+// system. This insert/update were not yet writing that column — fixed here (additive, existing callers
+// that don't pass partnershipContactId are unaffected; it defaults to null exactly as before).
 export function createCalendarReminder(reminder) {
   db.prepare(
-    'INSERT INTO calendar_reminders (id, date, title, notes, clientId, projectId, reminderAt, sentAt, createdAt) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)'
+    'INSERT INTO calendar_reminders (id, date, title, notes, clientId, projectId, reminderAt, sentAt, partnershipContactId, createdAt) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)'
   ).run(
     reminder.id,
     reminder.date,
@@ -1322,6 +1600,7 @@ export function createCalendarReminder(reminder) {
     reminder.projectId ?? null,
     reminder.reminderAt ?? null,
     reminder.sentAt ?? null,
+    reminder.partnershipContactId ?? null,
     reminder.createdAt
   )
   return reminder.id
@@ -1332,7 +1611,7 @@ export function updateCalendarReminder(id, updates) {
   if (!row) return
   const r = { ...rowToCalendarReminder(row), ...updates }
   db.prepare(
-    'UPDATE calendar_reminders SET date=?, title=?, notes=?, clientId=?, projectId=?, reminderAt=?, sentAt=?, createdAt=? WHERE id=?'
+    'UPDATE calendar_reminders SET date=?, title=?, notes=?, clientId=?, projectId=?, reminderAt=?, sentAt=?, partnershipContactId=?, createdAt=? WHERE id=?'
   ).run(
     r.date,
     r.title,
@@ -1341,6 +1620,7 @@ export function updateCalendarReminder(id, updates) {
     r.projectId ?? null,
     r.reminderAt ?? null,
     r.sentAt ?? null,
+    r.partnershipContactId ?? null,
     r.createdAt,
     id
   )
@@ -1348,6 +1628,15 @@ export function updateCalendarReminder(id, updates) {
 
 export function deleteCalendarReminder(id) {
   db.prepare('DELETE FROM calendar_reminders WHERE id = ?').run(id)
+}
+
+export function getNextCalendarReminderId() {
+  const rows = db.prepare("SELECT id FROM calendar_reminders WHERE id LIKE 'cr-auto-%'").all()
+  const max = rows.reduce((m, r) => {
+    const n = parseInt(String(r.id).replace(/^cr-auto-/, ''), 10)
+    return Number.isNaN(n) ? m : Math.max(m, n)
+  }, 0)
+  return `cr-auto-${max + 1}`
 }
 
 // Contract templates (fileName may be '' for editor-only templates)

@@ -38,6 +38,9 @@ import {
   apiDeleteExperience,
   apiUpdateMusicSelection,
   type Experience,
+  type PartnershipContact,
+  type OutreachActivity,
+  type EmailTemplate,
 } from '../api/db'
 import { playNewInquirySound, prepareInquirySoundContext } from '../utils/sound'
 import { getInquiryApiBaseUrl } from '../utils/inquiryApiUrl'
@@ -92,6 +95,9 @@ interface AppState {
   experiences: Experience[]
   newsletterTemplates: NewsletterTemplate[]
   musicSelections: MusicSelection[]
+  partnershipContacts: PartnershipContact[]
+  outreachActivity: OutreachActivity[]
+  emailTemplates: EmailTemplate[]
   config?: { publicAppUrl?: string }
 }
 
@@ -118,6 +124,9 @@ const defaultState: AppState = {
   experiences: [],
   newsletterTemplates: [],
   musicSelections: [],
+  partnershipContacts: [],
+  outreachActivity: [],
+  emailTemplates: [],
 }
 
 /** Never overwrite existing data with an empty list. If we have data and the API returns empty for that list, we keep ours. */
@@ -149,6 +158,9 @@ function mergeStateFromApi(
     experiences: preferNonEmpty(prev.experiences, (apiState as { experiences?: Experience[] }).experiences),
     newsletterTemplates: prev.newsletterTemplates,
     musicSelections: preferNonEmpty(prev.musicSelections ?? [], (apiState as { musicSelections?: MusicSelection[] }).musicSelections),
+    partnershipContacts: preferNonEmpty(prev.partnershipContacts ?? [], (apiState as { partnershipContacts?: PartnershipContact[] }).partnershipContacts),
+    outreachActivity: preferNonEmpty(prev.outreachActivity ?? [], (apiState as { outreachActivity?: OutreachActivity[] }).outreachActivity),
+    emailTemplates: preferNonEmpty(prev.emailTemplates ?? [], (apiState as { emailTemplates?: EmailTemplate[] }).emailTemplates),
     config: (apiState as { config?: { publicAppUrl?: string } }).config ?? prev.config,
   } as AppState
 }
@@ -175,6 +187,9 @@ function mergeStateFromApiTrusted(
     experiences: (apiState as { experiences?: Experience[] }).experiences ?? prev.experiences,
     newsletterTemplates: prev.newsletterTemplates,
     musicSelections: (apiState as { musicSelections?: MusicSelection[] }).musicSelections ?? prev.musicSelections ?? [],
+    partnershipContacts: (apiState as { partnershipContacts?: PartnershipContact[] }).partnershipContacts ?? prev.partnershipContacts ?? [],
+    outreachActivity: (apiState as { outreachActivity?: OutreachActivity[] }).outreachActivity ?? prev.outreachActivity ?? [],
+    emailTemplates: (apiState as { emailTemplates?: EmailTemplate[] }).emailTemplates ?? prev.emailTemplates ?? [],
     config: (apiState as { config?: { publicAppUrl?: string } }).config ?? prev.config,
   } as AppState
 }
@@ -199,6 +214,9 @@ function loadStateFromStorage(): AppState {
           experiences: parsed.experiences ?? defaultState.experiences,
           newsletterTemplates: parsed.newsletterTemplates ?? defaultState.newsletterTemplates,
           musicSelections: parsed.musicSelections ?? defaultState.musicSelections ?? [],
+          partnershipContacts: parsed.partnershipContacts ?? defaultState.partnershipContacts ?? [],
+          outreachActivity: parsed.outreachActivity ?? defaultState.outreachActivity ?? [],
+          emailTemplates: parsed.emailTemplates ?? defaultState.emailTemplates ?? [],
         }
     }
   } catch (_) {}
@@ -280,7 +298,8 @@ export function AppProvider({ children }: { children: ReactNode }) {
           (apiState.proposals?.length ?? 0) > 0 ||
           (apiState.invoices?.length ?? 0) > 0 ||
           (apiState.contracts?.length ?? 0) > 0 ||
-          (apiState.expenses?.length ?? 0) > 0
+          (apiState.expenses?.length ?? 0) > 0 ||
+          ((apiState as { partnershipContacts?: unknown[] }).partnershipContacts?.length ?? 0) > 0
         if (hasData) {
           setState((prev) => mergeStateFromApi(prev, apiState as AppState & { automations?: Automation[]; contractTemplates?: DocumentTemplate[]; invoiceTemplates?: DocumentTemplate[]; pipelineStages?: PipelineStage[] }))
           return
@@ -300,7 +319,8 @@ export function AppProvider({ children }: { children: ReactNode }) {
           (fallbackState.proposals?.length ?? 0) > 0 ||
           (fallbackState.invoices?.length ?? 0) > 0 ||
           (fallbackState.contracts?.length ?? 0) > 0 ||
-          (fallbackState.expenses?.length ?? 0) > 0
+          (fallbackState.expenses?.length ?? 0) > 0 ||
+          ((fallbackState as { partnershipContacts?: unknown[] }).partnershipContacts?.length ?? 0) > 0
         if (hasData) {
           setUseApi(true)
           setState((prev) => mergeStateFromApi(prev, fallbackState))
@@ -528,6 +548,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
       invoices?: { id: string }[]
       contracts?: { id: string }[]
       expenses?: { id: string }[]
+      partnershipContacts?: { id: string }[]
     }
     function hasData(s: MinimalState | null | undefined): boolean {
       if (!s) return false
@@ -537,7 +558,8 @@ export function AppProvider({ children }: { children: ReactNode }) {
         (s.proposals?.length ?? 0) > 0 ||
         (s.invoices?.length ?? 0) > 0 ||
         (s.contracts?.length ?? 0) > 0 ||
-        (s.expenses?.length ?? 0) > 0
+        (s.expenses?.length ?? 0) > 0 ||
+        (s.partnershipContacts?.length ?? 0) > 0
       )
     }
     let apiState = await fetchState()
@@ -556,7 +578,11 @@ export function AppProvider({ children }: { children: ReactNode }) {
         }
       }
     }
-    if (!apiState || !hasData(apiState as MinimalState)) return // don't overwrite with empty
+    // Only bail out if the fetch itself failed (apiState null) or the inquiry-API fallback also came up empty/unreachable.
+    // A same-origin response that parsed successfully — even with every array empty — is a real, current snapshot
+    // (e.g. the user just deleted their last remaining record) and must be trusted, or the UI would keep showing
+    // stale pre-delete data forever after every refresh.
+    if (!apiState) return
     const merged = apiState as AppState & { automations?: Automation[]; contractTemplates?: DocumentTemplate[]; invoiceTemplates?: DocumentTemplate[]; pipelineStages?: PipelineStage[] }
     setState((prev) => {
       const next = mergeStateFromApiTrusted(prev, merged)
