@@ -4,13 +4,16 @@ import {
   isVenueFirstOutreachContact,
   isVenueFollowUp1Contact,
   isVenueFollowUp2Contact,
+  isVenueFinalFollowUpContact,
   pickDefaultSendTemplate,
   VENUE_FIRST_OUTREACH_TEMPLATE_ID,
   VENUE_FOLLOW_UP_1_TEMPLATE_ID,
   VENUE_FOLLOW_UP_2_TEMPLATE_ID,
+  VENUE_FINAL_FOLLOW_UP_TEMPLATE_ID,
   EMAIL_TEMPLATE_TYPE_FIRST_EMAIL_SENT,
   EMAIL_TEMPLATE_TYPE_FOLLOW_UP_1,
   EMAIL_TEMPLATE_TYPE_FOLLOW_UP_2,
+  EMAIL_TEMPLATE_TYPE_FOLLOW_UP_3,
 } from '../src/utils/partnershipEmailTemplates.ts'
 
 const venueFirstTemplate = {
@@ -46,7 +49,23 @@ const venueFollowUp2Template = {
   updatedAt: '2026-01-01T00:00:00.000Z',
 }
 
-const allTemplates = [venueFirstTemplate, venueFollowUpTemplate, venueFollowUp2Template]
+const venueFinalFollowUpTemplate = {
+  id: VENUE_FINAL_FOLLOW_UP_TEMPLATE_ID,
+  name: 'Venue Final Follow-up',
+  subject: 'Just checking in one last time',
+  body: 'Hi,',
+  category: 'Venue Outreach',
+  templateType: EMAIL_TEMPLATE_TYPE_FOLLOW_UP_3,
+  createdAt: '2026-01-01T00:00:00.000Z',
+  updatedAt: '2026-01-01T00:00:00.000Z',
+}
+
+const allTemplates = [
+  venueFirstTemplate,
+  venueFollowUpTemplate,
+  venueFollowUp2Template,
+  venueFinalFollowUpTemplate,
+]
 
 const venueContact = {
   id: 'poc-1',
@@ -83,6 +102,13 @@ test('venue in follow_up_2 is eligible for follow-up #2 template', () => {
   )
 })
 
+test('venue in follow_up_3 is eligible for final follow-up template', () => {
+  assert.equal(
+    isVenueFinalFollowUpContact({ ...venueContact, stage: 'follow_up_3' }),
+    true
+  )
+})
+
 test('planner is not eligible for venue first outreach template', () => {
   assert.equal(
     isVenueFirstOutreachContact({ ...venueContact, partnerType: 'planner' }),
@@ -103,11 +129,29 @@ test('stage-aware defaults map each venue pipeline stage to the correct template
     ['first_email_sent', VENUE_FIRST_OUTREACH_TEMPLATE_ID],
     ['follow_up_1', VENUE_FOLLOW_UP_1_TEMPLATE_ID],
     ['follow_up_2', VENUE_FOLLOW_UP_2_TEMPLATE_ID],
+    ['follow_up_3', VENUE_FINAL_FOLLOW_UP_TEMPLATE_ID],
   ]
   for (const [stage, expectedId] of cases) {
     const picked = pickDefaultSendTemplate({ ...venueContact, stage }, allTemplates)
     assert.equal(picked?.id, expectedId, `stage ${stage}`)
   }
+})
+
+test('pickDefaultSendTemplate returns venue final follow-up for follow_up_3 stage', () => {
+  const picked = pickDefaultSendTemplate(
+    { ...venueContact, stage: 'follow_up_3' },
+    allTemplates
+  )
+  assert.equal(picked?.id, VENUE_FINAL_FOLLOW_UP_TEMPLATE_ID)
+  assert.equal(picked?.name, 'Venue Final Follow-up')
+})
+
+test('pickDefaultSendTemplate does not suggest follow-up #2 for follow_up_3', () => {
+  const picked = pickDefaultSendTemplate(
+    { ...venueContact, stage: 'follow_up_3' },
+    [venueFollowUp2Template]
+  )
+  assert.equal(picked, undefined)
 })
 
 test('pickDefaultSendTemplate returns venue first outreach for not_contacted', () => {
@@ -191,4 +235,17 @@ test('pickDefaultSendTemplate falls back to templateType match for follow-up #2'
     [alt]
   )
   assert.equal(picked?.id, 'tpl-custom-follow-2')
+})
+
+test('pickDefaultSendTemplate falls back to templateType match for follow-up #3', () => {
+  const alt = {
+    ...venueFinalFollowUpTemplate,
+    id: 'tpl-custom-follow-3',
+    name: 'Custom Final Follow-up',
+  }
+  const picked = pickDefaultSendTemplate(
+    { ...venueContact, stage: 'follow_up_3' },
+    [alt]
+  )
+  assert.equal(picked?.id, 'tpl-custom-follow-3')
 })

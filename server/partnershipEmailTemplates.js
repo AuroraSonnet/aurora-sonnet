@@ -3,10 +3,12 @@
 export const VENUE_FIRST_OUTREACH_TEMPLATE_ID = 'tpl-venue-first-outreach'
 export const VENUE_FOLLOW_UP_1_TEMPLATE_ID = 'tpl-venue-follow-up-1'
 export const VENUE_FOLLOW_UP_2_TEMPLATE_ID = 'tpl-venue-follow-up-2'
+export const VENUE_FINAL_FOLLOW_UP_TEMPLATE_ID = 'tpl-venue-final-follow-up'
 
 export const EMAIL_TEMPLATE_TYPE_FIRST_EMAIL_SENT = 'first_email_sent'
 export const EMAIL_TEMPLATE_TYPE_FOLLOW_UP_1 = 'follow_up_1'
 export const EMAIL_TEMPLATE_TYPE_FOLLOW_UP_2 = 'follow_up_2'
+export const EMAIL_TEMPLATE_TYPE_FOLLOW_UP_3 = 'follow_up_3'
 
 const VENUE_FIRST_OUTREACH_SUBJECT = 'Live Music Referrals for {{companyName}} Couples'
 
@@ -56,6 +58,18 @@ Lisa Dubocquet
 Aurora Sonnet LLC
 aurorasonnet.com`
 
+const VENUE_FINAL_FOLLOW_UP_SUBJECT = 'Just checking in one last time'
+
+const VENUE_FINAL_FOLLOW_UP_BODY = `Hi,
+
+I know you're incredibly busy, so I wanted to send one final follow-up. If partnering with Aurora Sonnet is something your team would like to explore, I'd be delighted to connect whenever the timing is right. If it's easier, you're also welcome to call or text me at (646) 596-4747.
+
+Warmly,
+
+Lisa Dubocquet
+Aurora Sonnet LLC
+aurorasonnet.com`
+
 export const DEFAULT_PARTNERSHIP_EMAIL_TEMPLATES = [
   {
     id: VENUE_FIRST_OUTREACH_TEMPLATE_ID,
@@ -80,6 +94,14 @@ export const DEFAULT_PARTNERSHIP_EMAIL_TEMPLATES = [
     body: VENUE_FOLLOW_UP_2_BODY,
     category: 'Venue Outreach',
     templateType: EMAIL_TEMPLATE_TYPE_FOLLOW_UP_2,
+  },
+  {
+    id: VENUE_FINAL_FOLLOW_UP_TEMPLATE_ID,
+    name: 'Venue Final Follow-up',
+    subject: VENUE_FINAL_FOLLOW_UP_SUBJECT,
+    body: VENUE_FINAL_FOLLOW_UP_BODY,
+    category: 'Venue Outreach',
+    templateType: EMAIL_TEMPLATE_TYPE_FOLLOW_UP_3,
   },
 ]
 
