@@ -1,4 +1,4 @@
-import { useState, useMemo } from 'react'
+import { useState, useMemo, useRef, useCallback, useEffect } from 'react'
 import { useApp } from '../context/AppContext'
 import {
   apiCreatePartnershipContact,
@@ -21,6 +21,7 @@ import {
   contactFormVisitUrl,
   isPlaceholderFormEmail,
 } from '../utils/partnershipImport'
+import { performKanbanStageMove } from '../utils/partnershipKanbanStage'
 import styles from './PartnershipOutreach.module.css'
 
 const EMAIL_STAGES: { id: string; label: string }[] = [
@@ -223,6 +224,22 @@ export default function PartnershipOutreach() {
 
   const [toast, setToast] = useState<string | null>(null)
 
+  const [stageOverrides, setStageOverrides] = useState<Record<string, string>>({})
+  const [savingStageIds, setSavingStageIds] = useState<Set<string>>(new Set())
+  const [kanbanError, setKanbanError] = useState<string | null>(null)
+  const [dragOverStageId, setDragOverStageId] = useState<string | null>(null)
+  const [draggingContactId, setDraggingContactId] = useState<string | null>(null)
+  const suppressCardClickRef = useRef(false)
+  const stageOverridesRef = useRef(stageOverrides)
+  stageOverridesRef.current = stageOverrides
+
+  useEffect(() => {
+    setStageOverrides({})
+    setKanbanError(null)
+    setDragOverStageId(null)
+    setDraggingContactId(null)
+  }, [pipelineMode])
+
   const selectedContact = useMemo(
     () => contacts.find((c) => c.id === selectedId) ?? null,
     [contacts, selectedId]
@@ -267,14 +284,94 @@ export default function PartnershipOutreach() {
     return list
   }, [contacts, search, filterPartnerType, filterFitLevel, sortBy, pipelineMode])
 
+  const kanbanContacts = useMemo(
+    () =>
+      filteredContacts.map((c) => ({
+        ...c,
+        stage: stageOverrides[c.id] ?? c.stage,
+      })),
+    [filteredContacts, stageOverrides]
+  )
+
   const byStage = useMemo(() => {
     const grouped: Record<string, PartnershipContact[]> = {}
-    for (const c of filteredContacts) {
+    for (const c of kanbanContacts) {
       if (!grouped[c.stage]) grouped[c.stage] = []
       grouped[c.stage].push(c)
     }
     return grouped
-  }, [filteredContacts])
+  }, [kanbanContacts])
+
+  const handleKanbanStageMove = useCallback(
+    async (contact: PartnershipContact, toStage: string) => {
+      const fromStage = contact.stage
+      if (fromStage === toStage) return
+
+      setKanbanError(null)
+      setSavingStageIds((prev) => new Set(prev).add(contact.id))
+
+      try {
+        const result = await performKanbanStageMove({
+          contactId: contact.id,
+          fromStage,
+          toStage,
+          pipelineMode,
+          isFormContact: isWebsiteFormContact(contact),
+          stageOverrides: stageOverridesRef.current,
+          updateStage: async (contactId, stage) => {
+            const apiResult = await apiUpdatePartnershipContact(contactId, { stage })
+            return apiResult.ok ? { ok: true } : { ok: false, error: apiResult.error }
+          },
+          refreshState: actions.refreshState,
+        })
+
+        setStageOverrides(result.stageOverrides)
+        if (result.error) {
+          setKanbanError(result.error)
+          return
+        }
+        showToast(`Moved to ${stageLabel(toStage)}.`)
+      } finally {
+        setSavingStageIds((prev) => {
+          const next = new Set(prev)
+          next.delete(contact.id)
+          return next
+        })
+      }
+    },
+    [actions.refreshState, pipelineMode]
+  )
+
+  const handleCardDragStart = (contactId: string) => (e: React.DragEvent) => {
+    suppressCardClickRef.current = true
+    setDraggingContactId(contactId)
+    e.dataTransfer.setData('text/plain', contactId)
+    e.dataTransfer.effectAllowed = 'move'
+  }
+
+  const handleCardDragEnd = () => {
+    setDraggingContactId(null)
+    setDragOverStageId(null)
+    window.setTimeout(() => {
+      suppressCardClickRef.current = false
+    }, 0)
+  }
+
+  const handleColumnDragOver = (stageId: string) => (e: React.DragEvent) => {
+    e.preventDefault()
+    e.dataTransfer.dropEffect = 'move'
+    setDragOverStageId(stageId)
+  }
+
+  const handleColumnDrop = (stageId: string) => (e: React.DragEvent) => {
+    e.preventDefault()
+    setDragOverStageId(null)
+    const contactId = e.dataTransfer.getData('text/plain')
+    if (!contactId) return
+    const contact = kanbanContacts.find((c) => c.id === contactId)
+    if (!contact) return
+    void handleKanbanStageMove(contact, stageId)
+  }
 
   const toggleChecked = (id: string) => {
     setCheckedIds((prev) => {
@@ -1004,23 +1101,48 @@ export default function PartnershipOutreach() {
           </table>
         </div>
       ) : (
-        <div className={styles.pipeline}>
+        <>
+          {kanbanError && (
+            <p className={styles.kanbanError} role="alert">{kanbanError}</p>
+          )}
+          <div className={styles.pipeline} aria-busy={savingStageIds.size > 0}>
           {activeStages.map((stage) => (
-            <div key={stage.id} className={styles.column}>
+            <div
+              key={stage.id}
+              className={`${styles.column} ${dragOverStageId === stage.id ? styles.columnDragOver : ''}`}
+              onDragOver={handleColumnDragOver(stage.id)}
+              onDragLeave={() => setDragOverStageId((prev) => (prev === stage.id ? null : prev))}
+              onDrop={handleColumnDrop(stage.id)}
+            >
               <div className={styles.columnHeader}>
                 <h2>{stage.label}</h2>
                 <span className={styles.count}>{(byStage[stage.id] ?? []).length}</span>
               </div>
               <ul className={styles.cards}>
-                {(byStage[stage.id] ?? []).map((c) => (
+                {(byStage[stage.id] ?? []).map((c) => {
+                  const isSaving = savingStageIds.has(c.id)
+                  const isDragging = draggingContactId === c.id
+                  return (
                   <li
                     key={c.id}
-                    className={styles.card}
-                    role="button"
+                    className={`${styles.card} ${isSaving ? styles.cardSaving : ''} ${isDragging ? styles.cardDragging : ''}`}
+                    draggable={!isSaving}
                     tabIndex={0}
-                    onClick={() => openContact(c)}
-                    onKeyDown={(e) => e.key === 'Enter' && openContact(c)}
+                    aria-grabbed={isDragging}
+                    aria-busy={isSaving}
+                    onDragStart={handleCardDragStart(c.id)}
+                    onDragEnd={handleCardDragEnd}
+                    onClick={() => {
+                      if (suppressCardClickRef.current || isSaving) return
+                      openContact(c)
+                    }}
+                    onKeyDown={(e) => {
+                      if (e.key === 'Enter' && !isSaving) openContact(c)
+                    }}
                   >
+                    {isSaving && (
+                      <span className={styles.cardSavingLabel} aria-live="polite">Saving…</span>
+                    )}
                     <strong>{c.companyName}</strong>
                     {c.partnerType && <span className={styles.partnerType}>{partnerTypeLabel(c.partnerType)}</span>}
                     {c.contactName && <span className={styles.contactName}>{c.contactName}</span>}
@@ -1031,12 +1153,32 @@ export default function PartnershipOutreach() {
                     {c.fitLevel && (
                       <span className={styles.fit} data-fit={c.fitLevel}>{fitLevelLabel(c.fitLevel)} fit</span>
                     )}
+                    <label className={styles.cardStageMove} onClick={(e) => e.stopPropagation()}>
+                      <span className={styles.cardStageMoveLabel}>Move stage</span>
+                      <select
+                        className={styles.cardStageSelect}
+                        value={c.stage}
+                        disabled={isSaving}
+                        aria-label={`Move ${c.companyName} to another stage`}
+                        onKeyDown={(e) => e.stopPropagation()}
+                        onChange={(e) => {
+                          e.stopPropagation()
+                          void handleKanbanStageMove(c, e.target.value)
+                        }}
+                      >
+                        {activeStages.map((s) => (
+                          <option key={s.id} value={s.id}>{s.label}</option>
+                        ))}
+                      </select>
+                    </label>
                   </li>
-                ))}
+                  )
+                })}
               </ul>
             </div>
           ))}
-        </div>
+          </div>
+        </>
       )}
 
       {selectedContact && (
