@@ -13,9 +13,17 @@ import {
   type EmailTemplate,
 } from '../api/db'
 import PartnershipImportWizard from './PartnershipImportWizard'
+import {
+  FORM_CONTACT_STAGES,
+  OUTREACH_METHOD_WEBSITE_FORM,
+  canSendEmailToContact,
+  contactEmailDisplay,
+  contactFormVisitUrl,
+  isPlaceholderFormEmail,
+} from '../utils/partnershipImport'
 import styles from './PartnershipOutreach.module.css'
 
-const STAGES: { id: string; label: string }[] = [
+const EMAIL_STAGES: { id: string; label: string }[] = [
   { id: 'not_contacted', label: 'Not Contacted' },
   { id: 'first_email_sent', label: 'First Email Sent' },
   { id: 'follow_up_needed', label: 'Follow-Up Needed' },
@@ -26,6 +34,17 @@ const STAGES: { id: string; label: string }[] = [
   { id: 'partnered', label: 'Partnered' },
   { id: 'closed_not_fit', label: 'Closed / Not Fit' },
 ]
+
+const ALL_STAGES = [...EMAIL_STAGES, ...FORM_CONTACT_STAGES]
+
+function stageLabel(id?: string): string {
+  if (!id) return '—'
+  return ALL_STAGES.find((s) => s.id === id)?.label ?? id
+}
+
+function isWebsiteFormContact(c: PartnershipContact): boolean {
+  return c.outreachMethod === OUTREACH_METHOD_WEBSITE_FORM
+}
 
 const PARTNER_TYPES: { id: string; label: string }[] = [
   { id: 'venue', label: 'Venue' },
@@ -126,6 +145,7 @@ function toDateInputValue(d: Date): string {
 type SortBy = 'recent' | 'name-az' | 'name-za'
 type Tab = 'pipeline' | 'templates'
 type View = 'kanban' | 'list'
+type PipelineMode = 'email' | 'website_contact_form'
 
 const emptyTemplateForm = { name: '', subject: '', body: '', category: '' }
 
@@ -136,6 +156,7 @@ const emptyAddForm = {
   contactName: '',
   jobTitle: '',
   website: '',
+  contactFormUrl: '',
   instagram: '',
   city: '',
   region: '',
@@ -151,6 +172,7 @@ export default function PartnershipOutreach() {
 
   const [tab, setTab] = useState<Tab>('pipeline')
   const [view, setView] = useState<View>('kanban')
+  const [pipelineMode, setPipelineMode] = useState<PipelineMode>('email')
   const [showImport, setShowImport] = useState(false)
 
   const [search, setSearch] = useState('')
@@ -218,9 +240,13 @@ export default function PartnershipOutreach() {
     setTimeout(() => setToast(null), 3000)
   }
 
+  const activeStages = pipelineMode === 'website_contact_form' ? FORM_CONTACT_STAGES : EMAIL_STAGES
+
   const filteredContacts = useMemo(() => {
     const q = search.trim().toLowerCase()
-    let list = contacts.slice()
+    let list = contacts.filter((c) =>
+      pipelineMode === 'website_contact_form' ? isWebsiteFormContact(c) : !isWebsiteFormContact(c)
+    )
     if (q) {
       list = list.filter(
         (c) =>
@@ -238,7 +264,7 @@ export default function PartnershipOutreach() {
     else if (sortBy === 'name-za') list.sort((a, b) => (b.companyName || '').localeCompare(a.companyName || '', undefined, { sensitivity: 'base' }) || byId(a, b))
     else list.sort((a, b) => (b.updatedAt || '').localeCompare(a.updatedAt || '') || byId(a, b))
     return list
-  }, [contacts, search, filterPartnerType, filterFitLevel, sortBy])
+  }, [contacts, search, filterPartnerType, filterFitLevel, sortBy, pipelineMode])
 
   const byStage = useMemo(() => {
     const grouped: Record<string, PartnershipContact[]> = {}
@@ -345,11 +371,12 @@ export default function PartnershipOutreach() {
     setSelectedId(c.id)
     setEditForm({
       companyName: c.companyName || '',
-      email: c.email || '',
+      email: isPlaceholderFormEmail(c.email) ? '' : (c.email || ''),
       partnerType: c.partnerType || '',
       contactName: c.contactName || '',
       jobTitle: c.jobTitle || '',
       website: c.website || '',
+      contactFormUrl: c.contactFormUrl || '',
       instagram: c.instagram || '',
       city: c.city || '',
       region: c.region || '',
@@ -434,11 +461,12 @@ export default function PartnershipOutreach() {
     try {
       const result = await apiUpdatePartnershipContact(selectedContact.id, {
         companyName: editForm.companyName.trim(),
-        email: editForm.email.trim(),
+        email: editForm.email.trim() || selectedContact.email,
         partnerType: editForm.partnerType || undefined,
         contactName: editForm.contactName.trim() || undefined,
         jobTitle: editForm.jobTitle.trim() || undefined,
         website: editForm.website.trim() || undefined,
+        contactFormUrl: editForm.contactFormUrl.trim() || undefined,
         instagram: editForm.instagram.trim() || undefined,
         city: editForm.city.trim() || undefined,
         region: editForm.region.trim() || undefined,
@@ -895,6 +923,14 @@ export default function PartnershipOutreach() {
           <option value="name-az">Company A–Z</option>
           <option value="name-za">Company Z–A</option>
         </select>
+        <div className={styles.viewToggle} role="tablist" aria-label="Outreach pipeline">
+          <button type="button" className={styles.viewToggleBtn} data-active={pipelineMode === 'email'} onClick={() => setPipelineMode('email')}>
+            Email outreach
+          </button>
+          <button type="button" className={styles.viewToggleBtn} data-active={pipelineMode === 'website_contact_form'} onClick={() => setPipelineMode('website_contact_form')}>
+            Website Contact Form
+          </button>
+        </div>
         <div className={styles.viewToggle} role="tablist" aria-label="Pipeline view">
           <button type="button" className={styles.viewToggleBtn} data-active={view === 'kanban'} onClick={() => setView('kanban')}>
             Kanban
@@ -910,7 +946,7 @@ export default function PartnershipOutreach() {
           <span>{checkedIds.size} selected</span>
           <select className={styles.select} value={bulkStage} onChange={(e) => setBulkStage(e.target.value)} aria-label="Bulk set stage">
             <option value="">Set stage…</option>
-            {STAGES.map((s) => (
+            {activeStages.map((s) => (
               <option key={s.id} value={s.id}>{s.label}</option>
             ))}
           </select>
@@ -956,11 +992,11 @@ export default function PartnershipOutreach() {
                   </td>
                   <td>{c.companyName}</td>
                   <td>{c.contactName || '—'}</td>
-                  <td>{c.email}</td>
+                  <td>{contactEmailDisplay(c)}</td>
                   <td>{partnerTypeLabel(c.partnerType)}</td>
                   <td>{[c.city, c.region].filter(Boolean).join(', ') || '—'}</td>
                   <td>{fitLevelLabel(c.fitLevel)}</td>
-                  <td><span className={styles.stagePill}>{STAGES.find((s) => s.id === c.stage)?.label ?? c.stage}</span></td>
+                  <td><span className={styles.stagePill}>{stageLabel(c.stage)}</span></td>
                 </tr>
               ))}
             </tbody>
@@ -968,7 +1004,7 @@ export default function PartnershipOutreach() {
         </div>
       ) : (
         <div className={styles.pipeline}>
-          {STAGES.map((stage) => (
+          {activeStages.map((stage) => (
             <div key={stage.id} className={styles.column}>
               <div className={styles.columnHeader}>
                 <h2>{stage.label}</h2>
@@ -987,7 +1023,7 @@ export default function PartnershipOutreach() {
                     <strong>{c.companyName}</strong>
                     {c.partnerType && <span className={styles.partnerType}>{partnerTypeLabel(c.partnerType)}</span>}
                     {c.contactName && <span className={styles.contactName}>{c.contactName}</span>}
-                    <span className={styles.email}>{c.email}</span>
+                    <span className={styles.email}>{contactEmailDisplay(c)}</span>
                     {(c.city || c.region) && (
                       <span className={styles.location}>{[c.city, c.region].filter(Boolean).join(', ')}</span>
                     )}
@@ -1006,11 +1042,29 @@ export default function PartnershipOutreach() {
         <div className={styles.drawerOverlay} onClick={closeDrawer} role="dialog" aria-modal="true" aria-label="Partnership contact detail">
           <div className={styles.drawer} onClick={(e) => e.stopPropagation()}>
             <div className={styles.drawerHeader}>
-              <h2>{selectedContact.companyName}</h2>
+              <div>
+                <h2>{selectedContact.companyName}</h2>
+                {isWebsiteFormContact(selectedContact) && (
+                  <span className={styles.outreachMethodBadge}>Website Contact Form</span>
+                )}
+              </div>
               <button type="button" className={styles.closeBtn} onClick={closeDrawer} aria-label="Close">
                 ×
               </button>
             </div>
+
+            {isWebsiteFormContact(selectedContact) && contactFormVisitUrl(selectedContact) && (
+              <div className={styles.visitFormRow}>
+                <a
+                  href={contactFormVisitUrl(selectedContact)}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className={styles.visitFormBtn}
+                >
+                  Visit Contact Form
+                </a>
+              </div>
+            )}
 
             {editError && <p className={styles.error} role="alert">{editError}</p>}
 
@@ -1031,12 +1085,25 @@ export default function PartnershipOutreach() {
                   value={editForm.email}
                   onChange={(e) => setEditForm((f) => ({ ...f, email: e.target.value }))}
                   className={styles.input}
+                  placeholder={isWebsiteFormContact(selectedContact) ? 'Add email when you have one' : undefined}
                 />
               </label>
+              {isWebsiteFormContact(selectedContact) && (
+                <label>
+                  Contact form URL
+                  <input
+                    type="url"
+                    value={editForm.contactFormUrl}
+                    onChange={(e) => setEditForm((f) => ({ ...f, contactFormUrl: e.target.value }))}
+                    className={styles.input}
+                    placeholder="https://…"
+                  />
+                </label>
+              )}
               <label>
                 Stage
                 <select value={editStage} onChange={(e) => setEditStage(e.target.value)} className={styles.select}>
-                  {STAGES.map((s) => (
+                  {(isWebsiteFormContact(selectedContact) ? FORM_CONTACT_STAGES : EMAIL_STAGES).map((s) => (
                     <option key={s.id} value={s.id}>{s.label}</option>
                   ))}
                 </select>
@@ -1141,8 +1208,15 @@ export default function PartnershipOutreach() {
               </button>
             </div>
 
-            <section className={styles.sendSection}>
+            <section className={styles.sendSection} aria-disabled={!canSendEmailToContact(selectedContact)}>
               <h3>Send email</h3>
+              {!canSendEmailToContact(selectedContact) && (
+                <p className={styles.hint}>
+                  {isWebsiteFormContact(selectedContact)
+                    ? 'Send email is disabled until you add a valid email address for this contact.'
+                    : 'This contact needs a valid email address before you can send.'}
+                </p>
+              )}
               {sendError && <p className={styles.error} role="alert">{sendError}</p>}
               {sendResult && <p className={styles.sendSuccess} role="status">{sendResult}</p>}
               <label>
@@ -1152,6 +1226,7 @@ export default function PartnershipOutreach() {
                   onChange={(e) => handleSelectTemplate(e.target.value)}
                   className={styles.select}
                   aria-label="Email template"
+                  disabled={!canSendEmailToContact(selectedContact)}
                 >
                   <option value="">Select a template…</option>
                   {templates.map((t) => (
@@ -1170,6 +1245,7 @@ export default function PartnershipOutreach() {
                   onChange={(e) => setSendSubject(e.target.value)}
                   className={styles.input}
                   placeholder="Select a template to fill this in, then edit as needed"
+                  disabled={!canSendEmailToContact(selectedContact)}
                 />
               </label>
               <label>
@@ -1180,6 +1256,7 @@ export default function PartnershipOutreach() {
                   className={styles.textarea}
                   rows={7}
                   placeholder="Select a template to fill this in, then edit as needed"
+                  disabled={!canSendEmailToContact(selectedContact)}
                 />
               </label>
               <label className={styles.reminderCheckboxRow}>
@@ -1214,7 +1291,7 @@ export default function PartnershipOutreach() {
                 </div>
               )}
               <div className={styles.formActions}>
-                <button type="button" className={styles.submitBtn} onClick={handleSendEmail} disabled={sending}>
+                <button type="button" className={styles.submitBtn} onClick={handleSendEmail} disabled={sending || !canSendEmailToContact(selectedContact)}>
                   {sending ? 'Sending…' : 'Send email'}
                 </button>
               </div>

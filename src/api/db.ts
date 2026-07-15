@@ -936,6 +936,7 @@ export interface PartnershipContact {
   jobTitle?: string
   email: string
   website?: string
+  contactFormUrl?: string
   instagram?: string
   city?: string
   region?: string
@@ -943,6 +944,7 @@ export interface PartnershipContact {
   notes?: string
   stage: string
   source?: string
+  outreachMethod?: 'email' | 'website_contact_form'
   firstEmailSentAt?: string
   lastEmailSentAt?: string
   linkedReferralId?: string

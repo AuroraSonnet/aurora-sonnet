@@ -11,6 +11,7 @@ export type MappableField =
   | 'jobTitle'
   | 'email'
   | 'website'
+  | 'contactFormUrl'
   | 'instagram'
   | 'city'
   | 'region'
@@ -27,6 +28,7 @@ export const MAPPABLE_FIELDS: { id: MappableField; label: string; required?: boo
   { id: 'jobTitle', label: 'Job title' },
   { id: 'partnerType', label: 'Partner type' },
   { id: 'website', label: 'Website' },
+  { id: 'contactFormUrl', label: 'Contact form URL' },
   { id: 'instagram', label: 'Instagram' },
   { id: 'city', label: 'City' },
   { id: 'region', label: 'Region' },
@@ -56,6 +58,57 @@ const FIT_LEVEL_OPTIONS: { id: string; label: string }[] = [
 ]
 
 const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/
+
+export const OUTREACH_METHOD_EMAIL = 'email' as const
+export const OUTREACH_METHOD_WEBSITE_FORM = 'website_contact_form' as const
+export const FORM_CONTACT_PLACEHOLDER_DOMAIN = '@partnership.placeholder'
+
+export const FORM_CONTACT_STAGES: { id: string; label: string }[] = [
+  { id: 'form_to_contact', label: 'To Contact' },
+  { id: 'form_submitted', label: 'Contact Form Submitted' },
+  { id: 'form_follow_up_due', label: 'Follow-up Due' },
+  { id: 'form_replied', label: 'Replied' },
+  { id: 'form_meeting_scheduled', label: 'Meeting Scheduled' },
+  { id: 'form_partnered', label: 'Partner' },
+]
+
+const CONTACT_FORM_PLACEHOLDER_RE =
+  /^(official\s*)?(website\s*)?(online\s*)?(contact\s*)?form(\s*only|\s*route|\s*link)?$/i
+
+/** True when a spreadsheet cell is a contact-form placeholder instead of an email address. */
+export function isContactFormPlaceholder(value: string): boolean {
+  const v = (value || '').trim()
+  if (!v || EMAIL_RE.test(v)) return false
+  if (CONTACT_FORM_PLACEHOLDER_RE.test(v)) return true
+  return /official\s*contact\s*form|contact\s*form|website\s*form|online\s*form|use\s*(the\s*)?form|form\s*only|form\s*route/i.test(v)
+}
+
+export function isPlaceholderFormEmail(email: string): boolean {
+  return typeof email === 'string' && email.endsWith(FORM_CONTACT_PLACEHOLDER_DOMAIN)
+}
+
+export function buildFormPlaceholderEmail(companyName: string, city: string | undefined, rowNumber: number): string {
+  const slug = normalize(`${companyName}-${city || ''}-r${rowNumber}`).slice(0, 48) || `row${rowNumber}`
+  return `form+${slug}${FORM_CONTACT_PLACEHOLDER_DOMAIN}`
+}
+
+export function contactFormVisitUrl(contact: { contactFormUrl?: string; website?: string }): string | undefined {
+  const raw = (contact.contactFormUrl || contact.website || '').trim()
+  if (!raw) return undefined
+  if (/^https?:\/\//i.test(raw)) return raw
+  return `https://${raw.replace(/^\/+/, '')}`
+}
+
+export function contactEmailDisplay(contact: { email: string; outreachMethod?: string }): string {
+  if (contact.outreachMethod === OUTREACH_METHOD_WEBSITE_FORM && isPlaceholderFormEmail(contact.email)) {
+    return 'Website Contact Form'
+  }
+  return contact.email
+}
+
+export function canSendEmailToContact(contact: { email: string; outreachMethod?: string }): boolean {
+  return EMAIL_RE.test(contact.email) && !isPlaceholderFormEmail(contact.email)
+}
 
 function normalize(s: string): string {
   return (s || '').toLowerCase().replace(/[^a-z0-9]/g, '')
@@ -284,6 +337,7 @@ const FIELD_KEYWORDS: { field: MappableField; exact: string[]; contains: string[
   { field: 'jobTitle', exact: ['jobtitle', 'contacttitle', 'title', 'role', 'position'], contains: ['jobtitle', 'contacttitle'] },
   { field: 'partnerType', exact: ['partnertype', 'venuetype', 'category'], contains: ['partnertype', 'venuetype'] },
   { field: 'website', exact: ['website', 'site', 'web'], contains: ['website'] },
+  { field: 'contactFormUrl', exact: ['contactformurl', 'formurl'], contains: ['contactformurl', 'contactform'] },
   { field: 'instagram', exact: ['instagram', 'ig', 'insta'], contains: ['instagram', 'insta'] },
   { field: 'city', exact: ['city', 'neighborhood'], contains: ['city', 'neighborhood'] },
   { field: 'region', exact: ['region', 'state', 'province', 'borough'], contains: ['region', 'state', 'borough'] },
@@ -321,6 +375,8 @@ export interface ImportRow {
   rowNumber: number // 1-based, matches spreadsheet row (header = row 1)
   companyName: string
   email: string
+  outreachMethod?: typeof OUTREACH_METHOD_EMAIL | typeof OUTREACH_METHOD_WEBSITE_FORM
+  contactFormUrl?: string
   partnerType?: string
   contactName?: string
   jobTitle?: string
@@ -357,6 +413,7 @@ export function buildImportRows(
   }
 
   const seenEmailsInFile = new Map<string, number>() // normalized email -> first row number seen
+  const seenFormKeysInFile = new Map<string, number>() // company|city -> first row number seen
 
   const headerRowNumber = (parsed.headerRowIndex ?? 0) + 1
 
@@ -368,46 +425,77 @@ export function buildImportRows(
     }
 
     const companyName = get('companyName')
-    const email = get('email')
+    const rawEmail = get('email')
     const rawPartnerType = get('partnerType')
     const rawFitLevel = get('fitLevel')
     const rawStage = get('stage')
+    const website = get('website') || undefined
+    const contactFormUrl = get('contactFormUrl') || undefined
+    const isFormContact = isContactFormPlaceholder(rawEmail)
 
     const errors: string[] = []
     if (!companyName) errors.push('Missing company name')
-    if (!email) errors.push('Missing email')
-    else if (!EMAIL_RE.test(email)) errors.push('Invalid email format')
+    let email = rawEmail
+    let outreachMethod: ImportRow['outreachMethod'] = OUTREACH_METHOD_EMAIL
+    if (isFormContact) {
+      outreachMethod = OUTREACH_METHOD_WEBSITE_FORM
+      if (!website && !contactFormUrl) errors.push('Missing website or contact form URL')
+      email = buildFormPlaceholderEmail(companyName, get('city') || undefined, rowNumber)
+    } else {
+      if (!rawEmail) errors.push('Missing email')
+      else if (!EMAIL_RE.test(rawEmail)) errors.push('Invalid email format')
+    }
 
     const needsReview: string[] = []
     const partnerType = rawPartnerType || undefined
     const fitLevel = rawFitLevel ? matchOption(rawFitLevel, FIT_LEVEL_OPTIONS) : undefined
     if (rawFitLevel && !fitLevel) needsReview.push(`Unrecognized fit level "${rawFitLevel}"`)
-    const stage = rawStage ? matchOption(rawStage, STAGE_OPTIONS) : undefined
-    if (rawStage && !stage) needsReview.push(`Unrecognized stage "${rawStage}" — will default to Not Contacted`)
+    const stage = isFormContact
+      ? 'form_to_contact'
+      : rawStage
+        ? matchOption(rawStage, STAGE_OPTIONS)
+        : undefined
+    if (!isFormContact && rawStage && !stage) {
+      needsReview.push(`Unrecognized stage "${rawStage}" — will default to Not Contacted`)
+    }
 
     let duplicateOfId: string | undefined
     let duplicateReason: ImportRow['duplicateReason']
     let duplicateRowNumber: number | undefined
     let possibleDuplicateOfId: string | undefined
 
-    const normEmail = normalize(email)
-    if (normEmail) {
-      const firstSeenRow = seenEmailsInFile.get(normEmail)
-      if (firstSeenRow != null) {
-        duplicateOfId = undefined
-        duplicateReason = 'in-file'
-        duplicateRowNumber = firstSeenRow
-      } else {
-        seenEmailsInFile.set(normEmail, rowNumber)
-        const existingId = existingByEmail.get(normEmail)
-        if (existingId) {
-          duplicateOfId = existingId
-          duplicateReason = 'existing-contact'
+    if (isFormContact) {
+      const formKey = `${normalize(companyName)}|${normalize(get('city'))}`
+      if (formKey !== '|') {
+        const firstSeenRow = seenFormKeysInFile.get(formKey)
+        if (firstSeenRow != null) {
+          duplicateReason = 'in-file'
+          duplicateRowNumber = firstSeenRow
+        } else {
+          seenFormKeysInFile.set(formKey, rowNumber)
+        }
+        const possibleId = existingByCompanyCity.get(formKey)
+        if (possibleId) possibleDuplicateOfId = possibleId
+      }
+    } else {
+      const normEmail = normalize(email)
+      if (normEmail) {
+        const firstSeenRow = seenEmailsInFile.get(normEmail)
+        if (firstSeenRow != null) {
+          duplicateReason = 'in-file'
+          duplicateRowNumber = firstSeenRow
+        } else {
+          seenEmailsInFile.set(normEmail, rowNumber)
+          const existingId = existingByEmail.get(normEmail)
+          if (existingId) {
+            duplicateOfId = existingId
+            duplicateReason = 'existing-contact'
+          }
         }
       }
     }
 
-    if (!duplicateReason && companyName && get('city')) {
+    if (!duplicateReason && !isFormContact && companyName && get('city')) {
       const key = `${normalize(companyName)}|${normalize(get('city'))}`
       const possibleId = existingByCompanyCity.get(key)
       if (possibleId) possibleDuplicateOfId = possibleId
@@ -417,10 +505,12 @@ export function buildImportRows(
       rowNumber,
       companyName,
       email,
+      outreachMethod,
+      contactFormUrl: isFormContact ? contactFormUrl : undefined,
       partnerType,
       contactName: get('contactName') || undefined,
       jobTitle: get('jobTitle') || undefined,
-      website: get('website') || undefined,
+      website,
       instagram: get('instagram') || undefined,
       city: get('city') || undefined,
       region: get('region') || undefined,

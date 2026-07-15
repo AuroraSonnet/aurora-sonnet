@@ -7,6 +7,7 @@ import {
   buildImportRows,
   buildErrorCsv,
   downloadTextFile,
+  contactEmailDisplay,
   MAPPABLE_FIELDS,
   type MappableField,
   type ParsedSheet,
@@ -139,6 +140,8 @@ export default function PartnershipImportWizard({ onClose }: { onClose: () => vo
     return {
       companyName: row.companyName,
       email: row.email,
+      outreachMethod: row.outreachMethod || 'email',
+      contactFormUrl: row.contactFormUrl,
       partnerType: row.partnerType || undefined,
       contactName: row.contactName,
       jobTitle: row.jobTitle,
@@ -154,22 +157,20 @@ export default function PartnershipImportWizard({ onClose }: { onClose: () => vo
   }
 
   function buildUpdatePayload(row: ImportRow): Record<string, unknown> {
-    // Only send fields the spreadsheet actually provided, so blank cells never overwrite existing
-    // data. Email is intentionally excluded here — the match to this contact already happened by
-    // email, so there's nothing useful to change and it avoids tripping the update route's own
-    // duplicate-email guard.
     const updates: Record<string, unknown> = {}
     if (row.companyName) updates.companyName = row.companyName
     if (row.partnerType) updates.partnerType = row.partnerType
     if (row.contactName) updates.contactName = row.contactName
     if (row.jobTitle) updates.jobTitle = row.jobTitle
     if (row.website) updates.website = row.website
+    if (row.contactFormUrl) updates.contactFormUrl = row.contactFormUrl
     if (row.instagram) updates.instagram = row.instagram
     if (row.city) updates.city = row.city
     if (row.region) updates.region = row.region
     if (row.fitLevel) updates.fitLevel = row.fitLevel
     if (row.notes) updates.notes = row.notes
     if (row.stage) updates.stage = row.stage
+    if (row.outreachMethod) updates.outreachMethod = row.outreachMethod
     return updates
   }
 
@@ -423,7 +424,7 @@ export default function PartnershipImportWizard({ onClose }: { onClose: () => vo
                       </td>
                       <td>{row.rowNumber}</td>
                       <td>{row.companyName || <em>—</em>}</td>
-                      <td>{row.email || <em>—</em>}</td>
+                      <td>{contactEmailDisplay({ email: row.email, outreachMethod: row.outreachMethod }) || <em>—</em>}</td>
                       <td className={styles.statusCell}>
                         {row.errors.length > 0 && (
                           <span className={styles.badgeError} title={row.errors.join('; ')}>Error: {row.errors[0]}</span>

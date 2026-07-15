@@ -664,6 +664,46 @@
   box-shadow: var(--shadow);
 }
 
+.outreachMethodBadge {
+  display: inline-block;
+  margin-top: 0.35rem;
+  padding: 0.2rem 0.55rem;
+  border-radius: 999px;
+  font-size: 0.75rem;
+  font-weight: 600;
+  background: #e8f0fe;
+  color: #1a4b8c;
+}
+
+.visitFormRow {
+  margin: 0 0 1rem;
+}
+
+.visitFormBtn {
+  display: inline-flex;
+  align-items: center;
+  padding: 0.55rem 0.9rem;
+  border-radius: var(--radius-sm);
+  background: #1a4b8c;
+  color: #fff;
+  font-weight: 600;
+  text-decoration: none;
+}
+
+.visitFormBtn:hover {
+  background: #153d72;
+}
+
+.sendSection[aria-disabled='true'] .input,
+.sendSection[aria-disabled='true'] .select,
+.sendSection[aria-disabled='true'] .textarea {
+  opacity: 0.65;
+}
+
+.drawerHeader > div:first-child {
+  flex: 1;
+}
+
 .importBtn {
   background: transparent;
   color: var(--accent);

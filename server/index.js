@@ -3860,7 +3860,7 @@ app.delete('/api/partner-referrals/:id', (req, res) => {
 // ---------------------------------------------------------------------------
 
 const PARTNERSHIP_CONTACT_TYPES = ['venue', 'planner', 'photographer', 'hotel', 'private_club', 'florist', 'other']
-const PARTNERSHIP_CONTACT_STAGES = [
+const EMAIL_OUTREACH_STAGES = [
   'not_contacted',
   'first_email_sent',
   'follow_up_needed',
@@ -3871,7 +3871,17 @@ const PARTNERSHIP_CONTACT_STAGES = [
   'partnered',
   'closed_not_fit',
 ]
+const FORM_OUTREACH_STAGES = [
+  'form_to_contact',
+  'form_submitted',
+  'form_follow_up_due',
+  'form_replied',
+  'form_meeting_scheduled',
+  'form_partnered',
+]
+const PARTNERSHIP_CONTACT_STAGES = [...EMAIL_OUTREACH_STAGES, ...FORM_OUTREACH_STAGES]
 const PARTNERSHIP_CONTACT_FIT_LEVELS = ['high', 'medium', 'low']
+const FORM_CONTACT_PLACEHOLDER_DOMAIN = '@partnership.placeholder'
 // email_sent and stage_change are written automatically by the server (send-email route, stage updates);
 // manual entries via POST /:id/activity are limited to these so the log can't be faked.
 const MANUAL_OUTREACH_ACTIVITY_TYPES = ['note', 'reply', 'meeting', 'demo']
@@ -3881,17 +3891,43 @@ function isValidEmailFormat(email) {
   return typeof email === 'string' && EMAIL_RE.test(email.trim())
 }
 
+function isPlaceholderFormEmail(email) {
+  return typeof email === 'string' && email.endsWith(FORM_CONTACT_PLACEHOLDER_DOMAIN)
+}
+
+function isSendableContactEmail(email) {
+  return isValidEmailFormat(email) && !isPlaceholderFormEmail(email)
+}
+
+function normalizeOutreachMethod(value) {
+  return value === 'website_contact_form' ? 'website_contact_form' : 'email'
+}
+
 app.post('/api/partnership-contacts', (req, res) => {
   try {
     const b = req.body || {}
     const companyName = String(b.companyName || '').trim()
     const email = String(b.email || '').trim()
+    const outreachMethod = normalizeOutreachMethod(b.outreachMethod)
     if (!companyName) return res.status(400).json({ error: 'companyName is required' })
     if (!email) return res.status(400).json({ error: 'email is required' })
-    if (!isValidEmailFormat(email)) return res.status(400).json({ error: 'email is not a valid email address' })
+    if (outreachMethod === 'website_contact_form') {
+      if (!isValidEmailFormat(email) && !isPlaceholderFormEmail(email)) {
+        return res.status(400).json({ error: 'email is not valid for a website contact form contact' })
+      }
+    } else if (!isValidEmailFormat(email)) {
+      return res.status(400).json({ error: 'email is not a valid email address' })
+    }
+
+    const website = String(b.website || '').trim() || undefined
+    const contactFormUrl = String(b.contactFormUrl || '').trim() || undefined
+    if (outreachMethod === 'website_contact_form' && !website && !contactFormUrl) {
+      return res.status(400).json({ error: 'website or contactFormUrl is required for website contact form outreach' })
+    }
 
     const partnerType = b.partnerType != null && String(b.partnerType).trim() ? String(b.partnerType).trim() : undefined
-    const stage = b.stage != null && String(b.stage).trim() ? String(b.stage).trim() : undefined
+    let stage = b.stage != null && String(b.stage).trim() ? String(b.stage).trim() : undefined
+    if (!stage) stage = outreachMethod === 'website_contact_form' ? 'form_to_contact' : 'not_contacted'
     if (stage && !PARTNERSHIP_CONTACT_STAGES.includes(stage)) {
       return res.status(400).json({ error: `stage must be one of: ${PARTNERSHIP_CONTACT_STAGES.join(', ')}` })
     }
@@ -3901,7 +3937,7 @@ app.post('/api/partnership-contacts', (req, res) => {
     }
 
     const existing = getPartnershipContactByEmail(email)
-    if (existing) {
+    if (existing && !isPlaceholderFormEmail(email)) {
       return res.status(409).json({ error: 'A partnership contact with this email already exists', existingId: existing.id })
     }
 
@@ -3918,7 +3954,7 @@ app.post('/api/partnership-contacts', (req, res) => {
       partnerType,
       contactName: String(b.contactName || '').trim() || undefined,
       jobTitle: String(b.jobTitle || '').trim() || undefined,
-      website: String(b.website || '').trim() || undefined,
+      website,
       instagram: String(b.instagram || '').trim() || undefined,
       city: String(b.city || '').trim() || undefined,
       region: String(b.region || '').trim() || undefined,
@@ -3926,6 +3962,8 @@ app.post('/api/partnership-contacts', (req, res) => {
       notes: String(b.notes || '').trim() || undefined,
       stage,
       source: String(b.source || '').trim() || 'manual',
+      outreachMethod,
+      contactFormUrl,
     })
     res.json({ id: createdId })
   } catch (err) {
@@ -3952,10 +3990,19 @@ app.patch('/api/partnership-contacts/:id', (req, res) => {
     if (b.email !== undefined) {
       const email = String(b.email || '').trim()
       if (!email) return res.status(400).json({ error: 'email cannot be empty' })
-      if (!isValidEmailFormat(email)) return res.status(400).json({ error: 'email is not a valid email address' })
-      const dupe = getPartnershipContactByEmail(email)
-      if (dupe && dupe.id !== id) {
-        return res.status(409).json({ error: 'Another partnership contact already uses this email', existingId: dupe.id })
+      const method = b.outreachMethod !== undefined ? normalizeOutreachMethod(b.outreachMethod) : (existing.outreachMethod || 'email')
+      if (method === 'website_contact_form') {
+        if (!isValidEmailFormat(email) && !isPlaceholderFormEmail(email)) {
+          return res.status(400).json({ error: 'email is not valid for a website contact form contact' })
+        }
+      } else if (!isValidEmailFormat(email)) {
+        return res.status(400).json({ error: 'email is not a valid email address' })
+      }
+      if (!isPlaceholderFormEmail(email)) {
+        const dupe = getPartnershipContactByEmail(email)
+        if (dupe && dupe.id !== id) {
+          return res.status(409).json({ error: 'Another partnership contact already uses this email', existingId: dupe.id })
+        }
       }
       updates.email = email
     }
@@ -3979,9 +4026,10 @@ app.patch('/api/partnership-contacts/:id', (req, res) => {
       if (stage !== existing.stage) stageChanged = true
       updates.stage = stage
     }
-    for (const field of ['contactName', 'jobTitle', 'website', 'instagram', 'city', 'region', 'notes']) {
+    for (const field of ['contactName', 'jobTitle', 'website', 'instagram', 'city', 'region', 'notes', 'contactFormUrl']) {
       if (b[field] !== undefined) updates[field] = String(b[field] || '').trim() || undefined
     }
+    if (b.outreachMethod !== undefined) updates.outreachMethod = normalizeOutreachMethod(b.outreachMethod)
 
     const updated = updatePartnershipContact(id, updates)
     if (stageChanged) {
@@ -4138,8 +4186,8 @@ app.post('/api/partnership-contacts/:id/send-email', async (req, res) => {
     }
 
     const to = String(contact.email || '').trim()
-    if (!isValidEmailFormat(to)) {
-      return res.status(400).json({ error: 'This contact does not have a valid email address' })
+    if (!isSendableContactEmail(to)) {
+      return res.status(400).json({ error: 'This contact does not have a valid email address. Add an email before sending, or use Visit Contact Form for website form outreach.' })
     }
 
     console.log('[PARTNERSHIP-OUTREACH-EMAIL] sendMail attempt', { from: mailFrom, to, templateId, contactId: id })

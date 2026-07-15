@@ -368,6 +368,16 @@ try {
   if (!/duplicate column/i.test(e.message)) throw e
 }
 try {
+  db.exec('ALTER TABLE partnership_contacts ADD COLUMN outreachMethod TEXT')
+} catch (e) {
+  if (!/duplicate column/i.test(e.message)) throw e
+}
+try {
+  db.exec('ALTER TABLE partnership_contacts ADD COLUMN contactFormUrl TEXT')
+} catch (e) {
+  if (!/duplicate column/i.test(e.message)) throw e
+}
+try {
   db.exec('ALTER TABLE partner_referrals ADD COLUMN expense_line_items TEXT')
 } catch (e) {
   if (!/duplicate column/i.test(e.message)) throw e
@@ -988,6 +998,8 @@ function rowToPartnershipContact(r) {
     notes: r.notes || undefined,
     stage: r.stage || 'not_contacted',
     source: r.source || undefined,
+    outreachMethod: r.outreachMethod || undefined,
+    contactFormUrl: r.contactFormUrl || undefined,
     firstEmailSentAt: r.firstEmailSentAt || undefined,
     lastEmailSentAt: r.lastEmailSentAt || undefined,
     linkedReferralId: r.linkedReferralId || undefined,
@@ -1049,8 +1061,8 @@ export function createPartnershipContact(contact) {
   const now = new Date().toISOString()
   db.prepare(
     `INSERT INTO partnership_contacts
-      (id, companyName, partnerType, contactName, jobTitle, email, website, instagram, city, region, fitLevel, notes, stage, source, createdAt, updatedAt)
-     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+      (id, companyName, partnerType, contactName, jobTitle, email, website, instagram, city, region, fitLevel, notes, stage, source, outreachMethod, contactFormUrl, createdAt, updatedAt)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
   ).run(
     id,
     contact.companyName,
@@ -1066,6 +1078,8 @@ export function createPartnershipContact(contact) {
     contact.notes ?? null,
     contact.stage || 'not_contacted',
     contact.source ?? null,
+    contact.outreachMethod ?? null,
+    contact.contactFormUrl ?? null,
     now,
     now
   )
@@ -1079,7 +1093,7 @@ export function updatePartnershipContact(id, updates) {
   db.prepare(
     `UPDATE partnership_contacts SET
       companyName=?, partnerType=?, contactName=?, jobTitle=?, email=?, website=?, instagram=?, city=?, region=?,
-      fitLevel=?, notes=?, stage=?, source=?, firstEmailSentAt=?, lastEmailSentAt=?, linkedReferralId=?, updatedAt=?
+      fitLevel=?, notes=?, stage=?, source=?, firstEmailSentAt=?, lastEmailSentAt=?, linkedReferralId=?, outreachMethod=?, contactFormUrl=?, updatedAt=?
      WHERE id=?`
   ).run(
     c.companyName,
@@ -1098,6 +1112,8 @@ export function updatePartnershipContact(id, updates) {
     c.firstEmailSentAt ?? null,
     c.lastEmailSentAt ?? null,
     c.linkedReferralId ?? null,
+    c.outreachMethod ?? null,
+    c.contactFormUrl ?? null,
     new Date().toISOString(),
     id
   )
