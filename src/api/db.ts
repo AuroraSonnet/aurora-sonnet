@@ -1,7 +1,7 @@
 const API = '/api'
 
 function apiFetch(input: RequestInfo | URL, init?: RequestInit): Promise<Response> {
-  return apiFetch(input, { credentials: 'include', ...init })
+  return fetch(input, { credentials: 'include', ...init })
 }
 
 export interface DocumentTemplate {
