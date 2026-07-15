@@ -1030,12 +1030,13 @@ export interface EmailTemplate {
   subject: string
   body: string
   category?: string
+  templateType?: string
   createdAt: string
   updatedAt: string
 }
 
 export async function apiCreateEmailTemplate(
-  template: { name: string; subject: string; body: string; category?: string }
+  template: { name: string; subject: string; body: string; category?: string; templateType?: string }
 ): Promise<{ ok: true; id: string } | { ok: false; error: string }> {
   try {
     const res = await apiFetch(`${API}/email-templates`, {
@@ -1053,7 +1054,7 @@ export async function apiCreateEmailTemplate(
 
 export async function apiUpdateEmailTemplate(
   id: string,
-  updates: { name?: string; subject?: string; body?: string; category?: string }
+  updates: { name?: string; subject?: string; body?: string; category?: string; templateType?: string }
 ): Promise<{ ok: true; template: EmailTemplate } | { ok: false; error: string }> {
   try {
     const res = await apiFetch(`${API}/email-templates/${id}`, {

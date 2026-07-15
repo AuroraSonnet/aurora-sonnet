@@ -22,6 +22,7 @@ import {
   isPlaceholderFormEmail,
 } from '../utils/partnershipImport'
 import { performKanbanStageMove } from '../utils/partnershipKanbanStage'
+import { pickDefaultSendTemplate, templateTypeLabel } from '../utils/partnershipEmailTemplates'
 import styles from './PartnershipOutreach.module.css'
 
 const EMAIL_STAGES: { id: string; label: string }[] = [
@@ -488,15 +489,23 @@ export default function PartnershipOutreach() {
     setActivityBody('')
     setActivityError(null)
 
-    setSendTemplateId('')
-    setSendSubject('')
-    setSendBody('')
     setSendError(null)
     setSendResult(null)
     setReminderEnabled(true)
     const offsetDays = c.firstEmailSentAt ? 7 : 5
     setReminderDate(toDateInputValue(addBusinessDays(new Date(), offsetDays)))
     setReminderNote('')
+
+    const defaultTpl = pickDefaultSendTemplate(c, templates)
+    if (defaultTpl) {
+      setSendTemplateId(defaultTpl.id)
+      setSendSubject(mergeTemplateText(defaultTpl.subject, c))
+      setSendBody(mergeTemplateText(defaultTpl.body, c))
+    } else {
+      setSendTemplateId('')
+      setSendSubject('')
+      setSendBody('')
+    }
   }
 
   const closeDrawer = () => {
@@ -826,6 +835,9 @@ export default function PartnershipOutreach() {
                 <li key={t.id} className={styles.templateCard}>
                   <div className={styles.templateCardHead}>
                     <strong>{t.name}</strong>
+                    {t.templateType && (
+                      <span className={styles.templateType}>{templateTypeLabel(t.templateType)}</span>
+                    )}
                     {t.category && <span className={styles.templateCategory}>{t.category}</span>}
                   </div>
                   <p className={styles.templateSubjectPreview}>{t.subject}</p>

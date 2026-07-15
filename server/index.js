@@ -4100,7 +4100,13 @@ app.post('/api/email-templates', (req, res) => {
     if (!name) return res.status(400).json({ error: 'name is required' })
     if (!subject) return res.status(400).json({ error: 'subject is required' })
     if (!body) return res.status(400).json({ error: 'body is required' })
-    const id = createEmailTemplate({ name, subject, body, category: String(b.category || '').trim() || undefined })
+    const id = createEmailTemplate({
+      name,
+      subject,
+      body,
+      category: String(b.category || '').trim() || undefined,
+      templateType: String(b.templateType || '').trim() || undefined,
+    })
     res.json({ id })
   } catch (err) {
     logError('DB', 'Failed to create email template', err)
@@ -4128,6 +4134,7 @@ app.patch('/api/email-templates/:id', (req, res) => {
       updates.body = body
     }
     if (b.category !== undefined) updates.category = String(b.category || '').trim() || undefined
+    if (b.templateType !== undefined) updates.templateType = String(b.templateType || '').trim() || undefined
     const updated = updateEmailTemplate(req.params.id, updates)
     if (!updated) return res.status(404).json({ error: 'Email template not found' })
     res.json(updated)

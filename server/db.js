@@ -12,6 +12,7 @@ import {
   referralStatusEligibleForBookingPayout,
   normalizeReferralStatusKey,
 } from './partnerReferralPayout.js'
+import { ensureDefaultPartnershipEmailTemplates } from './partnershipEmailTemplates.js'
 
 export {
   computePartnerReferralAmounts,
@@ -400,6 +401,12 @@ function migratePartnershipOutreachStages() {
   }
 }
 migratePartnershipOutreachStages()
+
+try {
+  db.exec('ALTER TABLE email_templates ADD COLUMN templateType TEXT')
+} catch (e) {
+  if (!/duplicate column/i.test(e.message)) throw e
+}
 
 try {
   db.exec('ALTER TABLE partner_referrals ADD COLUMN expense_line_items TEXT')
@@ -1052,6 +1059,7 @@ function rowToEmailTemplate(r) {
     subject: r.subject,
     body: r.body,
     category: r.category || undefined,
+    templateType: r.templateType || undefined,
     createdAt: r.createdAt,
     updatedAt: r.updatedAt,
   }
@@ -1196,8 +1204,8 @@ export function createEmailTemplate(tpl) {
   const id = tpl.id || getNextEmailTemplateId()
   const now = new Date().toISOString()
   db.prepare(
-    'INSERT INTO email_templates (id, name, subject, body, category, createdAt, updatedAt) VALUES (?, ?, ?, ?, ?, ?, ?)'
-  ).run(id, tpl.name, tpl.subject, tpl.body, tpl.category ?? null, now, now)
+    'INSERT INTO email_templates (id, name, subject, body, category, templateType, createdAt, updatedAt) VALUES (?, ?, ?, ?, ?, ?, ?, ?)'
+  ).run(id, tpl.name, tpl.subject, tpl.body, tpl.category ?? null, tpl.templateType ?? null, now, now)
   return id
 }
 
@@ -1205,11 +1213,12 @@ export function updateEmailTemplate(id, updates) {
   const row = db.prepare('SELECT * FROM email_templates WHERE id = ?').get(id)
   if (!row) return null
   const t = { ...rowToEmailTemplate(row), ...updates }
-  db.prepare('UPDATE email_templates SET name=?, subject=?, body=?, category=?, updatedAt=? WHERE id=?').run(
+  db.prepare('UPDATE email_templates SET name=?, subject=?, body=?, category=?, templateType=?, updatedAt=? WHERE id=?').run(
     t.name,
     t.subject,
     t.body,
     t.category ?? null,
+    t.templateType ?? null,
     new Date().toISOString(),
     id
   )
@@ -1767,5 +1776,7 @@ export function seedDb(seed) {
   for (const c of seed.contracts) createContract(c)
   for (const e of seed.expenses) createExpense(e)
 }
+
+ensureDefaultPartnershipEmailTemplates(db, createEmailTemplate)
 
 export default db
