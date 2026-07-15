@@ -75,6 +75,74 @@ export const FORM_CONTACT_STAGES: { id: string; label: string }[] = [
 const CONTACT_FORM_PLACEHOLDER_RE =
   /^(official\s*)?(website\s*)?(online\s*)?(contact\s*)?form(\s*only|\s*route|\s*link)?$/i
 
+const HTTP_URL_IN_TEXT_RE = /https?:\/\/[^\s|]+/i
+
+function extractHttpUrl(value: string): string | undefined {
+  const match = value.match(HTTP_URL_IN_TEXT_RE)
+  if (!match) return undefined
+  return match[0].replace(/[.,;)]+$/, '')
+}
+
+function extractEmbeddedEmail(value: string): string | undefined {
+  const match = value.match(/[^\s|;,<>]+@[^\s|;,<>]+\.[^\s|;,<>]+/)
+  if (!match) return undefined
+  const email = match[0].replace(/[.,;)]+$/, '')
+  return EMAIL_RE.test(email) ? email : undefined
+}
+
+function isLikelyPhone(value: string): boolean {
+  const v = value.trim()
+  if (!v || /do not outreach|official phone only|^phone$/i.test(v)) return false
+  const digits = v.replace(/\D/g, '')
+  return digits.length >= 10 && digits.length <= 15 && /[\d(+-]/.test(v)
+}
+
+function extractPhoneFromContactCell(value: string, url?: string): string | undefined {
+  const parts = value
+    .split('|')
+    .map((part) => part.trim())
+    .filter(Boolean)
+  for (const part of parts) {
+    if (url && part.includes(url)) {
+      const rest = part.replace(url, '').trim()
+      if (rest && isLikelyPhone(rest)) return rest
+      continue
+    }
+    if (!url || !part.includes(url)) {
+      if (isLikelyPhone(part)) return part
+    }
+  }
+  const withoutUrl = (url ? value.replace(url, '') : value).replace(/\|/g, ' ').trim()
+  if (withoutUrl && isLikelyPhone(withoutUrl)) return withoutUrl
+  return undefined
+}
+
+export type ParsedContactField =
+  | { kind: 'email'; email: string }
+  | { kind: 'form'; contactFormUrl: string; phone?: string }
+  | { kind: 'placeholder' }
+  | { kind: 'invalid' }
+
+/** Classify an Email / Contact spreadsheet cell (email, form URL, placeholder, or invalid). */
+export function parseContactFieldValue(value: string): ParsedContactField {
+  const v = (value || '').trim()
+  if (!v) return { kind: 'invalid' }
+
+  if (EMAIL_RE.test(v)) return { kind: 'email', email: v }
+
+  const embeddedEmail = extractEmbeddedEmail(v)
+  if (embeddedEmail) return { kind: 'email', email: embeddedEmail }
+
+  if (isContactFormPlaceholder(v)) return { kind: 'placeholder' }
+
+  const contactFormUrl = extractHttpUrl(v)
+  if (contactFormUrl) {
+    return { kind: 'form', contactFormUrl, phone: extractPhoneFromContactCell(v, contactFormUrl) }
+  }
+
+  return { kind: 'invalid' }
+}
+
 /** True when a spreadsheet cell is a contact-form placeholder instead of an email address. */
 export function isContactFormPlaceholder(value: string): boolean {
   const v = (value || '').trim()
@@ -430,14 +498,26 @@ export function buildImportRows(
     const rawFitLevel = get('fitLevel')
     const rawStage = get('stage')
     const website = get('website') || undefined
-    const contactFormUrl = get('contactFormUrl') || undefined
-    const isFormContact = isContactFormPlaceholder(rawEmail)
+    let contactFormUrl = get('contactFormUrl') || undefined
+    const parsedContact = parseContactFieldValue(rawEmail)
+    const isFormContact = parsedContact.kind === 'form' || parsedContact.kind === 'placeholder'
 
     const errors: string[] = []
     if (!companyName) errors.push('Missing company name')
     let email = rawEmail
     let outreachMethod: ImportRow['outreachMethod'] = OUTREACH_METHOD_EMAIL
-    if (isFormContact) {
+    let formPhoneNote: string | undefined
+
+    if (parsedContact.kind === 'email') {
+      email = parsedContact.email
+      if (!email) errors.push('Missing email')
+    } else if (parsedContact.kind === 'form') {
+      outreachMethod = OUTREACH_METHOD_WEBSITE_FORM
+      contactFormUrl = contactFormUrl || parsedContact.contactFormUrl
+      formPhoneNote = parsedContact.phone
+      if (!website && !contactFormUrl) errors.push('Missing website or contact form URL')
+      email = buildFormPlaceholderEmail(companyName, get('city') || undefined, rowNumber)
+    } else if (parsedContact.kind === 'placeholder') {
       outreachMethod = OUTREACH_METHOD_WEBSITE_FORM
       if (!website && !contactFormUrl) errors.push('Missing website or contact form URL')
       email = buildFormPlaceholderEmail(companyName, get('city') || undefined, rowNumber)
@@ -457,6 +537,12 @@ export function buildImportRows(
         : undefined
     if (!isFormContact && rawStage && !stage) {
       needsReview.push(`Unrecognized stage "${rawStage}" — will default to Not Contacted`)
+    }
+
+    let notes = get('notes') || undefined
+    if (formPhoneNote) {
+      const phoneLine = `Phone: ${formPhoneNote}`
+      notes = notes ? `${notes}\n${phoneLine}` : phoneLine
     }
 
     let duplicateOfId: string | undefined
@@ -515,7 +601,7 @@ export function buildImportRows(
       city: get('city') || undefined,
       region: get('region') || undefined,
       fitLevel,
-      notes: get('notes') || undefined,
+      notes,
       stage,
       errors,
       needsReview,
