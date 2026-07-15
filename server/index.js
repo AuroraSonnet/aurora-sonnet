@@ -3891,9 +3891,6 @@ app.post('/api/partnership-contacts', (req, res) => {
     if (!isValidEmailFormat(email)) return res.status(400).json({ error: 'email is not a valid email address' })
 
     const partnerType = b.partnerType != null && String(b.partnerType).trim() ? String(b.partnerType).trim() : undefined
-    if (partnerType && !PARTNERSHIP_CONTACT_TYPES.includes(partnerType)) {
-      return res.status(400).json({ error: `partnerType must be one of: ${PARTNERSHIP_CONTACT_TYPES.join(', ')}` })
-    }
     const stage = b.stage != null && String(b.stage).trim() ? String(b.stage).trim() : undefined
     if (stage && !PARTNERSHIP_CONTACT_STAGES.includes(stage)) {
       return res.status(400).json({ error: `stage must be one of: ${PARTNERSHIP_CONTACT_STAGES.join(', ')}` })
@@ -3964,9 +3961,6 @@ app.patch('/api/partnership-contacts/:id', (req, res) => {
     }
     if (b.partnerType !== undefined) {
       const partnerType = String(b.partnerType || '').trim()
-      if (partnerType && !PARTNERSHIP_CONTACT_TYPES.includes(partnerType)) {
-        return res.status(400).json({ error: `partnerType must be one of: ${PARTNERSHIP_CONTACT_TYPES.join(', ')}` })
-      }
       updates.partnerType = partnerType || undefined
     }
     if (b.fitLevel !== undefined) {

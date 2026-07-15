@@ -35,8 +35,9 @@ export const MAPPABLE_FIELDS: { id: MappableField; label: string; required?: boo
   { id: 'notes', label: 'Notes' },
 ]
 
-// Kept in sync with PartnershipOutreach.tsx's STAGES/PARTNER_TYPES/FIT_LEVELS constants (duplicated
-// here on purpose to avoid a circular import between the page and this standalone lib module).
+// Kept in sync with PartnershipOutreach.tsx's STAGES/FIT_LEVELS constants (duplicated here on
+// purpose to avoid a circular import between the page and this standalone lib module). Partner
+// type is imported as free text from venue tracker spreadsheets.
 const STAGE_OPTIONS: { id: string; label: string }[] = [
   { id: 'not_contacted', label: 'Not Contacted' },
   { id: 'first_email_sent', label: 'First Email Sent' },
@@ -47,15 +48,6 @@ const STAGE_OPTIONS: { id: string; label: string }[] = [
   { id: 'demo_or_showcase', label: 'Demo / Showcase' },
   { id: 'partnered', label: 'Partnered' },
   { id: 'closed_not_fit', label: 'Closed / Not Fit' },
-]
-const PARTNER_TYPE_OPTIONS: { id: string; label: string }[] = [
-  { id: 'venue', label: 'Venue' },
-  { id: 'planner', label: 'Planner' },
-  { id: 'photographer', label: 'Photographer' },
-  { id: 'hotel', label: 'Hotel' },
-  { id: 'private_club', label: 'Private Club' },
-  { id: 'florist', label: 'Florist' },
-  { id: 'other', label: 'Other' },
 ]
 const FIT_LEVEL_OPTIONS: { id: string; label: string }[] = [
   { id: 'high', label: 'High' },
@@ -387,8 +379,7 @@ export function buildImportRows(
     else if (!EMAIL_RE.test(email)) errors.push('Invalid email format')
 
     const needsReview: string[] = []
-    const partnerType = rawPartnerType ? matchOption(rawPartnerType, PARTNER_TYPE_OPTIONS) : undefined
-    if (rawPartnerType && !partnerType) needsReview.push(`Unrecognized partner type "${rawPartnerType}"`)
+    const partnerType = rawPartnerType || undefined
     const fitLevel = rawFitLevel ? matchOption(rawFitLevel, FIT_LEVEL_OPTIONS) : undefined
     if (rawFitLevel && !fitLevel) needsReview.push(`Unrecognized fit level "${rawFitLevel}"`)
     const stage = rawStage ? matchOption(rawStage, STAGE_OPTIONS) : undefined
