@@ -1,6 +1,11 @@
 import { getOutreachSendMode } from './outreachLogger.js'
 import { sendSingleScheduledFollowUpNow } from './outreachScheduler.js'
 import {
+  isBusinessDay,
+  isWithinSendWindow,
+  nextValidSendInstant,
+} from './businessDays.js'
+import {
   getActiveOutreachSequenceByContactId,
   getEmailTemplateById,
   getPartnershipContactById,
@@ -38,15 +43,17 @@ export function assertTestFollowUpAccelerationAllowed(contact) {
 }
 
 /**
- * Accelerate and send the next pending/deferred follow-up for one E2E test contact only.
- * Does not change global interval defaults — only moves this contact's next scheduledAt to now.
+ * Next due time for E2E schedule acceleration: ~2 minutes from now inside the send window,
+ * otherwise the next eligible NY business-day send window slot.
  */
-export async function accelerateAndSendNextTestFollowUp({
-  partnershipContactId,
-  now = new Date(),
-  transporter,
-  mailFrom,
-}) {
+export function resolveTestAccelerationScheduleAt(now = new Date()) {
+  if (isBusinessDay(now) && isWithinSendWindow(now)) {
+    return new Date(now.getTime() + 2 * 60 * 1000).toISOString()
+  }
+  return nextValidSendInstant(now).toISOString()
+}
+
+function findNextPendingFollowUp(partnershipContactId) {
   const contact = getPartnershipContactById(partnershipContactId)
   const gate = assertTestFollowUpAccelerationAllowed(contact)
   if (!gate.ok) {
@@ -64,6 +71,69 @@ export async function accelerateAndSendNextTestFollowUp({
     return { ok: false, error: 'No pending follow-up scheduled for this contact' }
   }
 
+  return { ok: true, contact, sequence, nextSend, sendMode: gate.sendMode }
+}
+
+/**
+ * Move the next pending follow-up to a near-term due time for E2E automation testing.
+ * Does not send — the normal scheduler tick must pick it up.
+ */
+export function accelerateTestFollowUpScheduleOnly({
+  partnershipContactId,
+  now = new Date(),
+}) {
+  const found = findNextPendingFollowUp(partnershipContactId)
+  if (!found.ok) {
+    return found
+  }
+
+  const { contact, nextSend, sendMode } = found
+  const scheduledAt = resolveTestAccelerationScheduleAt(now)
+  const nowIso = now.toISOString()
+
+  updateOutreachScheduledSend(nextSend.id, {
+    scheduledAt,
+    status: 'pending',
+    deferReason: null,
+    updatedAt: nowIso,
+  })
+
+  const template = nextSend.templateId ? getEmailTemplateById(nextSend.templateId) : null
+
+  return {
+    ok: true,
+    contactId: partnershipContactId,
+    companyName: contact.companyName,
+    step: nextSend.step,
+    templateId: nextSend.templateId,
+    templateName: template?.name || nextSend.templateId,
+    scheduledSendId: nextSend.id,
+    scheduledAt,
+    previousScheduledAt: nextSend.scheduledAt,
+    sendMode,
+    routedTo: process.env.OUTREACH_TEST_EMAIL?.trim(),
+    contactEmail: contact.email,
+    message:
+      'Follow-up rescheduled for scheduler pickup. Wait for the external cron tick (or call /api/outreach-sequence/tick when due).',
+  }
+}
+
+/**
+ * Accelerate and send the next pending/deferred follow-up for one E2E test contact only.
+ * Does not change global interval defaults — only moves this contact's next scheduledAt to now.
+ */
+export async function accelerateAndSendNextTestFollowUp({
+  partnershipContactId,
+  now = new Date(),
+  transporter,
+  mailFrom,
+}) {
+  const found = findNextPendingFollowUp(partnershipContactId)
+  if (!found.ok) {
+    return found
+  }
+
+  const { contact, nextSend, sendMode } = found
   const nowIso = now.toISOString()
   updateOutreachScheduledSend(nextSend.id, {
     scheduledAt: nowIso,
@@ -89,7 +159,7 @@ export async function accelerateAndSendNextTestFollowUp({
     templateId: nextSend.templateId,
     templateName: template?.name || nextSend.templateId,
     scheduledSendId: nextSend.id,
-    sendMode: gate.sendMode,
+    sendMode,
     routedTo: process.env.OUTREACH_TEST_EMAIL?.trim(),
     contactEmail: contact.email,
     outcome: sendResult.outcome,

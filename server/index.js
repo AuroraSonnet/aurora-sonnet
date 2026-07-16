@@ -93,7 +93,7 @@ import {
   getOutreachSystemStatus,
 } from './outreachDashboard.js'
 import { normalizeMessageId } from './outreachMailer.js'
-import { accelerateAndSendNextTestFollowUp } from './outreachTestAccel.js'
+import { accelerateAndSendNextTestFollowUp, accelerateTestFollowUpScheduleOnly } from './outreachTestAccel.js'
 import {
   seedClients,
   seedProjects,
@@ -4404,6 +4404,30 @@ app.post('/api/outreach-sequence/contacts/:id/skip-next', (req, res) => {
   } catch (err) {
     logError('OUTREACH-SEQUENCE', 'Failed to skip next scheduled send', err)
     res.status(500).json({ error: 'Failed to skip next scheduled send' })
+  }
+})
+
+app.post('/api/outreach-sequence/contacts/:id/test-accelerate-schedule', (req, res) => {
+  try {
+    const contact = getPartnershipContactById(req.params.id)
+    if (!contact) return res.status(404).json({ error: 'Partnership contact not found' })
+
+    const result = accelerateTestFollowUpScheduleOnly({
+      partnershipContactId: req.params.id,
+    })
+
+    if (!result.ok) {
+      const status = result.error?.includes('not configured') ? 503 : 400
+      return res.status(status).json(result)
+    }
+
+    res.json({
+      ...result,
+      state: buildSequencePanelState(req.params.id),
+    })
+  } catch (err) {
+    logError('OUTREACH-TEST', 'Failed to accelerate test follow-up schedule', err)
+    res.status(500).json({ error: 'Failed to accelerate test follow-up schedule' })
   }
 })
 

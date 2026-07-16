@@ -5,7 +5,7 @@ import {
   apiResumeOutreachSequence,
   apiSkipNextOutreachEmail,
   apiStopOutreachSequence,
-  apiTestSendNextOutreachFollowUp,
+  apiTestAccelerateOutreachSchedule,
   type OutreachSequenceState,
 } from '../api/db'
 import { formatOutreachDateTime, sequenceStatusTone } from '../utils/outreachSequenceUi'
@@ -236,10 +236,10 @@ export default function PartnershipOutreachSequencePanel({
             className={styles.sequenceActionBtn}
             disabled={!!actionBusy}
             onClick={async () => {
-              setActionBusy('Test follow-up sent')
+              setActionBusy('Schedule accelerated')
               setError(null)
               try {
-                const result = await apiTestSendNextOutreachFollowUp(contactId)
+                const result = await apiTestAccelerateOutreachSchedule(contactId)
                 if (!result.ok) {
                   setError(result.error)
                   return
@@ -247,14 +247,14 @@ export default function PartnershipOutreachSequencePanel({
                 setState(result.state)
                 await onRefreshAppState()
                 onToast(
-                  `Test follow-up sent (${result.templateName || result.step}) → ${result.routedTo || 'test inbox'}`
+                  `${result.templateName || result.step} queued for scheduler at ${formatOutreachDateTime(result.scheduledAt)}`
                 )
               } finally {
                 setActionBusy(null)
               }
             }}
           >
-            {actionBusy === 'Test follow-up sent' ? 'Sending…' : 'Send test follow-up now'}
+            {actionBusy === 'Schedule accelerated' ? 'Queuing…' : 'Queue follow-up for scheduler'}
           </button>
         )}
       </div>

@@ -1268,6 +1268,48 @@ export function apiSkipNextOutreachEmail(contactId: string) {
   return outreachSequenceAction(contactId, 'skip-next')
 }
 
+export async function apiTestAccelerateOutreachSchedule(
+  contactId: string
+): Promise<
+  | {
+      ok: true
+      step: string
+      templateId?: string
+      templateName?: string
+      scheduledAt: string
+      routedTo?: string
+      contactEmail?: string
+      message?: string
+      state: OutreachSequenceState
+    }
+  | { ok: false; error: string }
+> {
+  try {
+    const res = await apiFetch(`${API}/outreach-sequence/contacts/${contactId}/test-accelerate-schedule`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: '{}',
+    })
+    const data = await res.json().catch(() => ({}))
+    if (res.ok && data.ok && data.state) {
+      return {
+        ok: true,
+        step: data.step,
+        templateId: data.templateId,
+        templateName: data.templateName,
+        scheduledAt: data.scheduledAt,
+        routedTo: data.routedTo,
+        contactEmail: data.contactEmail,
+        message: data.message,
+        state: data.state as OutreachSequenceState,
+      }
+    }
+    return { ok: false, error: (data && data.error) || 'Failed to accelerate test schedule' }
+  } catch {
+    return { ok: false, error: 'Network error — check your connection and try again.' }
+  }
+}
+
 export async function apiTestSendNextOutreachFollowUp(
   contactId: string
 ): Promise<

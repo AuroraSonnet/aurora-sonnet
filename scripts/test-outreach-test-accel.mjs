@@ -97,6 +97,27 @@ test('rejects acceleration when OUTREACH_ALLOW_PRODUCTION_SENDS is enabled', asy
   delete process.env.OUTREACH_ALLOW_PRODUCTION_SENDS
 })
 
+test('accelerateTestFollowUpScheduleOnly reschedules without sending', async () => {
+  const contactEmail = 'fake-venue-schedule@example.invalid'
+  const id = seedE2eContact(contactEmail)
+  const transporter = createMockTransporter()
+
+  const result = testAccel.accelerateTestFollowUpScheduleOnly({
+    partnershipContactId: id,
+    now: TICK_NOW,
+  })
+
+  assert.equal(result.ok, true)
+  assert.equal(result.step, 'follow_up_1')
+  assert.equal(mailerCalls.length, 0)
+
+  const state = outreach.getSequenceState(id)
+  const pending = state.scheduledSends.find((s) => s.step === 'follow_up_1')
+  assert.equal(pending.status, 'pending')
+  assert.equal(pending.scheduledAt, result.scheduledAt)
+  assert.ok(new Date(pending.scheduledAt).getTime() > TICK_NOW.getTime() - 1000)
+})
+
 test('accelerates and sends follow_up_1 only to OUTREACH_TEST_EMAIL', async () => {
   const contactEmail = 'fake-venue-e2e@example.invalid'
   const id = seedE2eContact(contactEmail)
