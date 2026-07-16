@@ -408,6 +408,124 @@ try {
   if (!/duplicate column/i.test(e.message)) throw e
 }
 
+// Automated venue outreach sequence — additive schema only (Phase 1).
+db.exec(`
+  CREATE TABLE IF NOT EXISTS outreach_sequences (
+    id TEXT PRIMARY KEY,
+    partnershipContactId TEXT NOT NULL,
+    status TEXT NOT NULL DEFAULT 'running',
+    currentStep TEXT NOT NULL DEFAULT 'follow_up_1',
+    enrolledAt TEXT NOT NULL,
+    anchorAt TEXT NOT NULL,
+    pausedAt TEXT,
+    stoppedAt TEXT,
+    stopReason TEXT,
+    lastInboundAt TEXT,
+    createdAt TEXT NOT NULL,
+    updatedAt TEXT NOT NULL
+  );
+  CREATE TABLE IF NOT EXISTS outreach_scheduled_sends (
+    id TEXT PRIMARY KEY,
+    sequenceId TEXT NOT NULL,
+    partnershipContactId TEXT NOT NULL,
+    step TEXT NOT NULL,
+    templateId TEXT,
+    scheduledAt TEXT NOT NULL,
+    status TEXT NOT NULL DEFAULT 'pending',
+    attemptCount INTEGER NOT NULL DEFAULT 0,
+    lastAttemptAt TEXT,
+    lastError TEXT,
+    sentAt TEXT,
+    messageId TEXT,
+    deferReason TEXT,
+    sortOrder INTEGER NOT NULL DEFAULT 0,
+    createdAt TEXT NOT NULL,
+    updatedAt TEXT NOT NULL
+  );
+  CREATE TABLE IF NOT EXISTS outreach_sent_messages (
+    id TEXT PRIMARY KEY,
+    partnershipContactId TEXT NOT NULL,
+    scheduledSendId TEXT,
+    messageId TEXT NOT NULL,
+    inReplyTo TEXT,
+    referencesHeader TEXT,
+    subject TEXT,
+    toEmail TEXT NOT NULL,
+    sentAt TEXT NOT NULL,
+    createdAt TEXT NOT NULL
+  );
+  CREATE TABLE IF NOT EXISTS outreach_inbound_messages (
+    id TEXT PRIMARY KEY,
+    partnershipContactId TEXT,
+    imapUid INTEGER,
+    messageId TEXT,
+    fromEmail TEXT,
+    subject TEXT,
+    receivedAt TEXT NOT NULL,
+    matchMethod TEXT,
+    inReplyTo TEXT,
+    referencesHeader TEXT,
+    snippet TEXT,
+    processedAt TEXT,
+    createdAt TEXT NOT NULL
+  );
+  CREATE TABLE IF NOT EXISTS outreach_send_log (
+    id TEXT PRIMARY KEY,
+    scheduledSendId TEXT,
+    partnershipContactId TEXT NOT NULL,
+    templateId TEXT,
+    subject TEXT,
+    body TEXT,
+    attemptedAt TEXT NOT NULL,
+    result TEXT NOT NULL,
+    smtpResponse TEXT,
+    messageId TEXT,
+    createdAt TEXT NOT NULL
+  );
+  CREATE TABLE IF NOT EXISTS outreach_daily_quota (
+    businessDate TEXT PRIMARY KEY,
+    sentCount INTEGER NOT NULL DEFAULT 0,
+    deferredCount INTEGER NOT NULL DEFAULT 0,
+    updatedAt TEXT NOT NULL
+  );
+  CREATE TABLE IF NOT EXISTS imap_sync_state (
+    mailbox TEXT PRIMARY KEY,
+    lastUid INTEGER,
+    lastPollAt TEXT,
+    uidValidity INTEGER,
+    updatedAt TEXT NOT NULL
+  );
+  CREATE UNIQUE INDEX IF NOT EXISTS idx_oss_contact_step_active
+    ON outreach_scheduled_sends (partnershipContactId, step)
+    WHERE status IN ('pending', 'claimed', 'sent');
+  CREATE INDEX IF NOT EXISTS idx_oss_status_scheduled
+    ON outreach_scheduled_sends (status, scheduledAt);
+  CREATE INDEX IF NOT EXISTS idx_outreach_sequences_contact
+    ON outreach_sequences (partnershipContactId);
+  CREATE INDEX IF NOT EXISTS idx_outreach_sequences_status
+    ON outreach_sequences (status);
+  CREATE INDEX IF NOT EXISTS idx_outreach_sent_messages_contact
+    ON outreach_sent_messages (partnershipContactId);
+  CREATE INDEX IF NOT EXISTS idx_outreach_inbound_contact
+    ON outreach_inbound_messages (partnershipContactId);
+  CREATE INDEX IF NOT EXISTS idx_outreach_inbound_message_id
+    ON outreach_inbound_messages (messageId);
+  CREATE UNIQUE INDEX IF NOT EXISTS idx_outreach_sequences_active_contact
+    ON outreach_sequences (partnershipContactId)
+    WHERE status IN ('running', 'paused');
+`)
+
+try {
+  db.exec('ALTER TABLE partnership_contacts ADD COLUMN doNotContact INTEGER NOT NULL DEFAULT 0')
+} catch (e) {
+  if (!/duplicate column/i.test(e.message)) throw e
+}
+try {
+  db.exec('ALTER TABLE partnership_contacts ADD COLUMN sequenceStatus TEXT')
+} catch (e) {
+  if (!/duplicate column/i.test(e.message)) throw e
+}
+
 try {
   db.exec('ALTER TABLE partner_referrals ADD COLUMN expense_line_items TEXT')
 } catch (e) {
@@ -1034,6 +1152,8 @@ function rowToPartnershipContact(r) {
     firstEmailSentAt: r.firstEmailSentAt || undefined,
     lastEmailSentAt: r.lastEmailSentAt || undefined,
     linkedReferralId: r.linkedReferralId || undefined,
+    doNotContact: Boolean(r.doNotContact),
+    sequenceStatus: r.sequenceStatus || undefined,
     createdAt: r.createdAt,
     updatedAt: r.updatedAt,
     deletedAt: r.deletedAt || undefined,
@@ -1125,7 +1245,7 @@ export function updatePartnershipContact(id, updates) {
   db.prepare(
     `UPDATE partnership_contacts SET
       companyName=?, partnerType=?, contactName=?, jobTitle=?, email=?, website=?, instagram=?, city=?, region=?,
-      fitLevel=?, notes=?, stage=?, source=?, firstEmailSentAt=?, lastEmailSentAt=?, linkedReferralId=?, outreachMethod=?, contactFormUrl=?, updatedAt=?
+      fitLevel=?, notes=?, stage=?, source=?, firstEmailSentAt=?, lastEmailSentAt=?, linkedReferralId=?, outreachMethod=?, contactFormUrl=?, doNotContact=?, sequenceStatus=?, updatedAt=?
      WHERE id=?`
   ).run(
     c.companyName,
@@ -1146,6 +1266,8 @@ export function updatePartnershipContact(id, updates) {
     c.linkedReferralId ?? null,
     c.outreachMethod ?? null,
     c.contactFormUrl ?? null,
+    c.doNotContact ? 1 : 0,
+    c.sequenceStatus ?? null,
     new Date().toISOString(),
     id
   )
@@ -1156,6 +1278,13 @@ export function updatePartnershipContact(id, updates) {
 export function deletePartnershipContact(id) {
   const r = db.prepare('UPDATE partnership_contacts SET deletedAt = ? WHERE id = ? AND deletedAt IS NULL').run(new Date().toISOString(), id)
   return r.changes > 0
+}
+
+export function listPartnershipContacts() {
+  return db
+    .prepare('SELECT * FROM partnership_contacts WHERE deletedAt IS NULL ORDER BY updatedAt DESC')
+    .all()
+    .map(rowToPartnershipContact)
 }
 
 export function getNextOutreachActivityId() {
@@ -1235,7 +1364,607 @@ export function getEmailTemplateById(id) {
   return row ? rowToEmailTemplate(row) : null
 }
 
-/** Find active client by email (case-insensitive). Returns client or null. */
+// ---------------------------------------------------------------------------
+// Outreach sequence (automated venue follow-ups — enrollment/scheduling only in Phase 2)
+// ---------------------------------------------------------------------------
+
+function rowToOutreachSequence(r) {
+  return {
+    id: r.id,
+    partnershipContactId: r.partnershipContactId,
+    status: r.status,
+    currentStep: r.currentStep,
+    enrolledAt: r.enrolledAt,
+    anchorAt: r.anchorAt,
+    pausedAt: r.pausedAt || undefined,
+    stoppedAt: r.stoppedAt || undefined,
+    stopReason: r.stopReason || undefined,
+    lastInboundAt: r.lastInboundAt || undefined,
+    createdAt: r.createdAt,
+    updatedAt: r.updatedAt,
+  }
+}
+
+function rowToOutreachScheduledSend(r) {
+  return {
+    id: r.id,
+    sequenceId: r.sequenceId,
+    partnershipContactId: r.partnershipContactId,
+    step: r.step,
+    templateId: r.templateId || undefined,
+    scheduledAt: r.scheduledAt,
+    status: r.status,
+    attemptCount: r.attemptCount,
+    lastAttemptAt: r.lastAttemptAt || undefined,
+    lastError: r.lastError || undefined,
+    sentAt: r.sentAt || undefined,
+    messageId: r.messageId || undefined,
+    deferReason: r.deferReason || undefined,
+    sortOrder: r.sortOrder,
+    createdAt: r.createdAt,
+    updatedAt: r.updatedAt,
+  }
+}
+
+export function getNextOutreachSequenceId() {
+  const rows = db.prepare("SELECT id FROM outreach_sequences WHERE id LIKE 'seq-%'").all()
+  const max = rows.reduce((m, r) => {
+    const n = parseInt(String(r.id).replace(/^seq-/, ''), 10)
+    return Number.isNaN(n) ? m : Math.max(m, n)
+  }, 0)
+  return `seq-${max + 1}`
+}
+
+export function getNextOutreachScheduledSendId() {
+  const rows = db.prepare("SELECT id FROM outreach_scheduled_sends WHERE id LIKE 'oss-%'").all()
+  const max = rows.reduce((m, r) => {
+    const n = parseInt(String(r.id).replace(/^oss-/, ''), 10)
+    return Number.isNaN(n) ? m : Math.max(m, n)
+  }, 0)
+  return `oss-${max + 1}`
+}
+
+export function createOutreachSequence(sequence) {
+  const id = sequence.id || getNextOutreachSequenceId()
+  db.prepare(
+    `INSERT INTO outreach_sequences
+      (id, partnershipContactId, status, currentStep, enrolledAt, anchorAt, pausedAt, stoppedAt, stopReason, lastInboundAt, createdAt, updatedAt)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+  ).run(
+    id,
+    sequence.partnershipContactId,
+    sequence.status || 'running',
+    sequence.currentStep || 'follow_up_1',
+    sequence.enrolledAt,
+    sequence.anchorAt,
+    sequence.pausedAt ?? null,
+    sequence.stoppedAt ?? null,
+    sequence.stopReason ?? null,
+    sequence.lastInboundAt ?? null,
+    sequence.createdAt,
+    sequence.updatedAt
+  )
+  return rowToOutreachSequence(db.prepare('SELECT * FROM outreach_sequences WHERE id = ?').get(id))
+}
+
+export function getOutreachSequenceByContactId(partnershipContactId) {
+  const row = db
+    .prepare(
+      'SELECT * FROM outreach_sequences WHERE partnershipContactId = ? ORDER BY enrolledAt DESC LIMIT 1'
+    )
+    .get(partnershipContactId)
+  return row ? rowToOutreachSequence(row) : null
+}
+
+export function getActiveOutreachSequenceByContactId(partnershipContactId) {
+  const row = db
+    .prepare(
+      "SELECT * FROM outreach_sequences WHERE partnershipContactId = ? AND status IN ('running', 'paused') ORDER BY enrolledAt DESC LIMIT 1"
+    )
+    .get(partnershipContactId)
+  return row ? rowToOutreachSequence(row) : null
+}
+
+export function updateOutreachSequence(id, updates) {
+  const row = db.prepare('SELECT * FROM outreach_sequences WHERE id = ?').get(id)
+  if (!row) return null
+  const s = { ...rowToOutreachSequence(row), ...updates }
+  db.prepare(
+    `UPDATE outreach_sequences SET
+      status=?, currentStep=?, enrolledAt=?, anchorAt=?, pausedAt=?, stoppedAt=?, stopReason=?, lastInboundAt=?, updatedAt=?
+     WHERE id=?`
+  ).run(
+    s.status,
+    s.currentStep,
+    s.enrolledAt,
+    s.anchorAt,
+    s.pausedAt ?? null,
+    s.stoppedAt ?? null,
+    s.stopReason ?? null,
+    s.lastInboundAt ?? null,
+    s.updatedAt || new Date().toISOString(),
+    id
+  )
+  return rowToOutreachSequence(db.prepare('SELECT * FROM outreach_sequences WHERE id = ?').get(id))
+}
+
+export function createOutreachScheduledSend(send) {
+  const id = send.id || getNextOutreachScheduledSendId()
+  db.prepare(
+    `INSERT INTO outreach_scheduled_sends
+      (id, sequenceId, partnershipContactId, step, templateId, scheduledAt, status, attemptCount, lastAttemptAt, lastError, sentAt, messageId, deferReason, sortOrder, createdAt, updatedAt)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+  ).run(
+    id,
+    send.sequenceId,
+    send.partnershipContactId,
+    send.step,
+    send.templateId ?? null,
+    send.scheduledAt,
+    send.status || 'pending',
+    send.attemptCount ?? 0,
+    send.lastAttemptAt ?? null,
+    send.lastError ?? null,
+    send.sentAt ?? null,
+    send.messageId ?? null,
+    send.deferReason ?? null,
+    send.sortOrder ?? 0,
+    send.createdAt,
+    send.updatedAt
+  )
+  return rowToOutreachScheduledSend(db.prepare('SELECT * FROM outreach_scheduled_sends WHERE id = ?').get(id))
+}
+
+export function listScheduledSendsForSequence(sequenceId) {
+  return db
+    .prepare('SELECT * FROM outreach_scheduled_sends WHERE sequenceId = ? ORDER BY sortOrder ASC, scheduledAt ASC')
+    .all(sequenceId)
+    .map(rowToOutreachScheduledSend)
+}
+
+export function updateOutreachScheduledSend(id, updates) {
+  const row = db.prepare('SELECT * FROM outreach_scheduled_sends WHERE id = ?').get(id)
+  if (!row) return null
+  const s = { ...rowToOutreachScheduledSend(row), ...updates }
+  db.prepare(
+    `UPDATE outreach_scheduled_sends SET
+      sequenceId=?, partnershipContactId=?, step=?, templateId=?, scheduledAt=?, status=?, attemptCount=?, lastAttemptAt=?, lastError=?, sentAt=?, messageId=?, deferReason=?, sortOrder=?, updatedAt=?
+     WHERE id=?`
+  ).run(
+    s.sequenceId,
+    s.partnershipContactId,
+    s.step,
+    s.templateId ?? null,
+    s.scheduledAt,
+    s.status,
+    s.attemptCount,
+    s.lastAttemptAt ?? null,
+    s.lastError ?? null,
+    s.sentAt ?? null,
+    s.messageId ?? null,
+    s.deferReason ?? null,
+    s.sortOrder,
+    s.updatedAt || new Date().toISOString(),
+    id
+  )
+  return rowToOutreachScheduledSend(db.prepare('SELECT * FROM outreach_scheduled_sends WHERE id = ?').get(id))
+}
+
+/** Cancel pending/claimed/deferred scheduled sends for a contact. Returns number cancelled. */
+export function cancelPendingScheduledSendsForContact(partnershipContactId, updatedAt) {
+  const now = updatedAt || new Date().toISOString()
+  const r = db
+    .prepare(
+      `UPDATE outreach_scheduled_sends SET status='cancelled', updatedAt=?
+       WHERE partnershipContactId = ? AND status IN ('pending', 'claimed', 'deferred')`
+    )
+    .run(now, partnershipContactId)
+  return r.changes
+}
+
+function rowToOutreachSendLog(r) {
+  return {
+    id: r.id,
+    scheduledSendId: r.scheduledSendId || undefined,
+    partnershipContactId: r.partnershipContactId,
+    templateId: r.templateId || undefined,
+    subject: r.subject || undefined,
+    body: r.body || undefined,
+    attemptedAt: r.attemptedAt,
+    result: r.result,
+    smtpResponse: r.smtpResponse || undefined,
+    messageId: r.messageId || undefined,
+    createdAt: r.createdAt,
+  }
+}
+
+function rowToOutreachSentMessage(r) {
+  return {
+    id: r.id,
+    partnershipContactId: r.partnershipContactId,
+    scheduledSendId: r.scheduledSendId || undefined,
+    messageId: r.messageId,
+    inReplyTo: r.inReplyTo || undefined,
+    referencesHeader: r.referencesHeader || undefined,
+    subject: r.subject || undefined,
+    toEmail: r.toEmail,
+    sentAt: r.sentAt,
+    createdAt: r.createdAt,
+  }
+}
+
+export function getOutreachScheduledSendById(id) {
+  const row = db.prepare('SELECT * FROM outreach_scheduled_sends WHERE id = ?').get(id)
+  return row ? rowToOutreachScheduledSend(row) : null
+}
+
+export function listDueScheduledSends(nowIso) {
+  return db
+    .prepare(
+      `SELECT * FROM outreach_scheduled_sends
+       WHERE status IN ('pending', 'deferred') AND scheduledAt <= ?
+       ORDER BY sortOrder ASC, scheduledAt ASC`
+    )
+    .all(nowIso)
+    .map(rowToOutreachScheduledSend)
+}
+
+export function claimScheduledSend(id, nowIso) {
+  const r = db
+    .prepare(
+      `UPDATE outreach_scheduled_sends SET status='claimed', lastAttemptAt=?, updatedAt=?
+       WHERE id=? AND status IN ('pending', 'deferred')`
+    )
+    .run(nowIso, nowIso, id)
+  if (r.changes === 0) return null
+  return getOutreachScheduledSendById(id)
+}
+
+export function releaseScheduledSendClaim(id, nowIso) {
+  const r = db
+    .prepare(
+      `UPDATE outreach_scheduled_sends SET status='pending', updatedAt=?
+       WHERE id=? AND status='claimed'`
+    )
+    .run(nowIso || new Date().toISOString(), id)
+  return r.changes > 0
+}
+
+export function listStaleClaimedSends(cutoffIso) {
+  return db
+    .prepare(
+      `SELECT * FROM outreach_scheduled_sends WHERE status='claimed' AND lastAttemptAt < ? ORDER BY lastAttemptAt ASC`
+    )
+    .all(cutoffIso)
+    .map(rowToOutreachScheduledSend)
+}
+
+export function listClaimedScheduledSends() {
+  return db
+    .prepare(`SELECT * FROM outreach_scheduled_sends WHERE status='claimed' ORDER BY lastAttemptAt ASC`)
+    .all()
+    .map(rowToOutreachScheduledSend)
+}
+
+export function getSuccessfulSendLogForScheduledSend(scheduledSendId) {
+  const row = db
+    .prepare(
+      `SELECT * FROM outreach_send_log WHERE scheduledSendId=? AND result='sent' ORDER BY attemptedAt DESC LIMIT 1`
+    )
+    .get(scheduledSendId)
+  return row ? rowToOutreachSendLog(row) : null
+}
+
+export function getNextOutreachSendLogId() {
+  const rows = db.prepare("SELECT id FROM outreach_send_log WHERE id LIKE 'osl-%'").all()
+  const max = rows.reduce((m, r) => {
+    const n = parseInt(String(r.id).replace(/^osl-/, ''), 10)
+    return Number.isNaN(n) ? m : Math.max(m, n)
+  }, 0)
+  return `osl-${max + 1}`
+}
+
+export function getNextOutreachSentMessageId() {
+  const rows = db.prepare("SELECT id FROM outreach_sent_messages WHERE id LIKE 'osm-%'").all()
+  const max = rows.reduce((m, r) => {
+    const n = parseInt(String(r.id).replace(/^osm-/, ''), 10)
+    return Number.isNaN(n) ? m : Math.max(m, n)
+  }, 0)
+  return `osm-${max + 1}`
+}
+
+export function createOutreachSendLog(entry) {
+  const id = entry.id || getNextOutreachSendLogId()
+  const now = new Date().toISOString()
+  db.prepare(
+    `INSERT INTO outreach_send_log
+      (id, scheduledSendId, partnershipContactId, templateId, subject, body, attemptedAt, result, smtpResponse, messageId, createdAt)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+  ).run(
+    id,
+    entry.scheduledSendId ?? null,
+    entry.partnershipContactId,
+    entry.templateId ?? null,
+    entry.subject ?? null,
+    entry.body ?? null,
+    entry.attemptedAt || now,
+    entry.result,
+    entry.smtpResponse ?? null,
+    entry.messageId ?? null,
+    entry.createdAt || now
+  )
+  return rowToOutreachSendLog(db.prepare('SELECT * FROM outreach_send_log WHERE id = ?').get(id))
+}
+
+export function createOutreachSentMessage(entry) {
+  const id = entry.id || getNextOutreachSentMessageId()
+  const now = new Date().toISOString()
+  db.prepare(
+    `INSERT INTO outreach_sent_messages
+      (id, partnershipContactId, scheduledSendId, messageId, inReplyTo, referencesHeader, subject, toEmail, sentAt, createdAt)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+  ).run(
+    id,
+    entry.partnershipContactId,
+    entry.scheduledSendId ?? null,
+    entry.messageId,
+    entry.inReplyTo ?? null,
+    entry.referencesHeader ?? null,
+    entry.subject ?? null,
+    entry.toEmail,
+    entry.sentAt || now,
+    entry.createdAt || now
+  )
+  return rowToOutreachSentMessage(db.prepare('SELECT * FROM outreach_sent_messages WHERE id = ?').get(id))
+}
+
+export function listSentMessagesForContact(partnershipContactId) {
+  return db
+    .prepare(
+      'SELECT * FROM outreach_sent_messages WHERE partnershipContactId = ? ORDER BY sentAt ASC, createdAt ASC'
+    )
+    .all(partnershipContactId)
+    .map(rowToOutreachSentMessage)
+}
+
+function rowToOutreachInboundMessage(r) {
+  return {
+    id: r.id,
+    partnershipContactId: r.partnershipContactId || undefined,
+    imapUid: r.imapUid ?? undefined,
+    messageId: r.messageId || undefined,
+    fromEmail: r.fromEmail || undefined,
+    subject: r.subject || undefined,
+    receivedAt: r.receivedAt,
+    matchMethod: r.matchMethod || undefined,
+    inReplyTo: r.inReplyTo || undefined,
+    referencesHeader: r.referencesHeader || undefined,
+    snippet: r.snippet || undefined,
+    processedAt: r.processedAt || undefined,
+    createdAt: r.createdAt,
+  }
+}
+
+export function getNextOutreachInboundMessageId() {
+  const rows = db.prepare("SELECT id FROM outreach_inbound_messages WHERE id LIKE 'oim-%'").all()
+  const max = rows.reduce((m, r) => {
+    const n = parseInt(String(r.id).replace(/^oim-/, ''), 10)
+    return Number.isNaN(n) ? m : Math.max(m, n)
+  }, 0)
+  return `oim-${max + 1}`
+}
+
+export function getInboundMessageByImapUid(imapUid) {
+  const row = db.prepare('SELECT * FROM outreach_inbound_messages WHERE imapUid = ?').get(imapUid)
+  return row ? rowToOutreachInboundMessage(row) : null
+}
+
+export function getInboundMessageByMessageId(messageId) {
+  if (!messageId) return null
+  const row = db.prepare('SELECT * FROM outreach_inbound_messages WHERE messageId = ?').get(messageId)
+  return row ? rowToOutreachInboundMessage(row) : null
+}
+
+export function createOutreachInboundMessage(entry) {
+  const id = entry.id || getNextOutreachInboundMessageId()
+  const now = new Date().toISOString()
+  db.prepare(
+    `INSERT INTO outreach_inbound_messages
+      (id, partnershipContactId, imapUid, messageId, fromEmail, subject, receivedAt, matchMethod, inReplyTo, referencesHeader, snippet, processedAt, createdAt)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+  ).run(
+    id,
+    entry.partnershipContactId ?? null,
+    entry.imapUid ?? null,
+    entry.messageId ?? null,
+    entry.fromEmail ?? null,
+    entry.subject ?? null,
+    entry.receivedAt,
+    entry.matchMethod ?? null,
+    entry.inReplyTo ?? null,
+    entry.referencesHeader ?? null,
+    entry.snippet ?? null,
+    entry.processedAt || now,
+    entry.createdAt || now
+  )
+  return rowToOutreachInboundMessage(db.prepare('SELECT * FROM outreach_inbound_messages WHERE id = ?').get(id))
+}
+
+export function listOutboundSentMessagesForActiveSequences() {
+  return db
+    .prepare(
+      `SELECT osm.* FROM outreach_sent_messages osm
+       INNER JOIN outreach_sequences seq ON seq.partnershipContactId = osm.partnershipContactId
+       WHERE seq.status IN ('running', 'paused')
+       ORDER BY osm.sentAt ASC`
+    )
+    .all()
+    .map(rowToOutreachSentMessage)
+}
+
+export function listVenueContactsWithActiveSequences() {
+  return db
+    .prepare(
+      `SELECT pc.* FROM partnership_contacts pc
+       INNER JOIN outreach_sequences seq ON seq.partnershipContactId = pc.id
+       WHERE seq.status IN ('running', 'paused')
+         AND pc.deletedAt IS NULL
+         AND pc.partnerType = 'venue'`
+    )
+    .all()
+    .map(rowToPartnershipContact)
+}
+
+export function getImapSyncState(mailbox) {
+  const row = db.prepare('SELECT * FROM imap_sync_state WHERE mailbox = ?').get(mailbox)
+  if (!row) return null
+  return {
+    mailbox: row.mailbox,
+    lastUid: row.lastUid ?? undefined,
+    lastPollAt: row.lastPollAt || undefined,
+    uidValidity: row.uidValidity ?? undefined,
+    updatedAt: row.updatedAt,
+  }
+}
+
+export function upsertImapSyncState({ mailbox, lastUid, lastPollAt, uidValidity }) {
+  const now = new Date().toISOString()
+  const existing = getImapSyncState(mailbox)
+  if (existing) {
+    db.prepare(
+      'UPDATE imap_sync_state SET lastUid=?, lastPollAt=?, uidValidity=?, updatedAt=? WHERE mailbox=?'
+    ).run(lastUid ?? null, lastPollAt || now, uidValidity ?? null, now, mailbox)
+  } else {
+    db.prepare(
+      'INSERT INTO imap_sync_state (mailbox, lastUid, lastPollAt, uidValidity, updatedAt) VALUES (?, ?, ?, ?, ?)'
+    ).run(mailbox, lastUid ?? null, lastPollAt || now, uidValidity ?? null, now)
+  }
+  return getImapSyncState(mailbox)
+}
+
+export function getOrCreateDailyQuota(businessDate) {
+  const row = db.prepare('SELECT * FROM outreach_daily_quota WHERE businessDate = ?').get(businessDate)
+  if (row) {
+    return { businessDate: row.businessDate, sentCount: row.sentCount, deferredCount: row.deferredCount }
+  }
+  const now = new Date().toISOString()
+  db.prepare(
+    'INSERT INTO outreach_daily_quota (businessDate, sentCount, deferredCount, updatedAt) VALUES (?, 0, 0, ?)'
+  ).run(businessDate, now)
+  return { businessDate, sentCount: 0, deferredCount: 0 }
+}
+
+export function incrementDailyQuotaSent(businessDate) {
+  const now = new Date().toISOString()
+  getOrCreateDailyQuota(businessDate)
+  db.prepare(
+    'UPDATE outreach_daily_quota SET sentCount = sentCount + 1, updatedAt = ? WHERE businessDate = ?'
+  ).run(now, businessDate)
+  return getOrCreateDailyQuota(businessDate)
+}
+
+export function incrementDailyQuotaDeferred(businessDate) {
+  const now = new Date().toISOString()
+  getOrCreateDailyQuota(businessDate)
+  db.prepare(
+    'UPDATE outreach_daily_quota SET deferredCount = deferredCount + 1, updatedAt = ? WHERE businessDate = ?'
+  ).run(now, businessDate)
+  return getOrCreateDailyQuota(businessDate)
+}
+
+const completeAutomatedSendBookkeepingTx = db.transaction((payload) => {
+  const now = payload.nowIso
+  const existing = db.prepare('SELECT status FROM outreach_scheduled_sends WHERE id = ?').get(payload.scheduledSendId)
+  if (existing?.status === 'sent') return
+
+  db.prepare(
+    `UPDATE outreach_scheduled_sends SET status='sent', sentAt=?, messageId=?, lastAttemptAt=?, lastError=NULL, updatedAt=?
+     WHERE id=? AND status IN ('claimed', 'pending', 'deferred')`
+  ).run(payload.sentAt, payload.messageId, now, now, payload.scheduledSendId)
+
+  createOutreachSentMessage({
+    partnershipContactId: payload.partnershipContactId,
+    scheduledSendId: payload.scheduledSendId,
+    messageId: payload.messageId,
+    inReplyTo: payload.inReplyTo,
+    referencesHeader: payload.referencesHeader,
+    subject: payload.subject,
+    toEmail: payload.toEmail,
+    sentAt: payload.sentAt,
+    createdAt: now,
+  })
+
+  incrementDailyQuotaSent(payload.businessDate)
+
+  updatePartnershipContact(payload.partnershipContactId, {
+    stage: payload.contactStage,
+    lastEmailSentAt: payload.sentAt,
+    sequenceStatus: payload.sequenceStatus,
+  })
+
+  updateOutreachSequence(payload.sequenceId, {
+    currentStep: payload.sequenceCurrentStep,
+    status: payload.sequenceStatus,
+    updatedAt: now,
+    stoppedAt: payload.sequenceStatus === 'completed' ? now : undefined,
+  })
+
+  createOutreachActivity({
+    partnershipContactId: payload.partnershipContactId,
+    type: 'email_sent',
+    subject: payload.subject,
+    body: payload.body,
+    templateId: payload.templateId,
+    createdAt: now,
+  })
+})
+
+export function completeAutomatedSendBookkeeping(payload) {
+  completeAutomatedSendBookkeepingTx(payload)
+  return getOutreachScheduledSendById(payload.scheduledSendId)
+}
+
+export function finalizeAutomatedSendFromExistingLog({ scheduledSend, sendLog, businessDate, nowIso }) {
+  const contact = getPartnershipContactById(scheduledSend.partnershipContactId)
+  const sequence = getOutreachSequenceByContactId(scheduledSend.partnershipContactId)
+  if (!contact || !sequence) return null
+  const stepMeta = stepAdvanceFor(scheduledSend.step)
+  return completeAutomatedSendBookkeeping({
+    scheduledSendId: scheduledSend.id,
+    partnershipContactId: scheduledSend.partnershipContactId,
+    sequenceId: sequence.id,
+    templateId: sendLog.templateId || scheduledSend.templateId,
+    subject: sendLog.subject,
+    body: sendLog.body,
+    messageId: sendLog.messageId,
+    inReplyTo: null,
+    referencesHeader: null,
+    toEmail: contact.email,
+    smtpResponse: sendLog.smtpResponse || 'recovered',
+    sentAt: sendLog.attemptedAt,
+    businessDate,
+    contactStage: stepMeta.contactStage,
+    sequenceCurrentStep: stepMeta.sequenceCurrentStep,
+    sequenceStatus: stepMeta.sequenceStatus,
+    nowIso: nowIso || new Date().toISOString(),
+  })
+}
+
+function stepAdvanceFor(step) {
+  if (step === 'follow_up_1') {
+    return { contactStage: 'follow_up_1', sequenceCurrentStep: 'follow_up_2', sequenceStatus: 'running' }
+  }
+  if (step === 'follow_up_2') {
+    return { contactStage: 'follow_up_2', sequenceCurrentStep: 'follow_up_3', sequenceStatus: 'running' }
+  }
+  if (step === 'follow_up_3') {
+    return { contactStage: 'follow_up_3', sequenceCurrentStep: 'done', sequenceStatus: 'completed' }
+  }
+  return { contactStage: 'follow_up_1', sequenceCurrentStep: 'follow_up_2', sequenceStatus: 'running' }
+}
+
+export { stepAdvanceFor }
+
 export function getClientByEmail(email) {
   if (!email || typeof email !== 'string') return null
   const e = String(email).trim().toLowerCase()

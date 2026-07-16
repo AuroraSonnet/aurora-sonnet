@@ -19,6 +19,7 @@ import {
   canSendEmailToContact,
   contactEmailDisplay,
   contactFormVisitUrl,
+  isHardBounceBlockedContact,
   isPlaceholderFormEmail,
 } from '../utils/partnershipImport'
 import { performKanbanStageMove } from '../utils/partnershipKanbanStage'
@@ -36,6 +37,7 @@ const EMAIL_STAGES: { id: string; label: string }[] = [
   { id: 'partner', label: 'Partner' },
   { id: 'not_interested', label: 'Not Interested' },
   { id: 'archived_no_response', label: 'Archived (No Response)' },
+  { id: 'email_delivery_failed', label: 'Email Delivery Failed' },
 ]
 
 const ALL_STAGES = [...EMAIL_STAGES, ...FORM_CONTACT_STAGES]
@@ -212,6 +214,7 @@ export default function PartnershipOutreach() {
   const [sendError, setSendError] = useState<string | null>(null)
   const [sending, setSending] = useState(false)
   const [sendResult, setSendResult] = useState<string | null>(null)
+  const [sendBounceOverride, setSendBounceOverride] = useState(false)
   const [reminderEnabled, setReminderEnabled] = useState(true)
   const [reminderDate, setReminderDate] = useState('')
   const [reminderNote, setReminderNote] = useState('')
@@ -253,6 +256,18 @@ export default function PartnershipOutreach() {
         .sort((a, b) => (b.createdAt || '').localeCompare(a.createdAt || '')),
     [activity, selectedId]
   )
+
+  const hardBounceBlocked = selectedContact ? isHardBounceBlockedContact(selectedContact) : false
+  const sendEmailAllowed = selectedContact ? canSendEmailToContact(selectedContact) : false
+  const sendFormEnabled = sendEmailAllowed && (!hardBounceBlocked || sendBounceOverride)
+
+  const hardBounceReason = useMemo(() => {
+    if (!hardBounceBlocked) return null
+    const note = selectedActivity.find((a) => a.type === 'note' && /hard bounce/i.test(a.body || ''))
+    if (!note?.body) return null
+    const match = note.body.match(/hard bounce[^:]*:\s*(.+)$/i)
+    return (match?.[1] || note.body).trim()
+  }, [hardBounceBlocked, selectedActivity])
 
   const showToast = (msg: string) => {
     setToast(msg)
@@ -491,6 +506,7 @@ export default function PartnershipOutreach() {
 
     setSendError(null)
     setSendResult(null)
+    setSendBounceOverride(false)
     setReminderEnabled(true)
     const offsetDays = c.firstEmailSentAt ? 7 : 5
     setReminderDate(toDateInputValue(addBusinessDays(new Date(), offsetDays)))
@@ -530,6 +546,12 @@ export default function PartnershipOutreach() {
     if (!selectedContact) return
     setSendError(null)
     setSendResult(null)
+    if (!sendFormEnabled) {
+      if (hardBounceBlocked && !sendBounceOverride) {
+        setSendError('This address hard bounced. Use Override and Send Anyway if you intend to retry.')
+      }
+      return
+    }
     if (!sendSubject.trim() || !sendBody.trim()) {
       setSendError('Choose a template (or write a subject and message) before sending.')
       return
@@ -543,6 +565,7 @@ export default function PartnershipOutreach() {
         reminder: reminderEnabled && reminderDate
           ? { date: reminderDate, notes: reminderNote.trim() || undefined }
           : null,
+        overrideHardBounce: hardBounceBlocked && sendBounceOverride,
       })
       if (!result.ok) {
         setSendError(result.error)
@@ -1363,9 +1386,26 @@ export default function PartnershipOutreach() {
               </button>
             </div>
 
-            <section className={styles.sendSection} aria-disabled={!canSendEmailToContact(selectedContact)}>
+            <section className={styles.sendSection} aria-disabled={!sendFormEnabled}>
               <h3>Send email</h3>
-              {!canSendEmailToContact(selectedContact) && (
+              {hardBounceBlocked && !sendBounceOverride && (
+                <div className={styles.hardBounceWarning} role="alert">
+                  <strong>Email delivery previously failed (hard bounce)</strong>
+                  <p>
+                    Sending to <span className={styles.hardBounceEmail}>{selectedContact.email}</span> is blocked
+                    because this address hard bounced.
+                    {hardBounceReason ? ` Reason: ${hardBounceReason}` : ''}
+                    {' '}Update the email if the venue gave you a new address, then use override only if you intend to retry.
+                  </p>
+                </div>
+              )}
+              {hardBounceBlocked && sendBounceOverride && (
+                <div className={styles.hardBounceOverrideNotice} role="status">
+                  Override active — you acknowledged the previous hard bounce. Sending will proceed to{' '}
+                  <span className={styles.hardBounceEmail}>{selectedContact.email}</span>.
+                </div>
+              )}
+              {!sendEmailAllowed && (
                 <p className={styles.hint}>
                   {isWebsiteFormContact(selectedContact)
                     ? 'Send email is disabled until you add a valid email address for this contact.'
@@ -1381,7 +1421,7 @@ export default function PartnershipOutreach() {
                   onChange={(e) => handleSelectTemplate(e.target.value)}
                   className={styles.select}
                   aria-label="Email template"
-                  disabled={!canSendEmailToContact(selectedContact)}
+                  disabled={!sendFormEnabled}
                 >
                   <option value="">Select a template…</option>
                   {templates.map((t) => (
@@ -1400,7 +1440,7 @@ export default function PartnershipOutreach() {
                   onChange={(e) => setSendSubject(e.target.value)}
                   className={styles.input}
                   placeholder="Select a template to fill this in, then edit as needed"
-                  disabled={!canSendEmailToContact(selectedContact)}
+                  disabled={!sendFormEnabled}
                 />
               </label>
               <label>
@@ -1411,7 +1451,7 @@ export default function PartnershipOutreach() {
                   className={styles.textarea}
                   rows={7}
                   placeholder="Select a template to fill this in, then edit as needed"
-                  disabled={!canSendEmailToContact(selectedContact)}
+                  disabled={!sendFormEnabled}
                 />
               </label>
               <label className={styles.reminderCheckboxRow}>
@@ -1446,9 +1486,35 @@ export default function PartnershipOutreach() {
                 </div>
               )}
               <div className={styles.formActions}>
-                <button type="button" className={styles.submitBtn} onClick={handleSendEmail} disabled={sending || !canSendEmailToContact(selectedContact)}>
-                  {sending ? 'Sending…' : 'Send email'}
-                </button>
+                {hardBounceBlocked && !sendBounceOverride ? (
+                  <button
+                    type="button"
+                    className={styles.overrideBtn}
+                    onClick={() => setSendBounceOverride(true)}
+                    disabled={!sendEmailAllowed}
+                  >
+                    Override and Send Anyway
+                  </button>
+                ) : (
+                  <button
+                    type="button"
+                    className={styles.submitBtn}
+                    onClick={handleSendEmail}
+                    disabled={sending || !sendFormEnabled}
+                  >
+                    {sending ? 'Sending…' : hardBounceBlocked ? 'Send email (override)' : 'Send email'}
+                  </button>
+                )}
+                {hardBounceBlocked && sendBounceOverride && (
+                  <button
+                    type="button"
+                    className={styles.cancelBtn}
+                    onClick={() => setSendBounceOverride(false)}
+                    disabled={sending}
+                  >
+                    Cancel override
+                  </button>
+                )}
               </div>
             </section>
 

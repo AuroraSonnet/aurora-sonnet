@@ -12,6 +12,7 @@ export const EMAIL_STAGE_IDS = [
   'partner',
   'not_interested',
   'archived_no_response',
+  'email_delivery_failed',
 ] as const
 
 /** Form pipeline stage ids — kept in sync with partnershipImport.ts FORM_CONTACT_STAGES. */

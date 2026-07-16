@@ -1086,6 +1086,7 @@ export async function apiSendPartnershipEmail(
     subject: string
     body: string
     reminder?: { date: string; title?: string; notes?: string; reminderAt?: string } | null
+    overrideHardBounce?: boolean
   }
 ): Promise<
   | { ok: true; activityId: string; contact: PartnershipContact; reminder: { id: string; date: string; title: string } | null }

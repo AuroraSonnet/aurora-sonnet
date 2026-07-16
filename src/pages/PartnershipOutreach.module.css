@@ -708,6 +708,59 @@
   color: var(--text-muted);
 }
 
+.hardBounceWarning {
+  margin: 0 0 0.85rem;
+  padding: 0.75rem 0.85rem;
+  border: 1px solid var(--warning);
+  border-radius: var(--radius-sm);
+  background: color-mix(in srgb, var(--warning) 14%, transparent);
+  font-size: 0.875rem;
+}
+
+.hardBounceWarning strong {
+  display: block;
+  margin-bottom: 0.35rem;
+  color: var(--warning);
+}
+
+.hardBounceWarning p {
+  margin: 0;
+  line-height: 1.45;
+}
+
+.hardBounceOverrideNotice {
+  margin: 0 0 0.85rem;
+  padding: 0.65rem 0.85rem;
+  border: 1px dashed var(--warning);
+  border-radius: var(--radius-sm);
+  font-size: 0.85rem;
+  color: var(--text-secondary);
+}
+
+.hardBounceEmail {
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 0.9em;
+}
+
+.overrideBtn {
+  padding: 0.55rem 1rem;
+  border: 1px solid var(--warning);
+  border-radius: var(--radius-sm);
+  background: color-mix(in srgb, var(--warning) 18%, transparent);
+  color: var(--text);
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.overrideBtn:hover:not(:disabled) {
+  background: color-mix(in srgb, var(--warning) 28%, transparent);
+}
+
+.overrideBtn:disabled {
+  opacity: 0.55;
+  cursor: not-allowed;
+}
+
 .reminderCheckboxRow {
   flex-direction: row !important;
   align-items: center;

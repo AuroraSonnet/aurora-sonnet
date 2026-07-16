@@ -75,7 +75,21 @@ import {
   deleteEmailTemplate,
   getEmailTemplateById,
   getNextCalendarReminderId,
+  createOutreachSentMessage,
 } from './db.js'
+import {
+  tryEnrollVenueAfterFirstOutreach,
+  getSequenceState,
+  pauseSequence,
+  resumeSequence,
+  stopSequence,
+  skipNextScheduledSend,
+  handleContactStageChange,
+  EMAIL_DELIVERY_FAILED_STAGE,
+} from './outreachSequence.js'
+import { runOutreachSchedulerTick } from './outreachScheduler.js'
+import { runOutreachImapPoll } from './outreachImap.js'
+import { normalizeMessageId } from './outreachMailer.js'
 import {
   seedClients,
   seedProjects,
@@ -3871,6 +3885,7 @@ const EMAIL_OUTREACH_STAGES = [
   'partner',
   'not_interested',
   'archived_no_response',
+  'email_delivery_failed',
 ]
 const FORM_OUTREACH_STAGES = [
   'form_to_contact',
@@ -4043,6 +4058,11 @@ app.patch('/api/partnership-contacts/:id', (req, res) => {
         type: 'stage_change',
         body: `Stage changed from "${existing.stage}" to "${updated.stage}"`,
       })
+      try {
+        handleContactStageChange(id, updated.stage)
+      } catch (seqErr) {
+        logError('OUTREACH-SEQUENCE', 'stage-change sequence stop failed', seqErr)
+      }
     }
     res.json(updated)
   } catch (err) {
@@ -4202,14 +4222,24 @@ app.post('/api/partnership-contacts/:id/send-email', async (req, res) => {
       return res.status(400).json({ error: 'This contact does not have a valid email address. Add an email before sending, or use Visit Contact Form for website form outreach.' })
     }
 
+    const overrideHardBounce = b.overrideHardBounce === true
+    if (contact.stage === EMAIL_DELIVERY_FAILED_STAGE && !overrideHardBounce) {
+      return res.status(409).json({
+        error:
+          'This address previously hard bounced. Update the email if the venue gave you a new address, or send with explicit override.',
+        code: 'hard_bounce_blocked',
+      })
+    }
+
     console.log('[PARTNERSHIP-OUTREACH-EMAIL] sendMail attempt', { from: mailFrom, to, templateId, contactId: id })
+    let mailInfo
     try {
-      const info = await reminderTransporter.sendMail({ from: mailFrom, to, subject, text: body })
+      mailInfo = await reminderTransporter.sendMail({ from: mailFrom, to, subject, text: body })
       console.log('[PARTNERSHIP-OUTREACH-EMAIL] sendMail resolved', {
         to,
-        messageId: info && info.messageId,
-        accepted: info && info.accepted,
-        rejected: info && info.rejected,
+        messageId: mailInfo && mailInfo.messageId,
+        accepted: mailInfo && mailInfo.accepted,
+        rejected: mailInfo && mailInfo.rejected,
       })
     } catch (err) {
       logError('PARTNERSHIP-OUTREACH-EMAIL', 'sendMail threw', err)
@@ -4217,7 +4247,24 @@ app.post('/api/partnership-contacts/:id/send-email', async (req, res) => {
     }
 
     const now = new Date().toISOString()
+    if (overrideHardBounce && contact.stage === EMAIL_DELIVERY_FAILED_STAGE) {
+      createOutreachActivity({
+        partnershipContactId: id,
+        type: 'note',
+        body: `Manual send override: sender acknowledged previous hard bounce to ${to} and chose to send anyway.`,
+      })
+    }
     const activityId = createOutreachActivity({ partnershipContactId: id, type: 'email_sent', subject, body, templateId })
+
+    if (mailInfo?.messageId) {
+      createOutreachSentMessage({
+        partnershipContactId: id,
+        messageId: normalizeMessageId(mailInfo.messageId),
+        subject,
+        toEmail: to,
+        sentAt: now,
+      })
+    }
 
     const contactUpdates = { lastEmailSentAt: now }
     if (!contact.firstEmailSentAt) contactUpdates.firstEmailSentAt = now
@@ -4250,10 +4297,138 @@ app.post('/api/partnership-contacts/:id/send-email', async (req, res) => {
       reminder = { id: reminderId, date: r.date, title, partnershipContactId: id }
     }
 
-    res.json({ ok: true, activityId, contact: updatedContact, reminder })
+    let sequenceEnrollment = null
+    try {
+      sequenceEnrollment = tryEnrollVenueAfterFirstOutreach({
+        contactId: id,
+        contact: updatedContact,
+        templateId,
+        anchorAt: now,
+      })
+    } catch (seqErr) {
+      logError('OUTREACH-SEQUENCE', 'auto-enrollment failed', seqErr)
+      sequenceEnrollment = { enrolled: false, reason: 'enrollment_error' }
+    }
+
+    res.json({ ok: true, activityId, contact: updatedContact, reminder, sequenceEnrollment })
   } catch (err) {
     logError('DB', 'Failed to send partnership outreach email', err)
     res.status(500).json({ error: 'Failed to send email' })
+  }
+})
+
+// Outreach sequence controls (enrollment/scheduling only — no auto-send in Phase 2)
+app.get('/api/outreach-sequence/contacts/:id', (req, res) => {
+  try {
+    const contact = getPartnershipContactById(req.params.id)
+    if (!contact) return res.status(404).json({ error: 'Partnership contact not found' })
+    const state = getSequenceState(req.params.id)
+    if (!state) return res.status(404).json({ error: 'No outreach sequence for this contact' })
+    res.json(state)
+  } catch (err) {
+    logError('OUTREACH-SEQUENCE', 'Failed to load sequence state', err)
+    res.status(500).json({ error: 'Failed to load outreach sequence' })
+  }
+})
+
+app.post('/api/outreach-sequence/contacts/:id/pause', (req, res) => {
+  try {
+    const contact = getPartnershipContactById(req.params.id)
+    if (!contact) return res.status(404).json({ error: 'Partnership contact not found' })
+    const sequence = pauseSequence(req.params.id)
+    if (!sequence) return res.status(400).json({ error: 'No running outreach sequence to pause' })
+    res.json({ ok: true, sequence })
+  } catch (err) {
+    logError('OUTREACH-SEQUENCE', 'Failed to pause sequence', err)
+    res.status(500).json({ error: 'Failed to pause outreach sequence' })
+  }
+})
+
+app.post('/api/outreach-sequence/contacts/:id/resume', (req, res) => {
+  try {
+    const contact = getPartnershipContactById(req.params.id)
+    if (!contact) return res.status(404).json({ error: 'Partnership contact not found' })
+    const sequence = resumeSequence(req.params.id)
+    if (!sequence) return res.status(400).json({ error: 'No paused outreach sequence to resume' })
+    res.json({ ok: true, sequence })
+  } catch (err) {
+    logError('OUTREACH-SEQUENCE', 'Failed to resume sequence', err)
+    res.status(500).json({ error: 'Failed to resume outreach sequence' })
+  }
+})
+
+app.post('/api/outreach-sequence/contacts/:id/stop', (req, res) => {
+  try {
+    const contact = getPartnershipContactById(req.params.id)
+    if (!contact) return res.status(404).json({ error: 'Partnership contact not found' })
+    const stopReason = req.body?.stopReason != null ? String(req.body.stopReason).trim() : 'manual_stop'
+    const result = stopSequence(req.params.id, stopReason || 'manual_stop')
+    if (!result) return res.status(400).json({ error: 'No active outreach sequence to stop' })
+    res.json({ ok: true, ...result })
+  } catch (err) {
+    logError('OUTREACH-SEQUENCE', 'Failed to stop sequence', err)
+    res.status(500).json({ error: 'Failed to stop outreach sequence' })
+  }
+})
+
+app.post('/api/outreach-sequence/contacts/:id/skip-next', (req, res) => {
+  try {
+    const contact = getPartnershipContactById(req.params.id)
+    if (!contact) return res.status(404).json({ error: 'Partnership contact not found' })
+    const result = skipNextScheduledSend(req.params.id)
+    if (!result) return res.status(400).json({ error: 'No active outreach sequence to skip' })
+    res.json({ ok: true, ...result })
+  } catch (err) {
+    logError('OUTREACH-SEQUENCE', 'Failed to skip next scheduled send', err)
+    res.status(500).json({ error: 'Failed to skip next scheduled send' })
+  }
+})
+
+// Outreach scheduler + IMAP poll tick — disabled until env flags set (Phase 4: no auto setInterval).
+app.post('/api/outreach-sequence/tick', async (req, res) => {
+  try {
+    const secret = process.env.OUTREACH_CRON_SECRET
+    if (secret && String(req.get('x-outreach-cron-secret') || '') !== String(secret)) {
+      return res.status(401).json({ error: 'Unauthorized' })
+    }
+    const imapEnabled = process.env.OUTREACH_IMAP_ENABLED === 'true'
+    const schedulerEnabled = process.env.OUTREACH_SCHEDULER_ENABLED === 'true'
+    if (!imapEnabled && !schedulerEnabled) {
+      return res.json({
+        sent: 0,
+        disabled: true,
+        message: 'OUTREACH_IMAP_ENABLED and OUTREACH_SCHEDULER_ENABLED are not true',
+      })
+    }
+
+    let imap = null
+    if (imapEnabled) {
+      imap = await runOutreachImapPoll()
+      if (!imap.ok && imap.error) {
+        logError('OUTREACH-IMAP', 'poll failed', new Error(imap.error))
+      }
+    }
+
+    let scheduler = null
+    if (schedulerEnabled) {
+      const mailFrom = SMTP_FROM || SMTP_USER
+      if (!reminderTransporter || !mailFrom) {
+        return res.status(503).json({ sent: 0, imap, error: 'SMTP not configured' })
+      }
+      scheduler = await runOutreachSchedulerTick({
+        transporter: reminderTransporter,
+        mailFrom,
+        force: req.body?.force === true,
+      })
+    }
+
+    res.json({
+      ...(scheduler || { sent: 0 }),
+      imap,
+    })
+  } catch (err) {
+    logError('OUTREACH-SCHEDULER', 'tick failed', err)
+    res.status(500).json({ error: 'Outreach scheduler tick failed' })
   }
 })
 

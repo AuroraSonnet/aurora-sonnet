@@ -188,6 +188,13 @@ export function canSendEmailToContact(contact: { email: string; outreachMethod?:
   return EMAIL_RE.test(contact.email) && !isPlaceholderFormEmail(contact.email)
 }
 
+export const EMAIL_DELIVERY_FAILED_STAGE = 'email_delivery_failed'
+
+/** Contact had a confirmed hard bounce — manual send blocked unless explicitly overridden. */
+export function isHardBounceBlockedContact(contact: { stage?: string }): boolean {
+  return contact.stage === EMAIL_DELIVERY_FAILED_STAGE
+}
+
 function normalize(s: string): string {
   return (s || '').toLowerCase().replace(/[^a-z0-9]/g, '')
 }
