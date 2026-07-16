@@ -502,7 +502,7 @@ db.exec(`
   );
   CREATE UNIQUE INDEX IF NOT EXISTS idx_oss_contact_step_active
     ON outreach_scheduled_sends (partnershipContactId, step)
-    WHERE status IN ('pending', 'claimed', 'sent');
+    WHERE status IN ('pending', 'claimed');
   CREATE INDEX IF NOT EXISTS idx_oss_status_scheduled
     ON outreach_scheduled_sends (status, scheduledAt);
   CREATE INDEX IF NOT EXISTS idx_outreach_sequences_contact
@@ -2609,8 +2609,29 @@ export function seedDb(seed) {
   for (const e of seed.expenses) createExpense(e)
 }
 
+/**
+ * One-time index refresh for existing installs — idx_oss_contact_step_active previously
+ * treated 'sent' rows as active, which permanently blocked re-enrolling a contact in a new
+ * sequence for any step that had already been sent once. Narrow it to pending/claimed only.
+ * Idempotent: no-op once the index already excludes 'sent'. Does not touch any row data.
+ */
+function migrateScheduledSendActiveIndexExcludeSent(db) {
+  const existing = db
+    .prepare("SELECT sql FROM sqlite_master WHERE type = 'index' AND name = 'idx_oss_contact_step_active'")
+    .get()
+  if (!existing || !existing.sql || !/'sent'/.test(existing.sql)) return
+
+  db.exec(`
+    DROP INDEX IF EXISTS idx_oss_contact_step_active;
+    CREATE UNIQUE INDEX idx_oss_contact_step_active
+      ON outreach_scheduled_sends (partnershipContactId, step)
+      WHERE status IN ('pending', 'claimed');
+  `)
+}
+
 ensureDefaultPartnershipEmailTemplates(db, createEmailTemplate)
 migrateVenueFirstOutreachTemplateBody(db)
 migrateVenueFollowUp1TemplateBody(db)
+migrateScheduledSendActiveIndexExcludeSent(db)
 
 export default db

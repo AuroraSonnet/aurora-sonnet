@@ -107,6 +107,39 @@ test('duplicate active sequence is prevented', () => {
   assert.equal(state.scheduledSends.filter((s) => s.status === 'pending').length, 3)
 })
 
+test('re-enrollment after a stopped sequence with an already-sent step succeeds', () => {
+  const contact = seedVenueContact()
+  const first = outreach.enrollVenueOutreachSequence({
+    partnershipContactId: contact.id,
+    anchorAt: ANCHOR,
+    rng: FIXED_RNG,
+  })
+  const [fu1] = first.scheduledSends
+
+  // Simulate a real send of Follow-up #1, then the sequence being stopped (e.g. manual reset).
+  db.updateOutreachScheduledSend(fu1.id, { status: 'sent', sentAt: new Date().toISOString() })
+  outreach.stopSequence(contact.id, 'test_reset')
+
+  const eligibility = outreach.isEligibleForVenueSequenceEnrollment(db.getPartnershipContactById(contact.id), {
+    templateId: VENUE_FIRST_OUTREACH_TEMPLATE_ID,
+  })
+  assert.equal(eligibility.ok, true)
+
+  const second = outreach.enrollVenueOutreachSequence({
+    partnershipContactId: contact.id,
+    anchorAt: instantAtNyLocal(2025, 3, 3, 10, 0).toISOString(),
+    rng: FIXED_RNG,
+  })
+  assert.equal(second.skipped, undefined, `re-enrollment must not fail: ${JSON.stringify(second)}`)
+  assert.equal(second.sequence.status, 'running')
+  assert.equal(second.scheduledSends.length, 3)
+  assert.equal(second.scheduledSends[0].step, 'follow_up_1')
+  assert.equal(second.scheduledSends[0].status, 'pending')
+
+  const oldSentRow = db.getOutreachScheduledSendById(fu1.id)
+  assert.equal(oldSentRow.status, 'sent', 'the original sent row must remain untouched')
+})
+
 test('ineligible contacts are not enrolled', () => {
   const planner = seedVenueContact({ partnerType: 'planner' })
   assert.equal(

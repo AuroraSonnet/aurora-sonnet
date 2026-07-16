@@ -112,8 +112,13 @@ const OUTREACH_SCHEMA_SQL = `
   );
   CREATE UNIQUE INDEX IF NOT EXISTS idx_oss_contact_step_active
     ON outreach_scheduled_sends (partnershipContactId, step)
-    WHERE status IN ('pending', 'claimed', 'sent');
+    WHERE status IN ('pending', 'claimed');
 `
+
+const LEGACY_OUTREACH_SCHEMA_SQL = OUTREACH_SCHEMA_SQL.replace(
+  "WHERE status IN ('pending', 'claimed');",
+  "WHERE status IN ('pending', 'claimed', 'sent');"
+)
 
 test('outreach schema tables and columns exist (additive migration shape)', () => {
   const dir = mkdtempSync(join(tmpdir(), 'aurora-outreach-schema-'))
@@ -234,6 +239,107 @@ test('partial unique index prevents duplicate active step per contact', () => {
     ).run(now, now, now)
   } finally {
     db.close()
+    rmSync(dir, { recursive: true, force: true })
+  }
+})
+
+test('current index (pending/claimed only) allows re-enrollment after a sent step', () => {
+  const dir = mkdtempSync(join(tmpdir(), 'aurora-outreach-schema-'))
+  const dbPath = join(dir, 'aurora.db')
+  const db = new Database(dbPath)
+  try {
+    db.exec(OUTREACH_SCHEMA_SQL)
+    const now = new Date().toISOString()
+    db.prepare(
+      `INSERT INTO outreach_scheduled_sends
+       (id, sequenceId, partnershipContactId, step, scheduledAt, status, createdAt, updatedAt)
+       VALUES ('oss-1', 'seq-1', 'poc-1', 'follow_up_1', ?, 'sent', ?, ?)`
+    ).run(now, now, now)
+
+    // A brand-new sequence re-enrolling this contact for the same step must not be blocked
+    // by the old row now that it's 'sent' (historical), not 'pending'/'claimed' (active).
+    db.prepare(
+      `INSERT INTO outreach_scheduled_sends
+       (id, sequenceId, partnershipContactId, step, scheduledAt, status, createdAt, updatedAt)
+       VALUES ('oss-2', 'seq-2', 'poc-1', 'follow_up_1', ?, 'pending', ?, ?)`
+    ).run(now, now, now)
+
+    const sentRow = db.prepare("SELECT * FROM outreach_scheduled_sends WHERE id = 'oss-1'").get()
+    assert.equal(sentRow.status, 'sent')
+
+    assert.throws(() => {
+      db.prepare(
+        `INSERT INTO outreach_scheduled_sends
+         (id, sequenceId, partnershipContactId, step, scheduledAt, status, createdAt, updatedAt)
+         VALUES ('oss-3', 'seq-2', 'poc-1', 'follow_up_1', ?, 'claimed', ?, ?)`
+      ).run(now, now, now)
+    }, /UNIQUE constraint failed/)
+  } finally {
+    db.close()
+    rmSync(dir, { recursive: true, force: true })
+  }
+})
+
+test('migrateScheduledSendActiveIndexExcludeSent narrows a legacy index without touching row data', async () => {
+  const dir = mkdtempSync(join(tmpdir(), 'aurora-dbjs-index-migration-'))
+  const dbPath = join(dir, 'aurora.db')
+  const seedDb = new Database(dbPath)
+  const now = new Date().toISOString()
+  try {
+    seedDb.exec(LEGACY_OUTREACH_SCHEMA_SQL)
+    seedDb.prepare(
+      `INSERT INTO partnership_contacts (id, companyName, email, stage, createdAt, updatedAt)
+       VALUES ('poc-1', 'Legacy Venue', 'legacy@example.com', 'follow_up_1', ?, ?)`
+    ).run(now, now)
+    seedDb.prepare(
+      `INSERT INTO outreach_scheduled_sends
+       (id, sequenceId, partnershipContactId, step, scheduledAt, status, createdAt, updatedAt)
+       VALUES ('oss-legacy-1', 'seq-legacy-1', 'poc-1', 'follow_up_1', ?, 'sent', ?, ?)`
+    ).run(now, now, now)
+
+    const legacyIndex = seedDb
+      .prepare("SELECT sql FROM sqlite_master WHERE type = 'index' AND name = 'idx_oss_contact_step_active'")
+      .get()
+    assert.ok(/'sent'/.test(legacyIndex.sql), 'seed index must include sent to simulate a pre-migration install')
+  } finally {
+    seedDb.close()
+  }
+
+  const prev = process.env.DATA_DIR
+  process.env.DATA_DIR = dir
+  try {
+    // Cache-bust: db.js is an ES module and other tests in this file already import it once;
+    // without a unique specifier, Node reuses the cached module and skips re-running its
+    // top-level schema/migration code against this test's DATA_DIR.
+    await import(`../server/db.js?t=${Date.now()}-${Math.random()}`)
+
+    const db = new Database(dbPath)
+    try {
+      const migratedIndex = db
+        .prepare("SELECT sql FROM sqlite_master WHERE type = 'index' AND name = 'idx_oss_contact_step_active'")
+        .get()
+      assert.ok(!/'sent'/.test(migratedIndex.sql), 'migrated index must no longer include sent')
+      assert.ok(/'pending'/.test(migratedIndex.sql) && /'claimed'/.test(migratedIndex.sql))
+
+      const preserved = db.prepare("SELECT * FROM outreach_scheduled_sends WHERE id = 'oss-legacy-1'").get()
+      assert.equal(preserved.status, 'sent', 'pre-existing sent row must be preserved untouched')
+      assert.equal(preserved.step, 'follow_up_1')
+
+      // New enrollment for the same contact/step should now succeed post-migration.
+      const laterNow = new Date().toISOString()
+      db.prepare(
+        `INSERT INTO outreach_scheduled_sends
+         (id, sequenceId, partnershipContactId, step, scheduledAt, status, createdAt, updatedAt)
+         VALUES ('oss-legacy-2', 'seq-legacy-2', 'poc-1', 'follow_up_1', ?, 'pending', ?, ?)`
+      ).run(laterNow, laterNow, laterNow)
+      const reenrolled = db.prepare("SELECT * FROM outreach_scheduled_sends WHERE id = 'oss-legacy-2'").get()
+      assert.equal(reenrolled.status, 'pending')
+    } finally {
+      db.close()
+    }
+  } finally {
+    if (prev === undefined) delete process.env.DATA_DIR
+    else process.env.DATA_DIR = prev
     rmSync(dir, { recursive: true, force: true })
   }
 })
