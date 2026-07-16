@@ -448,3 +448,30 @@ export async function runOutreachSchedulerTick({
     quotaAfter: getOrCreateDailyQuota(businessDate),
   }
 }
+
+/** Send one scheduled follow-up immediately (used by E2E test acceleration only). */
+export async function sendSingleScheduledFollowUpNow({
+  scheduledSendId,
+  now = new Date(),
+  transporter,
+  mailFrom,
+  rng = Math.random,
+}) {
+  const row = getOutreachScheduledSendById(scheduledSendId)
+  if (!row) {
+    return { outcome: 'skipped', reason: 'send_not_found' }
+  }
+
+  const businessDate = nyBusinessDateString(now)
+  const quota = getOrCreateDailyQuota(businessDate)
+
+  return processOneDueSend({
+    scheduledSend: row,
+    now,
+    transporter,
+    mailFrom,
+    businessDate,
+    sentToday: quota.sentCount,
+    rng,
+  })
+}

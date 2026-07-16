@@ -93,6 +93,7 @@ import {
   getOutreachSystemStatus,
 } from './outreachDashboard.js'
 import { normalizeMessageId } from './outreachMailer.js'
+import { accelerateAndSendNextTestFollowUp } from './outreachTestAccel.js'
 import {
   seedClients,
   seedProjects,
@@ -4403,6 +4404,45 @@ app.post('/api/outreach-sequence/contacts/:id/skip-next', (req, res) => {
   } catch (err) {
     logError('OUTREACH-SEQUENCE', 'Failed to skip next scheduled send', err)
     res.status(500).json({ error: 'Failed to skip next scheduled send' })
+  }
+})
+
+app.post('/api/outreach-sequence/contacts/:id/test-send-next', async (req, res) => {
+  try {
+    const contact = getPartnershipContactById(req.params.id)
+    if (!contact) return res.status(404).json({ error: 'Partnership contact not found' })
+
+    const mailFrom = SMTP_FROM || SMTP_USER
+    if (!reminderTransporter || !mailFrom) {
+      return res.status(503).json({ error: 'SMTP is not configured on this server' })
+    }
+
+    const result = await accelerateAndSendNextTestFollowUp({
+      partnershipContactId: req.params.id,
+      transporter: reminderTransporter,
+      mailFrom,
+    })
+
+    if (!result.ok) {
+      const status = result.error?.includes('not configured') ? 503 : 400
+      return res.status(status).json(result)
+    }
+
+    if (result.outcome !== 'sent' && result.outcome !== 'recovered') {
+      return res.status(409).json({
+        ...result,
+        state: buildSequencePanelState(req.params.id),
+        error: result.reason || `Follow-up was not sent (${result.outcome})`,
+      })
+    }
+
+    res.json({
+      ...result,
+      state: buildSequencePanelState(req.params.id),
+    })
+  } catch (err) {
+    logError('OUTREACH-TEST', 'Failed to send accelerated test follow-up', err)
+    res.status(500).json({ error: 'Failed to send accelerated test follow-up' })
   }
 })
 

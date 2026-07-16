@@ -1268,6 +1268,46 @@ export function apiSkipNextOutreachEmail(contactId: string) {
   return outreachSequenceAction(contactId, 'skip-next')
 }
 
+export async function apiTestSendNextOutreachFollowUp(
+  contactId: string
+): Promise<
+  | {
+      ok: true
+      step: string
+      templateId?: string
+      templateName?: string
+      routedTo?: string
+      contactEmail?: string
+      outcome: string
+      state: OutreachSequenceState
+    }
+  | { ok: false; error: string }
+> {
+  try {
+    const res = await apiFetch(`${API}/outreach-sequence/contacts/${contactId}/test-send-next`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: '{}',
+    })
+    const data = await res.json().catch(() => ({}))
+    if (res.ok && data.ok && data.state) {
+      return {
+        ok: true,
+        step: data.step,
+        templateId: data.templateId,
+        templateName: data.templateName,
+        routedTo: data.routedTo,
+        contactEmail: data.contactEmail,
+        outcome: data.outcome,
+        state: data.state as OutreachSequenceState,
+      }
+    }
+    return { ok: false, error: (data && data.error) || 'Failed to send test follow-up' }
+  } catch {
+    return { ok: false, error: 'Network error — check your connection and try again.' }
+  }
+}
+
 export async function apiUpdateMusicSelection(id: string, updates: { label?: string }): Promise<{ ok: true } | { ok: false; error: string }> {
   try {
     const res = await apiFetch(`${API}/music-selection/${id}`, {

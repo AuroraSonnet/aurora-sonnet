@@ -5,6 +5,7 @@ import {
   apiResumeOutreachSequence,
   apiSkipNextOutreachEmail,
   apiStopOutreachSequence,
+  apiTestSendNextOutreachFollowUp,
   type OutreachSequenceState,
 } from '../api/db'
 import { formatOutreachDateTime, sequenceStatusTone } from '../utils/outreachSequenceUi'
@@ -104,6 +105,10 @@ export default function PartnershipOutreachSequencePanel({
   const canResume = panel.status === 'paused'
   const canStop = panel.status === 'running' || panel.status === 'paused'
   const canSkip = panel.status === 'running' || panel.status === 'paused'
+  const canTestSendNext =
+    /E2E Test/i.test(companyName) &&
+    panel.status === 'running' &&
+    Boolean(panel.nextScheduled)
 
   return (
     <section className={styles.sequenceSection}>
@@ -225,6 +230,33 @@ export default function PartnershipOutreachSequencePanel({
         >
           {actionBusy === 'Next email skipped' ? 'Skipping…' : 'Skip next email'}
         </button>
+        {canTestSendNext && (
+          <button
+            type="button"
+            className={styles.sequenceActionBtn}
+            disabled={!!actionBusy}
+            onClick={async () => {
+              setActionBusy('Test follow-up sent')
+              setError(null)
+              try {
+                const result = await apiTestSendNextOutreachFollowUp(contactId)
+                if (!result.ok) {
+                  setError(result.error)
+                  return
+                }
+                setState(result.state)
+                await onRefreshAppState()
+                onToast(
+                  `Test follow-up sent (${result.templateName || result.step}) → ${result.routedTo || 'test inbox'}`
+                )
+              } finally {
+                setActionBusy(null)
+              }
+            }}
+          >
+            {actionBusy === 'Test follow-up sent' ? 'Sending…' : 'Send test follow-up now'}
+          </button>
+        )}
       </div>
     </section>
   )
