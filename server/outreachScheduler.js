@@ -16,6 +16,7 @@ import {
   sendAutomatedOutreachMail,
 } from './outreachMailer.js'
 import { handleHardBounceDetected, OUTREACH_SEQUENCE_STOP_STAGES } from './outreachSequence.js'
+import { logOutreach } from './outreachLogger.js'
 import {
   claimScheduledSend,
   completeAutomatedSendBookkeeping,
@@ -77,9 +78,25 @@ export function recoverOutreachSchedulerState(now = new Date()) {
         nowIso,
       })
       recovered += 1
+      logOutreach('claim_recovered', {
+        component: 'scheduler',
+        scheduledSendId: send.id,
+        partnershipContactId: send.partnershipContactId,
+        step: send.step,
+        source: 'stale_claim_send_log',
+      })
       continue
     }
-    if (releaseScheduledSendClaim(send.id, nowIso)) released += 1
+    if (releaseScheduledSendClaim(send.id, nowIso)) {
+      released += 1
+      logOutreach('claim_released', {
+        component: 'scheduler',
+        scheduledSendId: send.id,
+        partnershipContactId: send.partnershipContactId,
+        step: send.step,
+        reason: 'stale_claim_timeout',
+      })
+    }
   }
 
   const activeClaims = listClaimedScheduledSends()
@@ -94,7 +111,18 @@ export function recoverOutreachSchedulerState(now = new Date()) {
         nowIso,
       })
       recovered += 1
+      logOutreach('claim_recovered', {
+        component: 'scheduler',
+        scheduledSendId: send.id,
+        partnershipContactId: send.partnershipContactId,
+        step: send.step,
+        source: 'active_claim_send_log',
+      })
     }
+  }
+
+  if (recovered || released) {
+    logOutreach('recovery_complete', { component: 'scheduler', recovered, released })
   }
 
   return { recovered, released }
@@ -109,6 +137,15 @@ function deferScheduledSend(send, now, rng) {
     updatedAt: now.toISOString(),
   })
   incrementDailyQuotaDeferred(nyBusinessDateString(now))
+  logOutreach('send_deferred', {
+    component: 'scheduler',
+    scheduledSendId: send.id,
+    partnershipContactId: send.partnershipContactId,
+    step: send.step,
+    deferReason: 'daily_limit',
+    nextScheduledAt: nextAt,
+    businessDate: nyBusinessDateString(now),
+  })
 }
 
 function cancelScheduledSend(send, nowIso, reason) {
@@ -144,7 +181,14 @@ async function processOneDueSend({
   }
 
   const claimed = claimScheduledSend(scheduledSend.id, nowIso)
-  if (!claimed) return { outcome: 'skipped', reason: 'claim_failed' }
+  if (!claimed) {
+    logOutreach('send_skipped', {
+      component: 'scheduler',
+      scheduledSendId: scheduledSend.id,
+      reason: 'claim_failed',
+    })
+    return { outcome: 'skipped', reason: 'claim_failed' }
+  }
 
   const existingSuccess = getSuccessfulSendLogForScheduledSend(claimed.id)
   if (existingSuccess) {
@@ -153,6 +197,12 @@ async function processOneDueSend({
       sendLog: existingSuccess,
       businessDate,
       nowIso,
+    })
+    logOutreach('send_recovered', {
+      component: 'scheduler',
+      scheduledSendId: claimed.id,
+      partnershipContactId: claimed.partnershipContactId,
+      step: claimed.step,
     })
     return { outcome: 'recovered' }
   }
@@ -176,6 +226,16 @@ async function processOneDueSend({
   })
 
   try {
+    logOutreach('send_attempt', {
+      component: 'scheduler',
+      scheduledSendId: claimed.id,
+      partnershipContactId: claimed.partnershipContactId,
+      step: claimed.step,
+      attemptCount: (claimed.attemptCount || 0) + 1,
+      testMode: mailPayload.isTestOverride,
+      toDomain: String(mailPayload.to).split('@')[1] || 'unknown',
+    })
+
     const smtpResult = await sendAutomatedOutreachMail(transporter, mailFrom, mailPayload)
     const sentAt = nowIso
     createOutreachSendLog({
@@ -208,6 +268,15 @@ async function processOneDueSend({
       sequenceCurrentStep: stepMeta.sequenceCurrentStep,
       sequenceStatus: stepMeta.sequenceStatus,
       nowIso: sentAt,
+    })
+
+    logOutreach('send_succeeded', {
+      component: 'scheduler',
+      scheduledSendId: claimed.id,
+      partnershipContactId: claimed.partnershipContactId,
+      step: claimed.step,
+      messageId: smtpResult.messageId,
+      testMode: mailPayload.isTestOverride,
     })
 
     return { outcome: 'sent', messageId: smtpResult.messageId, to: mailPayload.to }
@@ -245,6 +314,15 @@ async function processOneDueSend({
           matchMethod: 'smtp_permanent',
         })
       }
+      logOutreach('send_failed', {
+        component: 'scheduler',
+        scheduledSendId: claimed.id,
+        partnershipContactId: claimed.partnershipContactId,
+        step: claimed.step,
+        permanent: kind === 'permanent',
+        attemptCount,
+        error: errText,
+      }, { level: 'error' })
       return { outcome: 'failed', reason: errText, permanent: kind === 'permanent' }
     }
 
@@ -256,6 +334,15 @@ async function processOneDueSend({
       lastError: errText,
       scheduledAt: retryAt,
       updatedAt: nowIso,
+    })
+    logOutreach('send_retry_scheduled', {
+      component: 'scheduler',
+      scheduledSendId: claimed.id,
+      partnershipContactId: claimed.partnershipContactId,
+      step: claimed.step,
+      attemptCount,
+      retryAt,
+      error: errText,
     })
     return { outcome: 'retry_scheduled', reason: errText, retryAt }
   }
@@ -275,6 +362,12 @@ export async function runOutreachSchedulerTick({
   const recovery = recoverOutreachSchedulerState(now)
 
   if (!force && (!isBusinessDay(now) || !isWithinSendWindow(now))) {
+    logOutreach('scheduler_outside_window', {
+      component: 'scheduler',
+      recovered: recovery.recovered,
+      released: recovery.released,
+      businessDate: nyBusinessDateString(now),
+    })
     return {
       sent: 0,
       deferred: 0,
@@ -296,6 +389,16 @@ export async function runOutreachSchedulerTick({
   let deferred = 0
   let skipped = 0
   let failed = 0
+
+  logOutreach('scheduler_tick', {
+    component: 'scheduler',
+    businessDate,
+    dueCount: due.length,
+    sentToday,
+    dailyLimit: OUTREACH_DAILY_LIMIT,
+    recovered: recovery.recovered,
+    released: recovery.released,
+  })
 
   for (const row of due) {
     const current = getOutreachScheduledSendById(row.id)
@@ -322,6 +425,17 @@ export async function runOutreachSchedulerTick({
       skipped += 1
     }
   }
+
+  logOutreach('scheduler_tick_complete', {
+    component: 'scheduler',
+    businessDate,
+    sent,
+    deferred,
+    skipped,
+    failed,
+    recovered: recovery.recovered,
+    released: recovery.released,
+  })
 
   return {
     sent,

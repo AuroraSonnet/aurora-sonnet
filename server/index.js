@@ -86,8 +86,7 @@ import {
   handleContactStageChange,
   EMAIL_DELIVERY_FAILED_STAGE,
 } from './outreachSequence.js'
-import { runOutreachSchedulerTick } from './outreachScheduler.js'
-import { runOutreachImapPoll } from './outreachImap.js'
+import { runOutreachAutomationTick, verifyOutreachCronSecret } from './outreachCron.js'
 import {
   buildSequencePanelState,
   getOutreachDashboardStats,
@@ -4407,53 +4406,37 @@ app.post('/api/outreach-sequence/contacts/:id/skip-next', (req, res) => {
   }
 })
 
-// Outreach scheduler + IMAP poll tick — disabled until env flags set (Phase 4: no auto setInterval).
-app.post('/api/outreach-sequence/tick', async (req, res) => {
+async function handleOutreachSequenceTick(req, res) {
   try {
-    const secret = process.env.OUTREACH_CRON_SECRET
-    if (secret && String(req.get('x-outreach-cron-secret') || '') !== String(secret)) {
+    const auth = verifyOutreachCronSecret(req)
+    if (!auth.ok) {
       return res.status(401).json({ error: 'Unauthorized' })
     }
-    const imapEnabled = process.env.OUTREACH_IMAP_ENABLED === 'true'
-    const schedulerEnabled = process.env.OUTREACH_SCHEDULER_ENABLED === 'true'
-    if (!imapEnabled && !schedulerEnabled) {
-      return res.json({
-        sent: 0,
-        disabled: true,
-        message: 'OUTREACH_IMAP_ENABLED and OUTREACH_SCHEDULER_ENABLED are not true',
-      })
-    }
 
-    let imap = null
-    if (imapEnabled) {
-      imap = await runOutreachImapPoll()
-      if (!imap.ok && imap.error) {
-        logError('OUTREACH-IMAP', 'poll failed', new Error(imap.error))
-      }
-    }
-
-    let scheduler = null
-    if (schedulerEnabled) {
-      const mailFrom = SMTP_FROM || SMTP_USER
-      if (!reminderTransporter || !mailFrom) {
-        return res.status(503).json({ sent: 0, imap, error: 'SMTP not configured' })
-      }
-      scheduler = await runOutreachSchedulerTick({
-        transporter: reminderTransporter,
-        mailFrom,
-        force: req.body?.force === true,
-      })
-    }
-
-    res.json({
-      ...(scheduler || { sent: 0 }),
-      imap,
+    const mailFrom = SMTP_FROM || SMTP_USER
+    const result = await runOutreachAutomationTick({
+      force: req.body?.force === true || req.query?.force === 'true',
+      transporter: reminderTransporter,
+      mailFrom,
     })
+
+    if (result.error === 'smtp_not_configured') {
+      return res.status(503).json(result)
+    }
+    if (result.error === 'outreach_send_blocked') {
+      return res.status(503).json(result)
+    }
+
+    res.json(result)
   } catch (err) {
     logError('OUTREACH-SCHEDULER', 'tick failed', err)
     res.status(500).json({ error: 'Outreach scheduler tick failed' })
   }
-})
+}
+
+// Outreach scheduler + IMAP poll tick — external cron only (no in-process setInterval).
+app.post('/api/outreach-sequence/tick', handleOutreachSequenceTick)
+app.get('/api/outreach-sequence/tick', handleOutreachSequenceTick)
 
 app.post('/api/calendar-reminders', (req, res) => {
   try {

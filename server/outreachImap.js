@@ -8,6 +8,7 @@ import {
 } from './outreachImapMatch.js'
 import { normalizeMessageId } from './outreachMailer.js'
 import { handleHardBounceDetected, handleReplyDetected } from './outreachSequence.js'
+import { logOutreach } from './outreachLogger.js'
 import {
   createOutreachInboundMessage,
   getImapSyncState,
@@ -165,6 +166,14 @@ export function processInboundImapMessage(inboundRaw, { matchingContext, mailbox
       inbound,
     })
 
+    logOutreach('bounce_detected', {
+      component: 'imap',
+      contactId: bounceMatch.contactId,
+      matchMethod: bounceMatch.matchMethod,
+      severity: bounceMatch.severity,
+      cancelledCount: bounceResult.cancelledCount,
+    }, { level: 'warn' })
+
     return {
       status: 'bounce',
       contactId: bounceMatch.contactId,
@@ -217,6 +226,13 @@ export function processInboundImapMessage(inboundRaw, { matchingContext, mailbox
     receivedAt,
   })
 
+  logOutreach('reply_detected', {
+    component: 'imap',
+    contactId: match.contactId,
+    matchMethod: match.matchMethod,
+    cancelledCount: replyResult.cancelledCount,
+  })
+
   return {
     status: 'matched',
     contactId: match.contactId,
@@ -242,6 +258,8 @@ export async function runOutreachImapPoll({ clientFactory, now = new Date() } = 
   const contacts = listVenueContactsWithActiveSequences()
   const allContacts = listPartnershipContacts().filter((c) => !c.deletedAt)
   const matchingContext = buildReplyMatchingContext({ sentMessages, contacts, allContacts })
+
+  logOutreach('imap_poll_start', { component: 'imap', mailbox: config.mailbox })
 
   let client
   let createdClient = false
@@ -321,6 +339,17 @@ export async function runOutreachImapPoll({ clientFactory, now = new Date() } = 
         })
       }
 
+      logOutreach('imap_poll_end', {
+        component: 'imap',
+        processed,
+        matched,
+        unmatched,
+        skipped,
+        duplicates,
+        bounces,
+        mailbox: config.mailbox,
+      })
+
       return {
         ok: true,
         processed,
@@ -336,7 +365,7 @@ export async function runOutreachImapPoll({ clientFactory, now = new Date() } = 
       lock.release()
     }
   } catch (err) {
-    console.log('[OUTREACH-IMAP] poll failed:', err?.message || err)
+    logOutreach('imap_poll_failed', { component: 'imap', error: err?.message || String(err) }, { level: 'error' })
     return {
       ok: false,
       error: err?.message || String(err),
