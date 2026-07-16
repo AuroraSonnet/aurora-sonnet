@@ -14,15 +14,15 @@ const VENUE_FIRST_OUTREACH_SUBJECT = 'Live Music Referrals for {{companyName}} C
 
 const VENUE_FIRST_OUTREACH_BODY = `Hi,
 
-I run Aurora Sonnet, a small collective of professional singers offering acoustic duos and opera vocalists for New York weddings.
+I'm the founder of Aurora Sonnet, a New York collective of professional wedding singers offering refined acoustic duos and opera vocalists for ceremonies, cocktail hours, and select dinner moments.
 
-We'd love to become a trusted live music option your team can recommend to your couples, and we're open to discussing a referral or partnership structure that makes sense for your venue.
+We'd love to become a trusted live music recommendation for your couples and explore a referral or partnership arrangement that creates value for both your venue and your clients.
 
-The easiest way to get a feel for us is in person. I'd be happy to arrange a live performance for your team, no obligation. You can also view our artists here:
+I'd be happy to arrange a complimentary live performance for your team, with no obligation. You can also view our artists here:
 
 https://aurorasonnet.com/our-artists
 
-If you're not the right person for this, I'd really appreciate being pointed to whoever handles wedding partnerships or music.
+If someone else oversees wedding partnerships or preferred vendors, I'd be grateful if you could point me in the right direction.
 
 Warmly,
 
@@ -112,4 +112,21 @@ export function ensureDefaultPartnershipEmailTemplates(db, createEmailTemplate) 
     if (existing) continue
     createEmailTemplate(tpl)
   }
+}
+
+/**
+ * One-time body refresh for existing installs — updates tpl-venue-first-outreach only.
+ * Idempotent: no-op when the row is missing or already matches the canonical seed body.
+ */
+export function migrateVenueFirstOutreachTemplateBody(db) {
+  const existing = db
+    .prepare('SELECT id, body FROM email_templates WHERE id = ?')
+    .get(VENUE_FIRST_OUTREACH_TEMPLATE_ID)
+  if (!existing || existing.body === VENUE_FIRST_OUTREACH_BODY) return
+
+  db.prepare('UPDATE email_templates SET body = ?, updatedAt = ? WHERE id = ?').run(
+    VENUE_FIRST_OUTREACH_BODY,
+    new Date().toISOString(),
+    VENUE_FIRST_OUTREACH_TEMPLATE_ID
+  )
 }
