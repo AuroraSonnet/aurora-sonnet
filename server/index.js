@@ -79,7 +79,6 @@ import {
 } from './db.js'
 import {
   tryEnrollVenueAfterFirstOutreach,
-  getSequenceState,
   pauseSequence,
   resumeSequence,
   stopSequence,
@@ -89,6 +88,11 @@ import {
 } from './outreachSequence.js'
 import { runOutreachSchedulerTick } from './outreachScheduler.js'
 import { runOutreachImapPoll } from './outreachImap.js'
+import {
+  buildSequencePanelState,
+  getOutreachDashboardStats,
+  getOutreachSystemStatus,
+} from './outreachDashboard.js'
 import { normalizeMessageId } from './outreachMailer.js'
 import {
   seedClients,
@@ -4318,11 +4322,30 @@ app.post('/api/partnership-contacts/:id/send-email', async (req, res) => {
 })
 
 // Outreach sequence controls (enrollment/scheduling only — no auto-send in Phase 2)
+app.get('/api/outreach-sequence/dashboard', (req, res) => {
+  try {
+    res.json(getOutreachDashboardStats())
+  } catch (err) {
+    logError('OUTREACH-DASHBOARD', 'Failed to load dashboard stats', err)
+    res.status(500).json({ error: 'Failed to load outreach dashboard' })
+  }
+})
+
+app.get('/api/outreach-sequence/system-status', (req, res) => {
+  try {
+    const smtpConfigured = Boolean(reminderTransporter && (SMTP_FROM || SMTP_USER))
+    res.json(getOutreachSystemStatus({ smtpConfigured }))
+  } catch (err) {
+    logError('OUTREACH-DASHBOARD', 'Failed to load system status', err)
+    res.status(500).json({ error: 'Failed to load outreach system status' })
+  }
+})
+
 app.get('/api/outreach-sequence/contacts/:id', (req, res) => {
   try {
     const contact = getPartnershipContactById(req.params.id)
     if (!contact) return res.status(404).json({ error: 'Partnership contact not found' })
-    const state = getSequenceState(req.params.id)
+    const state = buildSequencePanelState(req.params.id)
     if (!state) return res.status(404).json({ error: 'No outreach sequence for this contact' })
     res.json(state)
   } catch (err) {
@@ -4337,7 +4360,7 @@ app.post('/api/outreach-sequence/contacts/:id/pause', (req, res) => {
     if (!contact) return res.status(404).json({ error: 'Partnership contact not found' })
     const sequence = pauseSequence(req.params.id)
     if (!sequence) return res.status(400).json({ error: 'No running outreach sequence to pause' })
-    res.json({ ok: true, sequence })
+    res.json({ ok: true, sequence, state: buildSequencePanelState(req.params.id) })
   } catch (err) {
     logError('OUTREACH-SEQUENCE', 'Failed to pause sequence', err)
     res.status(500).json({ error: 'Failed to pause outreach sequence' })
@@ -4350,7 +4373,7 @@ app.post('/api/outreach-sequence/contacts/:id/resume', (req, res) => {
     if (!contact) return res.status(404).json({ error: 'Partnership contact not found' })
     const sequence = resumeSequence(req.params.id)
     if (!sequence) return res.status(400).json({ error: 'No paused outreach sequence to resume' })
-    res.json({ ok: true, sequence })
+    res.json({ ok: true, sequence, state: buildSequencePanelState(req.params.id) })
   } catch (err) {
     logError('OUTREACH-SEQUENCE', 'Failed to resume sequence', err)
     res.status(500).json({ error: 'Failed to resume outreach sequence' })
@@ -4364,7 +4387,7 @@ app.post('/api/outreach-sequence/contacts/:id/stop', (req, res) => {
     const stopReason = req.body?.stopReason != null ? String(req.body.stopReason).trim() : 'manual_stop'
     const result = stopSequence(req.params.id, stopReason || 'manual_stop')
     if (!result) return res.status(400).json({ error: 'No active outreach sequence to stop' })
-    res.json({ ok: true, ...result })
+    res.json({ ok: true, ...result, state: buildSequencePanelState(req.params.id) })
   } catch (err) {
     logError('OUTREACH-SEQUENCE', 'Failed to stop sequence', err)
     res.status(500).json({ error: 'Failed to stop outreach sequence' })
@@ -4377,7 +4400,7 @@ app.post('/api/outreach-sequence/contacts/:id/skip-next', (req, res) => {
     if (!contact) return res.status(404).json({ error: 'Partnership contact not found' })
     const result = skipNextScheduledSend(req.params.id)
     if (!result) return res.status(400).json({ error: 'No active outreach sequence to skip' })
-    res.json({ ok: true, ...result })
+    res.json({ ok: true, ...result, state: buildSequencePanelState(req.params.id) })
   } catch (err) {
     logError('OUTREACH-SEQUENCE', 'Failed to skip next scheduled send', err)
     res.status(500).json({ error: 'Failed to skip next scheduled send' })

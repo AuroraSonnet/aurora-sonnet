@@ -13,6 +13,7 @@ import {
   normalizeReferralStatusKey,
 } from './partnerReferralPayout.js'
 import { ensureDefaultPartnershipEmailTemplates } from './partnershipEmailTemplates.js'
+import { nyBusinessDateString } from './businessDays.js'
 
 export {
   computePartnerReferralAmounts,
@@ -1285,6 +1286,104 @@ export function listPartnershipContacts() {
     .prepare('SELECT * FROM partnership_contacts WHERE deletedAt IS NULL ORDER BY updatedAt DESC')
     .all()
     .map(rowToPartnershipContact)
+}
+
+export function countSequencesByStatus(status) {
+  const row = db.prepare('SELECT COUNT(*) AS n FROM outreach_sequences WHERE status = ?').get(status)
+  return row?.n || 0
+}
+
+export function countContactsByStage(stage) {
+  const row = db
+    .prepare('SELECT COUNT(*) AS n FROM partnership_contacts WHERE deletedAt IS NULL AND stage = ?')
+    .get(stage)
+  return row?.n || 0
+}
+
+export function listFailedScheduledSends(partnershipContactId = null, limit = null) {
+  let rows
+  if (partnershipContactId) {
+    rows = db
+      .prepare(
+        `SELECT * FROM outreach_scheduled_sends
+         WHERE partnershipContactId = ? AND status = 'failed'
+         ORDER BY COALESCE(lastAttemptAt, updatedAt) DESC`
+      )
+      .all(partnershipContactId)
+  } else {
+    rows = db
+      .prepare(
+        `SELECT * FROM outreach_scheduled_sends
+         WHERE status = 'failed'
+         ORDER BY COALESCE(lastAttemptAt, updatedAt) DESC`
+      )
+      .all()
+  }
+  const mapped = rows.map(rowToOutreachScheduledSend)
+  return limit != null ? mapped.slice(0, limit) : mapped
+}
+
+export function listScheduledSendsForBusinessDate(businessDate) {
+  const rows = db
+    .prepare(
+      `SELECT * FROM outreach_scheduled_sends
+       WHERE status IN ('pending', 'deferred', 'claimed')`
+    )
+    .all()
+  return rows
+    .map(rowToOutreachScheduledSend)
+    .filter((s) => {
+      try {
+        return nyBusinessDateString(new Date(s.scheduledAt)) === businessDate
+      } catch {
+        return false
+      }
+    })
+}
+
+export function listInboundRepliesForContact(partnershipContactId = null, limit = null, businessDate = null) {
+  const replyMethods = ['thread_in_reply_to', 'thread_references', 'sender_subject']
+  let rows
+  if (partnershipContactId) {
+    rows = db
+      .prepare(
+        `SELECT * FROM outreach_inbound_messages
+         WHERE partnershipContactId = ? AND matchMethod IN (${replyMethods.map(() => '?').join(',')})
+         ORDER BY receivedAt DESC`
+      )
+      .all(partnershipContactId, ...replyMethods)
+  } else {
+    rows = db
+      .prepare(
+        `SELECT * FROM outreach_inbound_messages
+         WHERE matchMethod IN (${replyMethods.map(() => '?').join(',')})
+         ORDER BY receivedAt DESC`
+      )
+      .all(...replyMethods)
+  }
+  let mapped = rows.map(rowToOutreachInboundMessage)
+  if (businessDate) {
+    mapped = mapped.filter((m) => {
+      try {
+        return nyBusinessDateString(new Date(m.receivedAt)) === businessDate
+      } catch {
+        return false
+      }
+    })
+  }
+  return limit != null ? mapped.slice(0, limit) : mapped
+}
+
+export function listInboundBouncesForContact(partnershipContactId, limit = null) {
+  const rows = db
+    .prepare(
+      `SELECT * FROM outreach_inbound_messages
+       WHERE partnershipContactId = ? AND matchMethod LIKE 'bounce_%'
+       ORDER BY receivedAt DESC`
+    )
+    .all(partnershipContactId)
+  const mapped = rows.map(rowToOutreachInboundMessage)
+  return limit != null ? mapped.slice(0, limit) : mapped
 }
 
 export function getNextOutreachActivityId() {

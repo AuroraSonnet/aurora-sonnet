@@ -761,6 +761,218 @@
   cursor: not-allowed;
 }
 
+/* Outreach automation dashboard */
+
+.outreachDashboard {
+  margin-bottom: 1.25rem;
+  padding: 1rem 1.1rem;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  background: var(--surface, #fff);
+}
+
+.outreachDashboardHead {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 0.75rem;
+  margin-bottom: 0.85rem;
+}
+
+.outreachDashboard h2 {
+  margin: 0;
+  font-size: 1.05rem;
+}
+
+.outreachDashboardSub {
+  margin: 0.2rem 0 0;
+  font-size: 0.82rem;
+  color: var(--text-muted);
+}
+
+.systemWarnings {
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+  margin-bottom: 0.85rem;
+}
+
+.systemWarning {
+  margin: 0;
+  padding: 0.65rem 0.8rem;
+  border-radius: var(--radius-sm);
+  font-size: 0.85rem;
+  line-height: 1.4;
+}
+
+.systemWarning[data-level='warning'] {
+  border: 1px solid var(--warning);
+  background: color-mix(in srgb, var(--warning) 12%, transparent);
+  color: var(--text);
+}
+
+.systemWarning[data-level='info'] {
+  border: 1px solid var(--border);
+  background: color-mix(in srgb, var(--text-muted) 8%, transparent);
+  color: var(--text-secondary);
+}
+
+.dashboardGrid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(140px, 1fr));
+  gap: 0.65rem;
+}
+
+.dashboardCard {
+  padding: 0.7rem 0.8rem;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  background: color-mix(in srgb, var(--accent) 4%, transparent);
+}
+
+.dashboardCardLabel {
+  display: block;
+  font-size: 0.75rem;
+  color: var(--text-muted);
+  margin-bottom: 0.25rem;
+}
+
+.dashboardCardValue {
+  font-size: 1.35rem;
+  line-height: 1.1;
+}
+
+/* Per-contact sequence panel */
+
+.sequenceSection {
+  border-top: 1px solid var(--border);
+  padding-top: 1rem;
+  margin-top: 0.5rem;
+}
+
+.sequenceHeaderRow {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.75rem;
+  margin-bottom: 0.75rem;
+}
+
+.sequenceSection h3 {
+  margin: 0;
+  font-size: 1rem;
+}
+
+.sequenceStatusBadge {
+  font-size: 0.78rem;
+  font-weight: 600;
+  padding: 0.2rem 0.55rem;
+  border-radius: 999px;
+  border: 1px solid var(--border);
+}
+
+.sequenceStatusBadge[data-tone='running'] {
+  color: #0d6b3b;
+  border-color: #9fd4b4;
+  background: #e8f7ee;
+}
+
+.sequenceStatusBadge[data-tone='paused'] {
+  color: #8a5a00;
+  border-color: #e8c56d;
+  background: #fff7e0;
+}
+
+.sequenceStatusBadge[data-tone='stopped'] {
+  color: #8a1f1f;
+  border-color: #e8a8a8;
+  background: #fdeeee;
+}
+
+.sequenceStatusBadge[data-tone='completed'] {
+  color: #2f4f85;
+  border-color: #a8c0e8;
+  background: #eef4fc;
+}
+
+.sequenceMeta {
+  display: grid;
+  gap: 0.65rem;
+  margin: 0 0 0.85rem;
+}
+
+.sequenceMeta > div {
+  display: grid;
+  gap: 0.15rem;
+}
+
+.sequenceMeta dt {
+  font-size: 0.75rem;
+  color: var(--text-muted);
+}
+
+.sequenceMeta dd {
+  margin: 0;
+  font-size: 0.9rem;
+}
+
+.sequenceMetaSub {
+  display: block;
+  margin-top: 0.15rem;
+  font-size: 0.8rem;
+  color: var(--text-secondary);
+}
+
+.sequenceRemainingDetails {
+  margin-bottom: 0.85rem;
+  font-size: 0.85rem;
+}
+
+.sequenceRemainingDetails summary {
+  cursor: pointer;
+  color: var(--accent);
+}
+
+.sequenceRemainingList {
+  margin: 0.5rem 0 0;
+  padding-left: 1.1rem;
+}
+
+.sequenceRemainingList li {
+  margin-bottom: 0.35rem;
+}
+
+.sequenceRemainingList span {
+  display: block;
+  font-size: 0.78rem;
+  color: var(--text-muted);
+}
+
+.sequenceActions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+}
+
+.sequenceActionBtn {
+  padding: 0.45rem 0.8rem;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  background: var(--surface, #fff);
+  font-size: 0.85rem;
+  cursor: pointer;
+}
+
+.sequenceActionBtn:hover:not(:disabled) {
+  border-color: var(--accent);
+}
+
+.sequenceActionBtn:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
 .reminderCheckboxRow {
   flex-direction: row !important;
   align-items: center;

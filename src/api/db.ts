@@ -948,6 +948,8 @@ export interface PartnershipContact {
   firstEmailSentAt?: string
   lastEmailSentAt?: string
   linkedReferralId?: string
+  doNotContact?: boolean
+  sequenceStatus?: string
   createdAt: string
   updatedAt: string
 }
@@ -1106,6 +1108,164 @@ export async function apiSendPartnershipEmail(
   } catch {
     return { ok: false, error: 'Network error — check your connection and try again.' }
   }
+}
+
+export interface OutreachSequencePanel {
+  status: string
+  statusLabel: string
+  currentStep: string
+  currentStepLabel: string
+  nextScheduled: {
+    step: string
+    stepLabel: string
+    templateId?: string
+    templateName: string
+    scheduledAt: string
+    status: string
+  } | null
+  remainingCount: number
+  remaining: {
+    step: string
+    stepLabel: string
+    templateId?: string
+    templateName: string
+    scheduledAt: string
+    status: string
+  }[]
+  lastReply: { at: string; subject?: string; snippet?: string; matchMethod?: string } | null
+  lastFailure: { at: string; reason: string; source: string; matchMethod?: string; step?: string } | null
+  stopReason?: string
+}
+
+export interface OutreachSequenceState {
+  sequence: {
+    id: string
+    partnershipContactId: string
+    status: string
+    currentStep: string
+    enrolledAt: string
+    anchorAt: string
+    pausedAt?: string
+    stoppedAt?: string
+    stopReason?: string
+    lastInboundAt?: string
+  }
+  scheduledSends: {
+    id: string
+    step: string
+    scheduledAt: string
+    status: string
+    templateId?: string
+  }[]
+  panel: OutreachSequencePanel
+}
+
+export interface OutreachDashboardStats {
+  businessDate: string
+  dailyLimit: number
+  scheduledToday: number
+  sentToday: number
+  remainingToday: number
+  deferredToday: number
+  newReplies: number
+  pausedSequences: number
+  failedSends: number
+  hardBounces: number
+}
+
+export interface OutreachSystemWarning {
+  code: string
+  level: 'info' | 'warning'
+  message: string
+}
+
+export interface OutreachSystemStatus {
+  automatedSendingEnabled: boolean
+  automatedSendingReady: boolean
+  replyDetectionEnabled: boolean
+  replyDetectionReady: boolean
+  smtpConfigured: boolean
+  imapConfigured: boolean
+  imapHealth: 'disabled' | 'never_polled' | 'stale' | 'ok'
+  lastImapPollAt: string | null
+  warnings: OutreachSystemWarning[]
+}
+
+export async function apiGetOutreachDashboard(): Promise<
+  { ok: true; stats: OutreachDashboardStats } | { ok: false; error: string }
+> {
+  try {
+    const res = await apiFetch(`${API}/outreach-sequence/dashboard`)
+    const data = await res.json().catch(() => ({}))
+    if (res.ok) return { ok: true, stats: data as OutreachDashboardStats }
+    return { ok: false, error: (data && data.error) || 'Failed to load dashboard' }
+  } catch {
+    return { ok: false, error: 'Network error — check your connection and try again.' }
+  }
+}
+
+export async function apiGetOutreachSystemStatus(): Promise<
+  { ok: true; status: OutreachSystemStatus } | { ok: false; error: string }
+> {
+  try {
+    const res = await apiFetch(`${API}/outreach-sequence/system-status`)
+    const data = await res.json().catch(() => ({}))
+    if (res.ok) return { ok: true, status: data as OutreachSystemStatus }
+    return { ok: false, error: (data && data.error) || 'Failed to load system status' }
+  } catch {
+    return { ok: false, error: 'Network error — check your connection and try again.' }
+  }
+}
+
+export async function apiGetOutreachSequenceState(
+  contactId: string
+): Promise<{ ok: true; state: OutreachSequenceState } | { ok: false; error: string; missing?: boolean }> {
+  try {
+    const res = await apiFetch(`${API}/outreach-sequence/contacts/${contactId}`)
+    const data = await res.json().catch(() => ({}))
+    if (res.ok) return { ok: true, state: data as OutreachSequenceState }
+    if (res.status === 404) return { ok: false, error: 'No outreach sequence for this contact', missing: true }
+    return { ok: false, error: (data && data.error) || 'Failed to load sequence' }
+  } catch {
+    return { ok: false, error: 'Network error — check your connection and try again.' }
+  }
+}
+
+async function outreachSequenceAction(
+  contactId: string,
+  action: 'pause' | 'resume' | 'stop' | 'skip-next',
+  body?: Record<string, unknown>
+): Promise<{ ok: true; state: OutreachSequenceState } | { ok: false; error: string }> {
+  try {
+    const res = await apiFetch(`${API}/outreach-sequence/contacts/${contactId}/${action}`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(body || {}),
+    })
+    const data = await res.json().catch(() => ({}))
+    if (res.ok && data.ok && data.state) {
+      return { ok: true, state: data.state as OutreachSequenceState }
+    }
+    return { ok: false, error: (data && data.error) || `Failed to ${action} sequence` }
+  } catch {
+    return { ok: false, error: 'Network error — check your connection and try again.' }
+  }
+}
+
+export function apiPauseOutreachSequence(contactId: string) {
+  return outreachSequenceAction(contactId, 'pause')
+}
+
+export function apiResumeOutreachSequence(contactId: string) {
+  return outreachSequenceAction(contactId, 'resume')
+}
+
+export function apiStopOutreachSequence(contactId: string, stopReason?: string) {
+  return outreachSequenceAction(contactId, 'stop', stopReason ? { stopReason } : undefined)
+}
+
+export function apiSkipNextOutreachEmail(contactId: string) {
+  return outreachSequenceAction(contactId, 'skip-next')
 }
 
 export async function apiUpdateMusicSelection(id: string, updates: { label?: string }): Promise<{ ok: true } | { ok: false; error: string }> {

@@ -9,10 +9,15 @@ import {
   apiUpdateEmailTemplate,
   apiDeleteEmailTemplate,
   apiSendPartnershipEmail,
+  apiGetOutreachDashboard,
+  apiGetOutreachSystemStatus,
   type PartnershipContact,
   type EmailTemplate,
+  type OutreachDashboardStats,
+  type OutreachSystemStatus,
 } from '../api/db'
 import PartnershipImportWizard from './PartnershipImportWizard'
+import PartnershipOutreachSequencePanel from './PartnershipOutreachSequencePanel'
 import {
   FORM_CONTACT_STAGES,
   OUTREACH_METHOD_WEBSITE_FORM,
@@ -24,6 +29,7 @@ import {
 } from '../utils/partnershipImport'
 import { performKanbanStageMove } from '../utils/partnershipKanbanStage'
 import { pickDefaultSendTemplate, templateTypeLabel } from '../utils/partnershipEmailTemplates'
+import { formatOutreachDate } from '../utils/outreachSequenceUi'
 import styles from './PartnershipOutreach.module.css'
 
 const EMAIL_STAGES: { id: string; label: string }[] = [
@@ -49,6 +55,14 @@ function stageLabel(id?: string): string {
 
 function isWebsiteFormContact(c: PartnershipContact): boolean {
   return c.outreachMethod === OUTREACH_METHOD_WEBSITE_FORM
+}
+
+function isVenueEmailSequenceContact(c: PartnershipContact): boolean {
+  return (
+    c.partnerType === 'venue' &&
+    c.outreachMethod !== OUTREACH_METHOD_WEBSITE_FORM &&
+    canSendEmailToContact(c)
+  )
 }
 
 const PARTNER_TYPES: { id: string; label: string }[] = [
@@ -228,6 +242,11 @@ export default function PartnershipOutreach() {
 
   const [toast, setToast] = useState<string | null>(null)
 
+  const [dashboardStats, setDashboardStats] = useState<OutreachDashboardStats | null>(null)
+  const [systemStatus, setSystemStatus] = useState<OutreachSystemStatus | null>(null)
+  const [dashboardError, setDashboardError] = useState<string | null>(null)
+  const [dashboardLoading, setDashboardLoading] = useState(false)
+
   const [stageOverrides, setStageOverrides] = useState<Record<string, string>>({})
   const [savingStageIds, setSavingStageIds] = useState<Set<string>>(new Set())
   const [kanbanError, setKanbanError] = useState<string | null>(null)
@@ -273,6 +292,25 @@ export default function PartnershipOutreach() {
     setToast(msg)
     setTimeout(() => setToast(null), 3000)
   }
+
+  const refreshOutreachDashboard = useCallback(async () => {
+    if (tab !== 'pipeline' || pipelineMode !== 'email') return
+    setDashboardLoading(true)
+    setDashboardError(null)
+    const [statsResult, statusResult] = await Promise.all([
+      apiGetOutreachDashboard(),
+      apiGetOutreachSystemStatus(),
+    ])
+    if (statsResult.ok) setDashboardStats(statsResult.stats)
+    else setDashboardError(statsResult.error)
+    if (statusResult.ok) setSystemStatus(statusResult.status)
+    else if (!statsResult.ok) setDashboardError(statusResult.error)
+    setDashboardLoading(false)
+  }, [tab, pipelineMode])
+
+  useEffect(() => {
+    void refreshOutreachDashboard()
+  }, [refreshOutreachDashboard])
 
   const activeStages = pipelineMode === 'website_contact_form' ? FORM_CONTACT_STAGES : EMAIL_STAGES
 
@@ -881,6 +919,66 @@ export default function PartnershipOutreach() {
       ) : (
       <>
 
+      {pipelineMode === 'email' && (
+        <section className={styles.outreachDashboard} aria-label="Outreach automation dashboard">
+          <div className={styles.outreachDashboardHead}>
+            <div>
+              <h2>Outreach automation</h2>
+              {dashboardStats && (
+                <p className={styles.outreachDashboardSub}>
+                  Today ({formatOutreachDate(dashboardStats.businessDate)} ET) · daily cap {dashboardStats.dailyLimit}
+                </p>
+              )}
+            </div>
+            <button
+              type="button"
+              className={styles.cancelBtn}
+              onClick={() => void refreshOutreachDashboard()}
+              disabled={dashboardLoading}
+            >
+              {dashboardLoading ? 'Refreshing…' : 'Refresh'}
+            </button>
+          </div>
+
+          {dashboardError && <p className={styles.error} role="alert">{dashboardError}</p>}
+
+          {systemStatus && systemStatus.warnings.length > 0 && (
+            <div className={styles.systemWarnings}>
+              {systemStatus.warnings.map((warning) => (
+                <p
+                  key={warning.code}
+                  className={styles.systemWarning}
+                  data-level={warning.level}
+                  role="status"
+                >
+                  {warning.message}
+                </p>
+              ))}
+            </div>
+          )}
+
+          <div className={styles.dashboardGrid}>
+            {[
+              ['Scheduled today', dashboardStats?.scheduledToday],
+              ['Sent today', dashboardStats?.sentToday],
+              ['Remaining today', dashboardStats?.remainingToday],
+              ['Deferred (daily cap)', dashboardStats?.deferredToday],
+              ['New replies', dashboardStats?.newReplies],
+              ['Paused sequences', dashboardStats?.pausedSequences],
+              ['Failed sends', dashboardStats?.failedSends],
+              ['Hard bounces', dashboardStats?.hardBounces],
+            ].map(([label, value]) => (
+              <div key={String(label)} className={styles.dashboardCard}>
+                <span className={styles.dashboardCardLabel}>{label}</span>
+                <strong className={styles.dashboardCardValue}>
+                  {dashboardLoading && value == null ? '…' : (value ?? 0)}
+                </strong>
+              </div>
+            ))}
+          </div>
+        </section>
+      )}
+
       {showAdd && (
         <section className={styles.modal}>
           <form onSubmit={handleAddContact} className={styles.form}>
@@ -1385,6 +1483,19 @@ export default function PartnershipOutreach() {
                 {saving ? 'Saving…' : 'Save changes'}
               </button>
             </div>
+
+            {selectedContact && (
+              <PartnershipOutreachSequencePanel
+                contactId={selectedContact.id}
+                companyName={selectedContact.companyName}
+                isVenueEmailContact={isVenueEmailSequenceContact(selectedContact)}
+                onRefreshAppState={async () => {
+                  await actions.refreshState()
+                  await refreshOutreachDashboard()
+                }}
+                onToast={showToast}
+              />
+            )}
 
             <section className={styles.sendSection} aria-disabled={!sendFormEnabled}>
               <h3>Send email</h3>
