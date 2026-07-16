@@ -4410,6 +4410,9 @@ async function handleOutreachSequenceTick(req, res) {
   try {
     const auth = verifyOutreachCronSecret(req)
     if (!auth.ok) {
+      if (auth.reason === 'secret_not_configured') {
+        return res.status(503).json({ error: 'Outreach cron secret not configured' })
+      }
       return res.status(401).json({ error: 'Unauthorized' })
     }
 

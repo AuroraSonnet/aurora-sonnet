@@ -24,13 +24,16 @@ const PUBLIC_API_EXACT = new Set([
   'POST /api/confirm-payment',
   'POST /api/create-checkout-session',
   'POST /api/partner-referrals',
+  // External outreach cron — session bypass; OUTREACH_CRON_SECRET enforced in handler.
+  'GET /api/outreach-sequence/tick',
+  'POST /api/outreach-sequence/tick',
 ])
 
 function publicApiKey(method, pathOnly) {
   return `${method} ${pathOnly}`
 }
 
-function isPublicApiRoute(method, pathOnly) {
+export function isPublicApiRoute(method, pathOnly) {
   if (PUBLIC_API_EXACT.has(publicApiKey(method, pathOnly))) return true
   if (method === 'PATCH' && /^\/api\/music-selection\/[^/]+$/.test(pathOnly)) return true
   if (method === 'GET' && /^\/api\/proposals\/[^/]+\/accept-info$/.test(pathOnly)) return true

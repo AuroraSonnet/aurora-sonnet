@@ -2,9 +2,20 @@ import { getOutreachSendMode, logOutreach } from './outreachLogger.js'
 import { runOutreachImapPoll } from './outreachImap.js'
 import { runOutreachSchedulerTick } from './outreachScheduler.js'
 
+function isOutreachCronProduction() {
+  return (
+    process.env.NODE_ENV === 'production' ||
+    process.env.RENDER === 'true' ||
+    Boolean((process.env.RENDER_EXTERNAL_URL || '').includes('onrender.com'))
+  )
+}
+
 export function verifyOutreachCronSecret(req) {
   const secret = process.env.OUTREACH_CRON_SECRET
   if (!secret) {
+    if (isOutreachCronProduction()) {
+      return { ok: false, required: true, reason: 'secret_not_configured' }
+    }
     return { ok: true, required: false }
   }
   const provided =
@@ -13,7 +24,7 @@ export function verifyOutreachCronSecret(req) {
     req.query?.secret ||
     req.body?.secret
   if (String(provided || '') !== String(secret)) {
-    return { ok: false, required: true }
+    return { ok: false, required: true, reason: 'invalid_secret' }
   }
   return { ok: true, required: true }
 }

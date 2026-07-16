@@ -174,6 +174,58 @@ test('verifyOutreachCronSecret rejects missing secret when configured', () => {
   })
   assert.equal(ok.ok, true)
   assert.equal(bad.ok, false)
+  assert.equal(bad.reason, 'invalid_secret')
+})
+
+test('verifyOutreachCronSecret fails closed in production when secret unset', () => {
+  process.env.RENDER = 'true'
+  delete process.env.OUTREACH_CRON_SECRET
+  const result = cron.verifyOutreachCronSecret({
+    get: () => undefined,
+    query: {},
+    body: {},
+  })
+  assert.equal(result.ok, false)
+  assert.equal(result.reason, 'secret_not_configured')
+  delete process.env.RENDER
+})
+
+test('verifyOutreachCronSecret rejects wrong secret', () => {
+  process.env.OUTREACH_CRON_SECRET = 'phase7-secret'
+  const result = cron.verifyOutreachCronSecret({
+    get: (h) => (h === 'x-outreach-cron-secret' ? 'wrong-secret' : undefined),
+    query: {},
+    body: {},
+  })
+  assert.equal(result.ok, false)
+  assert.equal(result.reason, 'invalid_secret')
+})
+
+test('tick routes bypass session auth; other CRM routes do not', async () => {
+  const { isPublicApiRoute } = await import('../server/auth.js')
+  assert.equal(isPublicApiRoute('GET', '/api/outreach-sequence/tick'), true)
+  assert.equal(isPublicApiRoute('POST', '/api/outreach-sequence/tick'), true)
+  assert.equal(isPublicApiRoute('GET', '/api/state'), false)
+  assert.equal(isPublicApiRoute('GET', '/api/outreach-sequence/dashboard'), false)
+  assert.equal(isPublicApiRoute('POST', '/api/partnership-contacts/poc-1/send-email'), false)
+})
+
+test('valid cron secret with automation flags off sends nothing', async () => {
+  process.env.OUTREACH_CRON_SECRET = 'phase7-secret'
+  const auth = cron.verifyOutreachCronSecret({
+    get: (h) => (h === 'x-outreach-cron-secret' ? 'phase7-secret' : undefined),
+    query: {},
+    body: {},
+  })
+  assert.equal(auth.ok, true)
+
+  const result = await cron.runOutreachAutomationTick({
+    transporter: createMockTransporter(),
+    mailFrom: 'contact@aurorasonnet.com',
+  })
+  assert.equal(result.disabled, true)
+  assert.equal(result.sent, 0)
+  assert.equal(mailerCalls.length, 0)
 })
 
 test('runOutreachAutomationTick blocks production without test email or allow flag', async () => {
