@@ -34,11 +34,9 @@ const VENUE_FOLLOW_UP_1_SUBJECT = 'Following up regarding a venue partnership'
 
 const VENUE_FOLLOW_UP_1_BODY = `Hi,
 
-I wasn't sure if you received my previous email, so I wanted to follow up. I'm hoping to connect with the person responsible for wedding partnerships or preferred vendors at {{companyName}}.
+I sent you an email recently regarding a possible partnership with Aurora Sonnet. I just wanted to check that you received it.
 
-Aurora Sonnet is a New York collective of wedding singers specializing in the more intimate moments of a wedding, from the ceremony and cocktail hour to select dinner moments. We'd love the opportunity to become a trusted live music recommendation for your couples and explore a partnership or referral arrangement that creates value for both your venue and your couples.
-
-If there's someone else I should reach out to, I'd really appreciate being pointed in the right direction.
+Would you be open to discussing it?
 
 Warmly,
 
@@ -128,5 +126,22 @@ export function migrateVenueFirstOutreachTemplateBody(db) {
     VENUE_FIRST_OUTREACH_BODY,
     new Date().toISOString(),
     VENUE_FIRST_OUTREACH_TEMPLATE_ID
+  )
+}
+
+/**
+ * One-time body refresh for existing installs — updates tpl-venue-follow-up-1 only.
+ * Idempotent: no-op when the row is missing or already matches the canonical seed body.
+ */
+export function migrateVenueFollowUp1TemplateBody(db) {
+  const existing = db
+    .prepare('SELECT id, body FROM email_templates WHERE id = ?')
+    .get(VENUE_FOLLOW_UP_1_TEMPLATE_ID)
+  if (!existing || existing.body === VENUE_FOLLOW_UP_1_BODY) return
+
+  db.prepare('UPDATE email_templates SET body = ?, updatedAt = ? WHERE id = ?').run(
+    VENUE_FOLLOW_UP_1_BODY,
+    new Date().toISOString(),
+    VENUE_FOLLOW_UP_1_TEMPLATE_ID
   )
 }

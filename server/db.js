@@ -12,7 +12,11 @@ import {
   referralStatusEligibleForBookingPayout,
   normalizeReferralStatusKey,
 } from './partnerReferralPayout.js'
-import { ensureDefaultPartnershipEmailTemplates, migrateVenueFirstOutreachTemplateBody } from './partnershipEmailTemplates.js'
+import {
+  ensureDefaultPartnershipEmailTemplates,
+  migrateVenueFirstOutreachTemplateBody,
+  migrateVenueFollowUp1TemplateBody,
+} from './partnershipEmailTemplates.js'
 import { nyBusinessDateString } from './businessDays.js'
 
 export {
@@ -2607,5 +2611,6 @@ export function seedDb(seed) {
 
 ensureDefaultPartnershipEmailTemplates(db, createEmailTemplate)
 migrateVenueFirstOutreachTemplateBody(db)
+migrateVenueFollowUp1TemplateBody(db)
 
 export default db
