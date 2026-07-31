@@ -108,6 +108,7 @@ import {
   loginRateLimitMiddleware,
   requireAuth,
   registerAuthRoutes,
+  configurePasswordResetMail,
 } from './auth.js'
 
 const __dirname = dirname(fileURLToPath(import.meta.url))
@@ -164,6 +165,20 @@ if (SMTP_HOST && SMTP_PORT && SMTP_USER && SMTP_PASS) {
     },
   })
 }
+
+// "Forgot username or password" recovery emails always go to a fixed address — never
+// something a caller supplies — so this endpoint can stay public with no enumeration risk.
+const ADMIN_RECOVERY_EMAIL = process.env.ADMIN_RECOVERY_EMAIL || REMINDER_EMAIL_TO || SMTP_USER
+const APP_BASE_URL = (process.env.APP_URL || process.env.RENDER_EXTERNAL_URL || 'https://aurora-sonnet-1.onrender.com').replace(
+  /\/$/,
+  ''
+)
+configurePasswordResetMail({
+  transporter: reminderTransporter,
+  mailFrom: SMTP_FROM || SMTP_USER,
+  recoveryEmail: ADMIN_RECOVERY_EMAIL,
+  appBaseUrl: APP_BASE_URL,
+})
 
 // Tagged logging so we can grep for [DB], [SMTP], [Stripe], [API]
 function logError(tag, message, err) {

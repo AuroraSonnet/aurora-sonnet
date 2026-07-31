@@ -1,6 +1,7 @@
 import { Routes, Route, Navigate, useLocation } from 'react-router-dom'
 import Layout from './components/Layout'
 import Login from './pages/Login'
+import ResetPassword from './pages/ResetPassword'
 import { useAuth } from './context/AuthContext'
 import Dashboard from './pages/Dashboard'
 import MonthlyTargets from './pages/MonthlyTargets'
@@ -50,6 +51,7 @@ export default function App() {
       <Route path="/embed/inquire-general" element={<InquireGeneral />} />
       <Route path="/invoices/view/:id" element={<InvoiceView />} />
       <Route path="/login" element={<Login />} />
+      <Route path="/reset-password" element={<ResetPassword />} />
       <Route path="/" element={<RequireAuthLayout />}>
         <Route index element={<Dashboard />} />
         <Route path="monthly-targets" element={<MonthlyTargets />} />

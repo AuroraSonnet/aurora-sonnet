@@ -1,6 +1,7 @@
 import { useState, type FormEvent } from 'react'
 import { Navigate, useLocation } from 'react-router-dom'
 import { useAuth } from '../context/AuthContext'
+import { requestPasswordReset } from '../api/auth'
 import styles from './Login.module.css'
 
 export default function Login() {
@@ -10,6 +11,8 @@ export default function Login() {
   const [password, setPassword] = useState('')
   const [error, setError] = useState('')
   const [busy, setBusy] = useState(false)
+  const [recoveryBusy, setRecoveryBusy] = useState(false)
+  const [recoveryMessage, setRecoveryMessage] = useState('')
 
   const from = (location.state as { from?: string } | null)?.from || '/'
 
@@ -26,6 +29,21 @@ export default function Login() {
       if (!result.ok) setError(result.error)
     } finally {
       setBusy(false)
+    }
+  }
+
+  const handleForgotPassword = async () => {
+    setRecoveryMessage('')
+    setRecoveryBusy(true)
+    try {
+      const result = await requestPasswordReset()
+      setRecoveryMessage(
+        result.ok
+          ? 'If account recovery is configured, check that inbox for a link to sign in and set a new password.'
+          : result.error
+      )
+    } finally {
+      setRecoveryBusy(false)
     }
   }
 
@@ -66,6 +84,15 @@ export default function Login() {
             {busy ? 'Signing in…' : 'Sign in'}
           </button>
         </form>
+        <button
+          type="button"
+          className={styles.forgotLink}
+          onClick={handleForgotPassword}
+          disabled={recoveryBusy}
+        >
+          {recoveryBusy ? 'Sending…' : 'Forgot username or password?'}
+        </button>
+        {recoveryMessage ? <p className={styles.recoveryMessage}>{recoveryMessage}</p> : null}
       </div>
     </div>
   )
