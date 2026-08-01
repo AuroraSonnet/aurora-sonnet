@@ -76,6 +76,29 @@ import {
   getEmailTemplateById,
   getNextCalendarReminderId,
   createOutreachSentMessage,
+  createVenue,
+  updateVenue,
+  getVenueById,
+  listVenues,
+  deleteVenue,
+  createVenueContact,
+  updateVenueContact,
+  getVenueContactById,
+  listVenueContactsForVenue,
+  deleteVenueContact,
+  createVisit,
+  updateVisit,
+  getVisitById,
+  listVisitsForDate,
+  listVisitsForVenue,
+  reorderVisitsForDate,
+  completeVisitWithDebriefTx,
+  getVisitDebriefByVisitId,
+  listOutreachRegions,
+  createOutreachRegion,
+  updateOutreachRegion,
+  getDailyVisitTarget,
+  setAppSetting,
 } from './db.js'
 import {
   tryEnrollVenueAfterFirstOutreach,
@@ -86,12 +109,24 @@ import {
   handleContactStageChange,
   EMAIL_DELIVERY_FAILED_STAGE,
 } from './outreachSequence.js'
+import { enrollVenuePostVisitSequence, syncVenueSequenceStopConditions } from './venueOutreach.js'
 import { runOutreachAutomationTick, verifyOutreachCronSecret } from './outreachCron.js'
 import {
   buildSequencePanelState,
   getOutreachDashboardStats,
   getOutreachSystemStatus,
 } from './outreachDashboard.js'
+import { getOutreachScoreboard } from './outreachScoreboard.js'
+import {
+  VENUE_STAGES,
+  VISIT_OUTCOMES,
+  VISIT_NEXT_ACTIONS,
+  VISIT_NEXT_ACTIONS_REQUIRING_DUE_DATE,
+  VISIT_CLOSED_STATUSES,
+  OBJECTION_TAGS,
+  RELATIONSHIP_STRENGTH_VALUES,
+  PARTNERSHIP_CONFIDENCE_VALUES,
+} from './venuePipeline.js'
 import { normalizeMessageId } from './outreachMailer.js'
 import { accelerateAndSendNextTestFollowUp, accelerateTestFollowUpScheduleOnly } from './outreachTestAccel.js'
 import {
@@ -4519,6 +4554,458 @@ async function handleOutreachSequenceTick(req, res) {
 // Outreach scheduler + IMAP poll tick — external cron only (no in-process setInterval).
 app.post('/api/outreach-sequence/tick', handleOutreachSequenceTick)
 app.get('/api/outreach-sequence/tick', handleOutreachSequenceTick)
+
+// ---------------------------------------------------------------------------
+// Venue relationship pipeline (visit-first workflow) — rebuilt Partnership Outreach.
+// Relationship stage/strength live on venues; email-sequence progress stays in outreach_sequences
+// (keyed by a linked shadow partnership_contacts row — see server/venueOutreach.js for why).
+// ---------------------------------------------------------------------------
+
+function isValidEmailFormatLoose(email) {
+  return !email || /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(String(email).trim())
+}
+
+app.post('/api/venues', (req, res) => {
+  try {
+    const b = req.body || {}
+    const companyName = String(b.companyName || '').trim()
+    if (!companyName) return res.status(400).json({ error: 'companyName is required' })
+    if (b.stage != null && !VENUE_STAGES.includes(b.stage)) {
+      return res.status(400).json({ error: `stage must be one of: ${VENUE_STAGES.join(', ')}` })
+    }
+    if (b.relationshipStrength != null && !RELATIONSHIP_STRENGTH_VALUES.includes(Number(b.relationshipStrength))) {
+      return res.status(400).json({ error: `relationshipStrength must be one of: ${RELATIONSHIP_STRENGTH_VALUES.join(', ')}` })
+    }
+    const id = createVenue({
+      companyName,
+      partnerType: b.partnerType || undefined,
+      website: b.website || undefined,
+      instagram: b.instagram || undefined,
+      phone: b.phone || undefined,
+      officialContactFormUrl: b.officialContactFormUrl || undefined,
+      address: b.address || undefined,
+      neighborhood: b.neighborhood || undefined,
+      borough: b.borough || undefined,
+      city: b.city || undefined,
+      regionId: b.regionId || undefined,
+      fitLevel: b.fitLevel || undefined,
+      notes: b.notes || undefined,
+      stage: b.stage || 'target',
+      relationshipStrength: b.relationshipStrength != null ? Number(b.relationshipStrength) : undefined,
+      source: b.source || 'manual',
+    })
+    res.json({ id, venue: getVenueById(id) })
+  } catch (err) {
+    logError('DB', 'Failed to create venue', err)
+    res.status(500).json({ error: 'Failed to create venue' })
+  }
+})
+
+const VENUE_PATCH_FIELDS = [
+  'companyName', 'partnerType', 'website', 'instagram', 'phone', 'officialContactFormUrl', 'address',
+  'neighborhood', 'borough', 'city', 'regionId', 'sourceUrl', 'lastVerifiedAt', 'preferredMusicalStyle',
+  'typicalWeddingBudget', 'weddingsPerYearApprox', 'existingVendors', 'commonCoupleRequests', 'bestTimeToVisit',
+  'coordinatorNotes', 'teamStructure', 'referralProcess', 'preferredVendorProcess', 'openToShowcase',
+  'showcaseHistory', 'referralPotential', 'fitLevel', 'operatorGroup', 'notes', 'dailyVisitTargetOverride',
+]
+
+app.patch('/api/venues/:id', (req, res) => {
+  try {
+    const existing = getVenueById(req.params.id)
+    if (!existing) return res.status(404).json({ error: 'Venue not found' })
+    if (existing.deletedAt) return res.status(400).json({ error: 'Venue is deleted' })
+
+    const b = req.body || {}
+    const updates = {}
+    for (const field of VENUE_PATCH_FIELDS) {
+      if (b[field] !== undefined) updates[field] = b[field] === '' ? undefined : b[field]
+    }
+    let stageChanged = false
+    if (b.stage !== undefined) {
+      if (!VENUE_STAGES.includes(b.stage)) {
+        return res.status(400).json({ error: `stage must be one of: ${VENUE_STAGES.join(', ')}` })
+      }
+      if (b.stage !== existing.stage) stageChanged = true
+      updates.stage = b.stage
+    }
+    if (b.relationshipStrength !== undefined) {
+      if (b.relationshipStrength !== null && !RELATIONSHIP_STRENGTH_VALUES.includes(Number(b.relationshipStrength))) {
+        return res.status(400).json({ error: `relationshipStrength must be one of: ${RELATIONSHIP_STRENGTH_VALUES.join(', ')}` })
+      }
+      updates.relationshipStrength = b.relationshipStrength != null ? Number(b.relationshipStrength) : null
+    }
+    if (b.doNotContact !== undefined) updates.doNotContact = Boolean(b.doNotContact)
+
+    const updated = updateVenue(req.params.id, updates)
+    if (stageChanged || updates.doNotContact) {
+      try {
+        syncVenueSequenceStopConditions(updated)
+      } catch (seqErr) {
+        logError('VENUE-OUTREACH', 'stop-condition sync failed', seqErr)
+      }
+    }
+    res.json(updated)
+  } catch (err) {
+    logError('DB', 'Failed to update venue', err)
+    res.status(500).json({ error: 'Failed to update venue' })
+  }
+})
+
+app.delete('/api/venues/:id', (req, res) => {
+  try {
+    const ok = deleteVenue(req.params.id)
+    if (!ok) return res.status(404).json({ error: 'Venue not found' })
+    res.json({ ok: true })
+  } catch (err) {
+    logError('DB', 'Failed to delete venue', err)
+    res.status(500).json({ error: 'Failed to delete venue' })
+  }
+})
+
+app.post('/api/venues/:venueId/contacts', (req, res) => {
+  try {
+    const venue = getVenueById(req.params.venueId)
+    if (!venue) return res.status(404).json({ error: 'Venue not found' })
+    const b = req.body || {}
+    if (b.email && !isValidEmailFormatLoose(b.email)) {
+      return res.status(400).json({ error: 'email is not a valid email address' })
+    }
+    const id = createVenueContact({
+      venueId: req.params.venueId,
+      name: b.name || undefined,
+      jobTitle: b.jobTitle || undefined,
+      email: b.email || undefined,
+      phone: b.phone || undefined,
+      businessCardCollected: Boolean(b.businessCardCollected),
+      isDecisionMaker: Boolean(b.isDecisionMaker),
+      preferredCommunicationMethod: b.preferredCommunicationMethod || undefined,
+      notes: b.notes || undefined,
+    })
+    res.json({ id, contact: getVenueContactById(id) })
+  } catch (err) {
+    logError('DB', 'Failed to create venue contact', err)
+    res.status(500).json({ error: 'Failed to create venue contact' })
+  }
+})
+
+app.patch('/api/venue-contacts/:id', (req, res) => {
+  try {
+    const existing = getVenueContactById(req.params.id)
+    if (!existing) return res.status(404).json({ error: 'Venue contact not found' })
+    const b = req.body || {}
+    if (b.email !== undefined && b.email && !isValidEmailFormatLoose(b.email)) {
+      return res.status(400).json({ error: 'email is not a valid email address' })
+    }
+    const updated = updateVenueContact(req.params.id, b)
+    res.json(updated)
+  } catch (err) {
+    logError('DB', 'Failed to update venue contact', err)
+    res.status(500).json({ error: 'Failed to update venue contact' })
+  }
+})
+
+app.delete('/api/venue-contacts/:id', (req, res) => {
+  try {
+    const ok = deleteVenueContact(req.params.id)
+    if (!ok) return res.status(404).json({ error: 'Venue contact not found' })
+    res.json({ ok: true })
+  } catch (err) {
+    logError('DB', 'Failed to delete venue contact', err)
+    res.status(500).json({ error: 'Failed to delete venue contact' })
+  }
+})
+
+const DATE_RE = /^\d{4}-\d{2}-\d{2}$/
+
+app.post('/api/visits', (req, res) => {
+  try {
+    const b = req.body || {}
+    const venue = getVenueById(b.venueId)
+    if (!venue) return res.status(400).json({ error: 'venueId does not exist' })
+    if (!DATE_RE.test(String(b.plannedDate || ''))) {
+      return res.status(400).json({ error: 'plannedDate must be YYYY-MM-DD' })
+    }
+    const visit = createVisit({
+      venueId: b.venueId,
+      plannedDate: b.plannedDate,
+      visitTime: b.visitTime || undefined,
+      status: 'planned',
+    })
+    if (venue.stage === 'target') updateVenue(venue.id, { stage: 'visit_planned' })
+    res.json({ id: visit.id, visit })
+  } catch (err) {
+    logError('DB', 'Failed to create visit', err)
+    res.status(500).json({ error: 'Failed to create visit' })
+  }
+})
+
+app.patch('/api/visits/:id', (req, res) => {
+  try {
+    const existing = getVisitById(req.params.id)
+    if (!existing) return res.status(404).json({ error: 'Visit not found' })
+    const b = req.body || {}
+    const updates = {}
+    if (b.plannedDate !== undefined) {
+      if (!DATE_RE.test(String(b.plannedDate))) return res.status(400).json({ error: 'plannedDate must be YYYY-MM-DD' })
+      updates.plannedDate = b.plannedDate
+    }
+    if (b.visitTime !== undefined) updates.visitTime = b.visitTime || undefined
+    if (b.status !== undefined) {
+      if (!['planned', 'completed', 'skipped', 'cancelled'].includes(b.status)) {
+        return res.status(400).json({ error: 'Invalid status' })
+      }
+      updates.status = b.status
+    }
+    res.json(updateVisit(req.params.id, updates))
+  } catch (err) {
+    logError('DB', 'Failed to update visit', err)
+    res.status(500).json({ error: 'Failed to update visit' })
+  }
+})
+
+app.get('/api/visits/by-date/:date', (req, res) => {
+  try {
+    if (!DATE_RE.test(req.params.date)) return res.status(400).json({ error: 'date must be YYYY-MM-DD' })
+    res.json(listVisitsForDate(req.params.date))
+  } catch (err) {
+    logError('DB', 'Failed to load visits for date', err)
+    res.status(500).json({ error: 'Failed to load visits' })
+  }
+})
+
+app.get('/api/venues/:venueId/visits', (req, res) => {
+  try {
+    res.json(listVisitsForVenue(req.params.venueId))
+  } catch (err) {
+    logError('DB', 'Failed to load visits for venue', err)
+    res.status(500).json({ error: 'Failed to load visits' })
+  }
+})
+
+app.post('/api/visits/reorder', (req, res) => {
+  try {
+    const b = req.body || {}
+    if (!DATE_RE.test(String(b.plannedDate || ''))) return res.status(400).json({ error: 'plannedDate must be YYYY-MM-DD' })
+    if (!Array.isArray(b.orderedIds)) return res.status(400).json({ error: 'orderedIds must be an array' })
+    res.json(reorderVisitsForDate(b.plannedDate, b.orderedIds))
+  } catch (err) {
+    logError('DB', 'Failed to reorder visits', err)
+    res.status(500).json({ error: 'Failed to reorder visits' })
+  }
+})
+
+// Mandatory post-visit debrief — server-side completion gate. A visit can never become "completed"
+// without saving a debrief that has every required field (playbook requirement).
+app.post('/api/visits/:id/debrief', (req, res) => {
+  try {
+    const visit = getVisitById(req.params.id)
+    if (!visit) return res.status(404).json({ error: 'Visit not found' })
+
+    const b = req.body || {}
+    const outcomes = Array.isArray(b.outcomes) ? b.outcomes.filter((o) => VISIT_OUTCOMES.includes(o)) : []
+    if (outcomes.length === 0) {
+      return res.status(400).json({ error: `outcomes is required — choose at least one of: ${VISIT_OUTCOMES.join(', ')}` })
+    }
+
+    const confidence = Number(b.partnershipConfidenceScore)
+    if (!PARTNERSHIP_CONFIDENCE_VALUES.includes(confidence)) {
+      return res.status(400).json({ error: `partnershipConfidenceScore is required and must be one of: ${PARTNERSHIP_CONFIDENCE_VALUES.join(', ')}` })
+    }
+
+    const nextAction = String(b.nextAction || '').trim()
+    if (!VISIT_NEXT_ACTIONS.includes(nextAction)) {
+      return res.status(400).json({ error: `nextAction is required and must be one of: ${VISIT_NEXT_ACTIONS.join(', ')}` })
+    }
+
+    let closedStatus
+    let noFurtherActionReason
+    let nextActionDueDate
+    if (nextAction === 'no_further_action') {
+      closedStatus = String(b.closedStatus || '').trim()
+      if (!VISIT_CLOSED_STATUSES.includes(closedStatus)) {
+        return res.status(400).json({ error: `closedStatus is required when nextAction is no_further_action, and must be one of: ${VISIT_CLOSED_STATUSES.join(', ')}` })
+      }
+      noFurtherActionReason = String(b.noFurtherActionReason || '').trim()
+      if (!noFurtherActionReason) {
+        return res.status(400).json({ error: 'noFurtherActionReason is required when nextAction is no_further_action' })
+      }
+    } else if (VISIT_NEXT_ACTIONS_REQUIRING_DUE_DATE.has(nextAction)) {
+      nextActionDueDate = String(b.nextActionDueDate || '').trim()
+      if (!DATE_RE.test(nextActionDueDate)) {
+        return res.status(400).json({ error: 'nextActionDueDate is required (YYYY-MM-DD) for this next action' })
+      }
+    }
+
+    if (b.objectionTag != null && String(b.objectionTag).trim() && !OBJECTION_TAGS.includes(b.objectionTag)) {
+      return res.status(400).json({ error: `objectionTag must be one of: ${OBJECTION_TAGS.join(', ')}` })
+    }
+
+    const debriefInput = {
+      outcomes,
+      partnershipConfidenceScore: confidence,
+      contactsMetIds: Array.isArray(b.contactsMetIds) ? b.contactsMetIds.filter((x) => typeof x === 'string') : [],
+      nextAction,
+      nextActionDueDate: nextActionDueDate || undefined,
+      nextActionOtherNote: nextAction === 'other' ? String(b.nextActionOtherNote || '').trim() || undefined : undefined,
+      noFurtherActionReason,
+      closedStatus,
+      whatWentWell: b.whatWentWell != null ? String(b.whatWentWell).trim() || undefined : undefined,
+      whatCouldGoBetter: b.whatCouldGoBetter != null ? String(b.whatCouldGoBetter).trim() || undefined : undefined,
+      objectionTag: b.objectionTag || undefined,
+      objectionNotes: b.objectionNotes != null ? String(b.objectionNotes).trim() || undefined : undefined,
+      whatLearned: b.whatLearned != null ? String(b.whatLearned).trim() || undefined : undefined,
+      whatDoDifferently: b.whatDoDifferently != null ? String(b.whatDoDifferently).trim() || undefined : undefined,
+      whatWouldChangeOverall: b.whatWouldChangeOverall != null ? String(b.whatWouldChangeOverall).trim() || undefined : undefined,
+      whatInterestedThem: b.whatInterestedThem != null ? String(b.whatInterestedThem).trim() || undefined : undefined,
+      generalNotes: b.generalNotes != null ? String(b.generalNotes).trim() || undefined : undefined,
+      materialsLeft: b.materialsLeft != null ? String(b.materialsLeft).trim() || undefined : undefined,
+      permissionToFollowUp: Boolean(b.permissionToFollowUp),
+      agreedNextStep: b.agreedNextStep != null ? String(b.agreedNextStep).trim() || undefined : undefined,
+    }
+
+    const result = completeVisitWithDebriefTx(req.params.id, debriefInput)
+    res.json({ ok: true, ...result })
+  } catch (err) {
+    if (err && (err.message === 'visit_not_found' || err.message === 'venue_not_found')) {
+      return res.status(404).json({ error: 'Visit or venue not found' })
+    }
+    logError('DB', 'Failed to save visit debrief', err)
+    res.status(500).json({ error: 'Failed to save visit debrief' })
+  }
+})
+
+app.get('/api/visits/:id/debrief', (req, res) => {
+  try {
+    const debrief = getVisitDebriefByVisitId(req.params.id)
+    if (!debrief) return res.status(404).json({ error: 'No debrief for this visit' })
+    res.json(debrief)
+  } catch (err) {
+    logError('DB', 'Failed to load visit debrief', err)
+    res.status(500).json({ error: 'Failed to load visit debrief' })
+  }
+})
+
+// Personalized same-day email — always manually reviewed and sent (Decision B). Optionally
+// activates the automatic 3-email follow-up sequence once this send succeeds.
+app.post('/api/visits/:id/send-same-day-email', async (req, res) => {
+  try {
+    const visit = getVisitById(req.params.id)
+    if (!visit) return res.status(404).json({ error: 'Visit not found' })
+    const venue = getVenueById(visit.venueId)
+    if (!venue) return res.status(404).json({ error: 'Venue not found' })
+
+    if (!reminderTransporter) {
+      return res.status(503).json({ error: 'Email is not configured. Set SMTP_HOST/SMTP_PORT/SMTP_USER/SMTP_PASS in server settings.' })
+    }
+    const mailFrom = SMTP_FROM || SMTP_USER
+    if (!mailFrom) return res.status(503).json({ error: 'No sending address configured (set SMTP_FROM or SMTP_USER).' })
+
+    const b = req.body || {}
+    const contactId = b.contactId ? String(b.contactId).trim() : null
+    const contact = contactId ? getVenueContactById(contactId) : null
+    const to = String(b.to || contact?.email || '').trim()
+    if (!to || !isValidEmailFormatLoose(to)) {
+      return res.status(400).json({ error: 'A valid recipient email is required (pick a venue contact or set "to").' })
+    }
+
+    const subject = String(b.subject || '').trim()
+    const body = String(b.body || '').trim()
+    if (!subject) return res.status(400).json({ error: 'subject is required' })
+    if (!body) return res.status(400).json({ error: 'body is required' })
+
+    let mailInfo
+    try {
+      mailInfo = await reminderTransporter.sendMail({ from: mailFrom, to, subject, text: body })
+    } catch (err) {
+      logError('VENUE-SAME-DAY-EMAIL', 'sendMail threw', err)
+      return res.status(502).json({ error: 'Failed to send email. Check SMTP settings and try again.' })
+    }
+
+    const now = new Date().toISOString()
+    updateVisit(visit.id, { sameDayEmailSentAt: now })
+
+    let sequenceEnrollment = null
+    if (b.startSequence === true) {
+      try {
+        sequenceEnrollment = enrollVenuePostVisitSequence({
+          venueId: venue.id,
+          visitId: visit.id,
+          contactId,
+          anchorAt: now,
+        })
+        if (sequenceEnrollment.enrolled) {
+          updateVisit(visit.id, { sequenceStartedAt: now })
+        }
+      } catch (seqErr) {
+        logError('VENUE-OUTREACH', 'post-visit enrollment failed', seqErr)
+        sequenceEnrollment = { enrolled: false, reason: 'enrollment_error' }
+      }
+    }
+
+    res.json({ ok: true, sentAt: now, messageId: mailInfo?.messageId, sequenceEnrollment })
+  } catch (err) {
+    logError('DB', 'Failed to send visit same-day email', err)
+    res.status(500).json({ error: 'Failed to send email' })
+  }
+})
+
+app.get('/api/outreach-scoreboard', (req, res) => {
+  try {
+    const startDate = String(req.query.start || '').trim()
+    const endDate = String(req.query.end || '').trim()
+    if (!DATE_RE.test(startDate) || !DATE_RE.test(endDate)) {
+      return res.status(400).json({ error: 'start and end query params are required (YYYY-MM-DD)' })
+    }
+    res.json(getOutreachScoreboard({ startDate, endDate }))
+  } catch (err) {
+    logError('OUTREACH-SCOREBOARD', 'Failed to compute scoreboard', err)
+    res.status(500).json({ error: 'Failed to compute outreach scoreboard' })
+  }
+})
+
+app.patch('/api/outreach-settings', (req, res) => {
+  try {
+    const b = req.body || {}
+    if (b.dailyVisitTarget !== undefined) {
+      const n = Number(b.dailyVisitTarget)
+      if (!Number.isFinite(n) || n <= 0) return res.status(400).json({ error: 'dailyVisitTarget must be a positive number' })
+      setAppSetting('dailyVisitTarget', Math.round(n))
+    }
+    res.json({ dailyVisitTarget: getDailyVisitTarget() })
+  } catch (err) {
+    logError('DB', 'Failed to update outreach settings', err)
+    res.status(500).json({ error: 'Failed to update outreach settings' })
+  }
+})
+
+app.post('/api/outreach-regions', (req, res) => {
+  try {
+    const b = req.body || {}
+    const name = String(b.name || '').trim()
+    if (!name) return res.status(400).json({ error: 'name is required' })
+    const id = b.id ? String(b.id).trim() : name.toLowerCase().replace(/[^a-z0-9]+/g, '_').replace(/^_+|_+$/g, '')
+    res.json(createOutreachRegion({ id, name }))
+  } catch (err) {
+    logError('DB', 'Failed to create outreach region', err)
+    res.status(500).json({ error: 'Failed to create outreach region' })
+  }
+})
+
+app.patch('/api/outreach-regions/:id', (req, res) => {
+  try {
+    const b = req.body || {}
+    const updates = {}
+    if (b.name !== undefined) updates.name = String(b.name || '').trim()
+    if (b.active !== undefined) updates.active = Boolean(b.active)
+    if (b.sortOrder !== undefined) updates.sortOrder = Number(b.sortOrder)
+    const updated = updateOutreachRegion(req.params.id, updates)
+    if (!updated) return res.status(404).json({ error: 'Region not found' })
+    res.json(updated)
+  } catch (err) {
+    logError('DB', 'Failed to update outreach region', err)
+    res.status(500).json({ error: 'Failed to update outreach region' })
+  }
+})
 
 app.post('/api/calendar-reminders', (req, res) => {
   try {

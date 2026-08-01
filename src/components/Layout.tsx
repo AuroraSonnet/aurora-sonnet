@@ -22,6 +22,8 @@ const nav = [
   { to: '/clients', label: 'Clients', icon: '◇' },
   { to: '/proposals', label: 'Proposals', icon: '◆' },
   { to: '/partnership-outreach', label: 'Partnership Outreach', icon: '🤝' },
+  { to: '/outreach-today', label: 'Outreach Today', icon: '☀' },
+  { to: '/outreach-scoreboard', label: 'Outreach Scoreboard', icon: '🏆' },
   { to: '/contracts', label: 'Contracts', icon: '▣' },
   { to: '/invoices', label: 'Invoices', icon: '◎' },
   { to: '/calendar', label: 'Calendar', icon: '📅' },
@@ -33,7 +35,7 @@ const nav = [
   { to: '/automations', label: 'Automations', icon: '⚡' },
   { to: '/settings', label: 'Settings', icon: '⚙' },
 ]
-const navBeforeLeadForms = 11 // Dashboard through Repertoire, then Lead forms
+const navBeforeLeadForms = 13 // Dashboard through Repertoire, then Lead forms
 
 export default function Layout() {
   const location = useLocation()

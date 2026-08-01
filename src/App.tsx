@@ -26,6 +26,8 @@ import SignContract from './pages/SignContract'
 import AcceptProposal from './pages/AcceptProposal'
 import WeddingMusicSelection from './pages/WeddingMusicSelection'
 import PartnershipOutreach from './pages/PartnershipOutreach'
+import OutreachToday from './pages/OutreachToday'
+import OutreachScoreboard from './pages/OutreachScoreboard'
 
 function RequireAuthLayout() {
   const { authenticated, loading } = useAuth()
@@ -61,6 +63,8 @@ export default function App() {
         <Route path="bookings" element={<Projects />} />
         <Route path="proposals" element={<Proposals />} />
         <Route path="partnership-outreach" element={<PartnershipOutreach />} />
+        <Route path="outreach-today" element={<OutreachToday />} />
+        <Route path="outreach-scoreboard" element={<OutreachScoreboard />} />
         <Route path="contracts" element={<Contracts />} />
         <Route path="invoices" element={<Invoices />} />
         <Route path="experiences" element={<Experiences />} />

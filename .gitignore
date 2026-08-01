@@ -7,5 +7,6 @@ server/payments.json
 server/aurora.db
 server/aurora.db-wal
 server/aurora.db-shm
+server/backups
 release
 resources/node

@@ -261,6 +261,56 @@ test('runOutreachAutomationTick routes to OUTREACH_TEST_EMAIL in test mode', asy
   assert.equal(db.getOutreachScheduledSendById(sendId).status, 'sent')
 })
 
+test('runOutreachAutomationTick blocks scheduler in production when IMAP reply detection is off', async () => {
+  process.env.OUTREACH_SCHEDULER_ENABLED = 'true'
+  process.env.OUTREACH_TEST_EMAIL = TEST_SAFE_EMAIL
+  delete process.env.OUTREACH_IMAP_ENABLED
+  delete process.env.OUTREACH_ALLOW_SENDING_WITHOUT_IMAP
+  process.env.RENDER = 'true'
+  const { sendId } = seedDueSend()
+
+  try {
+    const result = await cron.runOutreachAutomationTick({
+      now: TICK_NOW,
+      transporter: createMockTransporter(),
+      mailFrom: 'contact@aurorasonnet.com',
+      force: true,
+    })
+
+    assert.equal(result.ok, false)
+    assert.equal(result.error, 'imap_reply_detection_required')
+    assert.equal(mailerCalls.length, 0)
+    assert.equal(db.getOutreachScheduledSendById(sendId).status, 'pending')
+  } finally {
+    delete process.env.RENDER
+  }
+})
+
+test('OUTREACH_ALLOW_SENDING_WITHOUT_IMAP explicitly overrides the production IMAP guard', async () => {
+  process.env.OUTREACH_SCHEDULER_ENABLED = 'true'
+  process.env.OUTREACH_TEST_EMAIL = TEST_SAFE_EMAIL
+  delete process.env.OUTREACH_IMAP_ENABLED
+  process.env.OUTREACH_ALLOW_SENDING_WITHOUT_IMAP = 'true'
+  process.env.RENDER = 'true'
+  const { sendId } = seedDueSend()
+
+  try {
+    const result = await cron.runOutreachAutomationTick({
+      now: TICK_NOW,
+      transporter: createMockTransporter(),
+      mailFrom: 'contact@aurorasonnet.com',
+      force: true,
+    })
+
+    assert.equal(result.ok, true)
+    assert.ok(result.sent >= 1)
+    assert.equal(db.getOutreachScheduledSendById(sendId).status, 'sent')
+  } finally {
+    delete process.env.RENDER
+    delete process.env.OUTREACH_ALLOW_SENDING_WITHOUT_IMAP
+  }
+})
+
 test('automation tick returns disabled when flags are off', async () => {
   const result = await cron.runOutreachAutomationTick({
     transporter: createMockTransporter(),

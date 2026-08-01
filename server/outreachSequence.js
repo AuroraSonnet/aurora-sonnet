@@ -18,12 +18,15 @@ import {
   getActiveOutreachSequenceByContactId,
   getOutreachSequenceByContactId,
   getPartnershipContactById,
+  getVenueByLinkedPartnershipContactId,
   listScheduledSendsForSequence,
   updateOutreachScheduledSend,
   updateOutreachSequence,
   updatePartnershipContact,
+  updateVenue,
   createOutreachActivity,
 } from './db.js'
+import { VENUE_STAGE_RANK } from './venuePipeline.js'
 
 export const OUTREACH_SEQUENCE_STOP_STAGES = new Set([
   'replied',
@@ -264,6 +267,25 @@ export function getSequenceState(partnershipContactId) {
   return { sequence, scheduledSends }
 }
 
+/**
+ * Best-effort forward-only stage sync from a shadow partnership_contacts row back to the venue
+ * that owns it (post-visit sequences only — cold-outreach-only contacts have no linked venue).
+ * Never throws: a sync failure must never break reply/bounce handling on the email side.
+ */
+function advanceLinkedVenueStageBestEffort(contactId, targetStage, extraUpdates = {}) {
+  try {
+    const venue = getVenueByLinkedPartnershipContactId(contactId)
+    if (!venue || venue.deletedAt) return
+    const currentRank = VENUE_STAGE_RANK[venue.stage] ?? 0
+    const targetRank = VENUE_STAGE_RANK[targetStage] ?? -Infinity
+    const updates = { ...extraUpdates }
+    if (targetRank > currentRank) updates.stage = targetStage
+    if (Object.keys(updates).length > 0) updateVenue(venue.id, updates)
+  } catch (_) {
+    // best-effort only
+  }
+}
+
 /** Reply detected via IMAP — stop sequence, cancel sends, mark contact replied. */
 export function handleReplyDetected({ contactId, inbound, receivedAt }) {
   const now = receivedAt || new Date().toISOString()
@@ -295,6 +317,8 @@ export function handleReplyDetected({ contactId, inbound, receivedAt }) {
     cancelledCount = stopped?.cancelledCount || 0
     updateOutreachSequence(active.id, { lastInboundAt: now, updatedAt: now })
   }
+
+  advanceLinkedVenueStageBestEffort(contactId, 'engaged_replied')
 
   return { ok: true, contactId, cancelledCount, matchMethod: inbound.matchMethod }
 }
@@ -344,6 +368,8 @@ export function handleHardBounceDetected({
     cancelledCount = stopped?.cancelledCount || 0
     updateOutreachSequence(active.id, { lastInboundAt: now, updatedAt: now })
   }
+
+  advanceLinkedVenueStageBestEffort(contactId, undefined, { doNotContact: true })
 
   return {
     ok: true,

@@ -1,0 +1,695 @@
+.page {
+  margin: 0 auto;
+  max-width: 900px;
+  padding-bottom: 3rem;
+}
+
+.toast {
+  margin: 0 0 1rem;
+  padding: 0.5rem 0.75rem;
+  background: var(--accent-subtle);
+  border: 1px solid var(--accent);
+  border-radius: var(--radius-sm);
+  font-size: 0.9rem;
+  color: var(--text-primary);
+}
+
+.header {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 1rem;
+  margin-bottom: 1rem;
+}
+
+.header h1 {
+  font-size: 1.75rem;
+  margin: 0;
+}
+
+.subtitle {
+  color: var(--text-secondary);
+  font-size: 0.95rem;
+  margin: 0;
+  flex: 1;
+}
+
+.dateNav {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  margin-bottom: 1.25rem;
+  flex-wrap: wrap;
+}
+
+.dateNavBtn {
+  background: var(--bg-card);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  padding: 0.4rem 0.7rem;
+  font-size: 0.9rem;
+  color: var(--text-primary);
+}
+
+.dateNavBtn:hover {
+  background: var(--border);
+}
+
+.dateInput {
+  padding: 0.4rem 0.6rem;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  font-size: 0.9rem;
+  background: var(--bg-card);
+  color: var(--text-primary);
+  font-family: inherit;
+}
+
+.targetBar {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+  flex-wrap: wrap;
+  background: var(--bg-card);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: 0.9rem 1.1rem;
+  margin-bottom: 1.5rem;
+  box-shadow: var(--shadow);
+}
+
+.targetLabel {
+  font-size: 0.85rem;
+  color: var(--text-secondary);
+}
+
+.targetInput {
+  width: 4rem;
+  padding: 0.35rem 0.5rem;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  font-size: 0.9rem;
+  text-align: center;
+}
+
+.progressWrap {
+  flex: 1;
+  min-width: 140px;
+  display: flex;
+  align-items: center;
+  gap: 0.6rem;
+}
+
+.progressBar {
+  flex: 1;
+  height: 8px;
+  background: var(--border);
+  border-radius: 999px;
+  overflow: hidden;
+}
+
+.progressFill {
+  height: 100%;
+  background: var(--accent);
+  border-radius: 999px;
+  transition: width 0.2s ease;
+}
+
+.progressText {
+  font-size: 0.85rem;
+  color: var(--text-secondary);
+  white-space: nowrap;
+}
+
+.sectionHead {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.75rem;
+  margin: 1.75rem 0 0.75rem;
+}
+
+.sectionHead h2 {
+  font-size: 1.1rem;
+  margin: 0;
+}
+
+.addBtn {
+  background: var(--accent);
+  color: #fff;
+  border: none;
+  padding: 0.5rem 0.9rem;
+  border-radius: var(--radius-sm);
+  font-weight: 600;
+  font-size: 0.85rem;
+}
+
+.addBtn:hover {
+  background: var(--accent-hover);
+}
+
+.empty {
+  color: var(--text-muted);
+  font-size: 0.9rem;
+  padding: 0.5rem 0;
+}
+
+.card {
+  background: var(--bg-card);
+  border-radius: var(--radius);
+  padding: 1.25rem;
+  margin-bottom: 1.25rem;
+  box-shadow: var(--shadow);
+  border: 1px solid var(--border);
+}
+
+.card h2 {
+  font-size: 1.1rem;
+  margin: 0 0 0.9rem 0;
+}
+
+.error {
+  color: #b33;
+  font-size: 0.9rem;
+  margin: 0 0 0.75rem 0;
+}
+
+.hint {
+  color: var(--text-muted);
+  font-size: 0.85rem;
+  margin: 0.25rem 0 0.75rem;
+}
+
+.formGrid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 0.85rem;
+  margin-bottom: 0.5rem;
+}
+
+.formGrid label,
+.formStack label {
+  display: flex;
+  flex-direction: column;
+  gap: 0.3rem;
+  font-size: 0.88rem;
+}
+
+.fullWidth {
+  grid-column: 1 / -1;
+}
+
+.formStack {
+  display: flex;
+  flex-direction: column;
+  gap: 0.85rem;
+}
+
+.input,
+.select,
+.textarea {
+  padding: 0.5rem 0.6rem;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  font-size: 0.95rem;
+  background: var(--bg-card);
+  color: var(--text-primary);
+  font-family: inherit;
+}
+
+.textarea {
+  resize: vertical;
+  min-height: 60px;
+}
+
+.formActions {
+  display: flex;
+  gap: 0.75rem;
+  margin-top: 1rem;
+  flex-wrap: wrap;
+}
+
+.cancelBtn {
+  background: transparent;
+  color: var(--text-secondary);
+  border: 1px solid var(--border);
+  padding: 0.5rem 1rem;
+  border-radius: var(--radius-sm);
+  font-size: 0.9rem;
+}
+
+.cancelBtn:hover {
+  background: var(--border);
+}
+
+.submitBtn {
+  background: var(--accent);
+  color: #fff;
+  border: none;
+  padding: 0.5rem 1rem;
+  border-radius: var(--radius-sm);
+  font-weight: 600;
+  font-size: 0.9rem;
+}
+
+.submitBtn:hover:not(:disabled) {
+  background: var(--accent-hover);
+}
+
+.submitBtn:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
+}
+
+.linkBtn {
+  background: transparent;
+  border: none;
+  color: var(--accent);
+  font-size: 0.85rem;
+  font-weight: 600;
+  padding: 0.35rem 0;
+  text-align: left;
+}
+
+.linkBtn:hover {
+  text-decoration: underline;
+}
+
+/* Visit list */
+
+.visitList {
+  display: flex;
+  flex-direction: column;
+  gap: 0.75rem;
+}
+
+.visitCard {
+  background: var(--bg-card);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: 0.9rem 1rem;
+  box-shadow: var(--shadow);
+}
+
+.visitCard[data-status='completed'] {
+  opacity: 0.85;
+}
+
+.visitCard[data-status='skipped'],
+.visitCard[data-status='cancelled'] {
+  opacity: 0.6;
+}
+
+.visitTop {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 0.75rem;
+  flex-wrap: wrap;
+}
+
+.visitVenue {
+  display: flex;
+  flex-direction: column;
+  gap: 0.2rem;
+}
+
+.visitVenueName {
+  background: none;
+  border: none;
+  padding: 0;
+  font-size: 1.02rem;
+  font-weight: 700;
+  color: var(--text-primary);
+  text-align: left;
+  cursor: pointer;
+}
+
+.visitVenueName:hover {
+  color: var(--accent);
+  text-decoration: underline;
+}
+
+.visitMeta {
+  font-size: 0.82rem;
+  color: var(--text-muted);
+}
+
+.visitBadges {
+  display: flex;
+  gap: 0.4rem;
+  flex-wrap: wrap;
+  align-items: center;
+}
+
+.timeInput {
+  width: 90px;
+  padding: 0.35rem 0.4rem;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  font-size: 0.85rem;
+}
+
+.pill {
+  display: inline-block;
+  padding: 0.2rem 0.6rem;
+  border-radius: 999px;
+  font-size: 0.75rem;
+  font-weight: 600;
+  background: var(--border);
+  color: var(--text-secondary);
+  white-space: nowrap;
+}
+
+.pill[data-stage='referral_partner'],
+.pill[data-stage='preferred_partner'] {
+  background: #dcefe0;
+  color: #1f7a3d;
+}
+
+.pill[data-stage='meeting_scheduled'],
+.pill[data-stage='showcase_scheduled'],
+.pill[data-stage='engaged_replied'] {
+  background: #fdf0d5;
+  color: #96650f;
+}
+
+.pill[data-stage='not_interested'],
+.pill[data-stage='not_fit_archived'] {
+  background: #f3d9d9;
+  color: #a13c3c;
+}
+
+.statusPill[data-status='completed'] {
+  background: #dcefe0;
+  color: #1f7a3d;
+}
+
+.statusPill[data-status='skipped'],
+.statusPill[data-status='cancelled'] {
+  background: #f3d9d9;
+  color: #a13c3c;
+}
+
+.statusPill[data-status='planned'] {
+  background: var(--accent-subtle);
+  color: var(--accent);
+}
+
+.visitActions {
+  display: flex;
+  gap: 0.5rem;
+  flex-wrap: wrap;
+  margin-top: 0.75rem;
+}
+
+.smallBtn {
+  background: var(--bg-card);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  padding: 0.4rem 0.75rem;
+  font-size: 0.82rem;
+  color: var(--text-primary);
+}
+
+.smallBtn:hover {
+  background: var(--border);
+}
+
+.smallBtnPrimary {
+  background: var(--accent);
+  color: #fff;
+  border: none;
+  border-radius: var(--radius-sm);
+  padding: 0.4rem 0.75rem;
+  font-size: 0.82rem;
+  font-weight: 600;
+}
+
+.smallBtnPrimary:hover {
+  background: var(--accent-hover);
+}
+
+.reorderCol {
+  display: flex;
+  flex-direction: column;
+  gap: 0.2rem;
+}
+
+.reorderBtn {
+  background: transparent;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  width: 1.6rem;
+  height: 1.4rem;
+  font-size: 0.75rem;
+  color: var(--text-secondary);
+  line-height: 1;
+}
+
+.reorderBtn:hover {
+  background: var(--border);
+}
+
+.debriefSummary {
+  margin-top: 0.6rem;
+  padding-top: 0.6rem;
+  border-top: 1px solid var(--border);
+  font-size: 0.85rem;
+  color: var(--text-secondary);
+  display: flex;
+  flex-direction: column;
+  gap: 0.25rem;
+}
+
+/* Follow-ups */
+
+.followUpList {
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+}
+
+.followUpItem {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.75rem;
+  background: var(--bg-card);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  padding: 0.65rem 0.9rem;
+  flex-wrap: wrap;
+}
+
+.followUpMain {
+  display: flex;
+  flex-direction: column;
+  gap: 0.15rem;
+}
+
+.followUpDue {
+  font-size: 0.78rem;
+  font-weight: 700;
+  padding: 0.15rem 0.5rem;
+  border-radius: 999px;
+  white-space: nowrap;
+}
+
+.followUpDue[data-overdue='true'] {
+  background: #f3d9d9;
+  color: #a13c3c;
+}
+
+.followUpDue[data-overdue='false'] {
+  background: var(--accent-subtle);
+  color: var(--accent);
+}
+
+/* Modal / drawer */
+
+.modalOverlay {
+  position: fixed;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.4);
+  display: flex;
+  align-items: flex-start;
+  justify-content: center;
+  padding: 2rem 1rem;
+  overflow-y: auto;
+  z-index: 50;
+}
+
+.modal {
+  background: var(--bg-card);
+  border-radius: var(--radius);
+  padding: 1.5rem;
+  width: 100%;
+  max-width: 640px;
+  box-shadow: var(--shadow-lg);
+  border: 1px solid var(--border);
+  margin-bottom: 2rem;
+}
+
+.modalHeader {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 1rem;
+  margin-bottom: 1rem;
+}
+
+.modalHeader h2 {
+  font-size: 1.2rem;
+  margin: 0;
+}
+
+.modalHeaderSub {
+  font-size: 0.85rem;
+  color: var(--text-muted);
+  margin: 0.2rem 0 0;
+}
+
+.closeBtn {
+  background: transparent;
+  border: none;
+  font-size: 1.4rem;
+  line-height: 1;
+  color: var(--text-muted);
+  cursor: pointer;
+}
+
+.closeBtn:hover {
+  color: var(--text-primary);
+}
+
+.chipGroup {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+  margin-bottom: 0.5rem;
+}
+
+.chip {
+  border: 1px solid var(--border);
+  background: var(--bg-card);
+  border-radius: 999px;
+  padding: 0.4rem 0.85rem;
+  font-size: 0.85rem;
+  color: var(--text-secondary);
+  cursor: pointer;
+}
+
+.chip[data-selected='true'] {
+  background: var(--accent);
+  color: #fff;
+  border-color: var(--accent);
+}
+
+.scaleGroup {
+  display: flex;
+  gap: 0.5rem;
+  margin-bottom: 0.5rem;
+}
+
+.scaleBtn {
+  flex: 1;
+  border: 1px solid var(--border);
+  background: var(--bg-card);
+  border-radius: var(--radius-sm);
+  padding: 0.5rem 0.25rem;
+  font-size: 0.85rem;
+  color: var(--text-secondary);
+  cursor: pointer;
+  text-align: center;
+}
+
+.scaleBtn[data-selected='true'] {
+  background: var(--accent);
+  color: #fff;
+  border-color: var(--accent);
+}
+
+.checkboxRow {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  font-size: 0.9rem;
+  flex-direction: row !important;
+}
+
+.fieldLabel {
+  font-size: 0.88rem;
+  font-weight: 600;
+  color: var(--text-primary);
+  margin: 0.75rem 0 0.35rem;
+}
+
+.mergeTagRow {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.4rem;
+  margin: 0.35rem 0 0.6rem;
+}
+
+.mergeTagChip {
+  background: var(--accent-subtle);
+  border: 1px solid var(--accent);
+  color: var(--accent);
+  border-radius: 999px;
+  padding: 0.2rem 0.6rem;
+  font-size: 0.75rem;
+}
+
+.mergeTagChip:hover {
+  background: var(--accent);
+  color: #fff;
+}
+
+.venueSearchResults {
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  max-height: 180px;
+  overflow-y: auto;
+  margin-top: 0.35rem;
+}
+
+.venueSearchResult {
+  display: block;
+  width: 100%;
+  text-align: left;
+  padding: 0.5rem 0.7rem;
+  background: var(--bg-card);
+  border: none;
+  border-bottom: 1px solid var(--border);
+  font-size: 0.88rem;
+}
+
+.venueSearchResult:last-child {
+  border-bottom: none;
+}
+
+.venueSearchResult:hover {
+  background: var(--border);
+}
+
+.selectedVenueTag {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.5rem;
+  background: var(--accent-subtle);
+  color: var(--accent);
+  border-radius: var(--radius-sm);
+  padding: 0.4rem 0.7rem;
+  font-size: 0.88rem;
+  font-weight: 600;
+}
+
+@media (max-width: 640px) {
+  .formGrid {
+    grid-template-columns: 1fr;
+  }
+  .visitTop {
+    flex-direction: column;
+  }
+}

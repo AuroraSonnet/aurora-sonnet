@@ -4,11 +4,13 @@ export const VENUE_FIRST_OUTREACH_TEMPLATE_ID = 'tpl-venue-first-outreach'
 export const VENUE_FOLLOW_UP_1_TEMPLATE_ID = 'tpl-venue-follow-up-1'
 export const VENUE_FOLLOW_UP_2_TEMPLATE_ID = 'tpl-venue-follow-up-2'
 export const VENUE_FINAL_FOLLOW_UP_TEMPLATE_ID = 'tpl-venue-final-follow-up'
+export const VENUE_POST_VISIT_SAME_DAY_TEMPLATE_ID = 'tpl-venue-post-visit-same-day'
 
 export const EMAIL_TEMPLATE_TYPE_FIRST_EMAIL_SENT = 'first_email_sent'
 export const EMAIL_TEMPLATE_TYPE_FOLLOW_UP_1 = 'follow_up_1'
 export const EMAIL_TEMPLATE_TYPE_FOLLOW_UP_2 = 'follow_up_2'
 export const EMAIL_TEMPLATE_TYPE_FOLLOW_UP_3 = 'follow_up_3'
+export const EMAIL_TEMPLATE_TYPE_POST_VISIT_SAME_DAY = 'post_visit_same_day'
 
 const VENUE_FIRST_OUTREACH_SUBJECT = 'Live Music Referrals for {{companyName}} Couples'
 
@@ -68,6 +70,25 @@ Lisa Dubocquet
 Aurora Sonnet LLC
 aurorasonnet.com`
 
+const VENUE_POST_VISIT_SAME_DAY_SUBJECT = 'Great meeting you today — Aurora Sonnet'
+
+// Starting-point default only (Decision B). This must always be customized to reference something
+// specific from the actual visit before it is reviewed and manually sent — the app never sends this
+// automatically. Bracketed placeholders mark what to personalize every time.
+const VENUE_POST_VISIT_SAME_DAY_BODY = `Hi {{firstName}},
+
+It was such a pleasure meeting you today at {{companyName}}. [Reference something specific from our conversation — e.g. what you shared about your couples, the space, or your team.]
+
+Thank you again for your time. I think Aurora Sonnet's intimate, refined live-music offering could be a wonderful fit for your couples, especially [restate the relevant partnership fit in one sentence].
+
+As we discussed, [confirm the agreed next step]. [Optional: I'd also love to offer a complimentary short demo performance for your team, whenever it's convenient.]
+
+Warmly,
+
+Lisa Dubocquet
+Aurora Sonnet LLC
+aurorasonnet.com`
+
 export const DEFAULT_PARTNERSHIP_EMAIL_TEMPLATES = [
   {
     id: VENUE_FIRST_OUTREACH_TEMPLATE_ID,
@@ -100,6 +121,14 @@ export const DEFAULT_PARTNERSHIP_EMAIL_TEMPLATES = [
     body: VENUE_FINAL_FOLLOW_UP_BODY,
     category: 'Venue Outreach',
     templateType: EMAIL_TEMPLATE_TYPE_FOLLOW_UP_3,
+  },
+  {
+    id: VENUE_POST_VISIT_SAME_DAY_TEMPLATE_ID,
+    name: 'Venue Post-Visit Same-Day Email',
+    subject: VENUE_POST_VISIT_SAME_DAY_SUBJECT,
+    body: VENUE_POST_VISIT_SAME_DAY_BODY,
+    category: 'Venue Outreach',
+    templateType: EMAIL_TEMPLATE_TYPE_POST_VISIT_SAME_DAY,
   },
 ]
 

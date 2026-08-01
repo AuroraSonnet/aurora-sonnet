@@ -1365,3 +1365,204 @@ export async function apiUpdateMusicSelection(id: string, updates: { label?: str
     return { ok: false, error: 'Network error' }
   }
 }
+
+// ---------------------------------------------------------------------------
+// Venue relationship pipeline (visit-first workflow) — rebuilt Partnership Outreach
+// ---------------------------------------------------------------------------
+
+export interface Venue {
+  id: string
+  companyName: string
+  partnerType?: string
+  website?: string
+  instagram?: string
+  phone?: string
+  officialContactFormUrl?: string
+  address?: string
+  neighborhood?: string
+  borough?: string
+  city?: string
+  regionId?: string
+  regionRaw?: string
+  regionNeedsReview?: boolean
+  fitLevel?: string
+  notes?: string
+  stage: string
+  relationshipStrength?: number
+  doNotContact?: boolean
+  dailyVisitTargetOverride?: number
+  linkedPartnershipContactId?: string
+  source?: string
+  createdAt: string
+  updatedAt: string
+  deletedAt?: string
+}
+
+export interface VenueContact {
+  id: string
+  venueId: string
+  name?: string
+  jobTitle?: string
+  email?: string
+  phone?: string
+  businessCardCollected?: boolean
+  isDecisionMaker?: boolean
+  preferredCommunicationMethod?: string
+  notes?: string
+  createdAt: string
+  updatedAt: string
+  deletedAt?: string
+}
+
+export interface Visit {
+  id: string
+  venueId: string
+  plannedDate: string
+  visitDate?: string
+  visitTime?: string
+  orderIndex: number
+  status: 'planned' | 'completed' | 'skipped' | 'cancelled'
+  sameDayEmailSentAt?: string
+  sequenceStartedAt?: string
+  createdAt: string
+  updatedAt: string
+}
+
+export interface VisitDebrief {
+  id: string
+  visitId: string
+  outcomes: string[]
+  partnershipConfidenceScore: number
+  contactsMetIds: string[]
+  nextAction: string
+  nextActionDueDate?: string
+  nextActionOtherNote?: string
+  noFurtherActionReason?: string
+  closedStatus?: string
+  whatWentWell?: string
+  whatCouldGoBetter?: string
+  objectionTag?: string
+  objectionNotes?: string
+  whatLearned?: string
+  whatDoDifferently?: string
+  whatWouldChangeOverall?: string
+  whatInterestedThem?: string
+  generalNotes?: string
+  materialsLeft?: string
+  permissionToFollowUp?: boolean
+  agreedNextStep?: string
+  createdAt: string
+  updatedAt: string
+}
+
+export interface OutreachRegion {
+  id: string
+  name: string
+  sortOrder: number
+  active: boolean
+  createdAt: string
+}
+
+export interface OutreachScoreboard {
+  range: { startDate: string; endDate: string; businessDays: number }
+  dailyVisitTarget: number
+  visits: { planned: number; completed: number; skipped: number; targetTotal: number; completionRate: number; dailyAverage: number }
+  outcomes: Record<string, number>
+  confidence: { average: number | null; count: number }
+  emails: { sameDayEmailsSent: number; sequencesStarted: number; automaticFollowUpsSent: number; followUpsByStep: Record<string, number> }
+  pipeline: { byStage: Record<string, number>; strongVenueCount: number; meetingsOrShowcases: number; progressTowardTenGoal: number }
+  referrals: { received: number; booked: number; conversionRate: number; bookingAmountTotal: number }
+  funnel: { visits: number; replied: number; meetingsOrShowcases: number; strongVenues: number; referrals: number; bookings: number }
+}
+
+async function jsonRequest<T>(
+  path: string,
+  init?: RequestInit
+): Promise<{ ok: true; data: T } | { ok: false; error: string }> {
+  try {
+    const res = await apiFetch(`${API}${path}`, {
+      headers: { 'Content-Type': 'application/json' },
+      ...init,
+    })
+    const body = await res.json().catch(() => ({}))
+    if (res.ok) return { ok: true, data: body as T }
+    return { ok: false, error: (body && body.error) || 'Request failed' }
+  } catch {
+    return { ok: false, error: 'Network error — check your connection and try again.' }
+  }
+}
+
+export function apiCreateVenue(venue: Record<string, unknown>) {
+  return jsonRequest<{ id: string; venue: Venue }>('/venues', { method: 'POST', body: JSON.stringify(venue) })
+}
+
+export function apiUpdateVenue(id: string, updates: Record<string, unknown>) {
+  return jsonRequest<Venue>(`/venues/${id}`, { method: 'PATCH', body: JSON.stringify(updates) })
+}
+
+export function apiDeleteVenue(id: string) {
+  return jsonRequest<{ ok: true }>(`/venues/${id}`, { method: 'DELETE' })
+}
+
+export function apiCreateVenueContact(venueId: string, contact: Record<string, unknown>) {
+  return jsonRequest<{ id: string; contact: VenueContact }>(`/venues/${venueId}/contacts`, {
+    method: 'POST',
+    body: JSON.stringify(contact),
+  })
+}
+
+export function apiUpdateVenueContact(id: string, updates: Record<string, unknown>) {
+  return jsonRequest<VenueContact>(`/venue-contacts/${id}`, { method: 'PATCH', body: JSON.stringify(updates) })
+}
+
+export function apiDeleteVenueContact(id: string) {
+  return jsonRequest<{ ok: true }>(`/venue-contacts/${id}`, { method: 'DELETE' })
+}
+
+export function apiCreateVisit(venueId: string, plannedDate: string, visitTime?: string) {
+  return jsonRequest<{ id: string; visit: Visit }>('/visits', {
+    method: 'POST',
+    body: JSON.stringify({ venueId, plannedDate, visitTime }),
+  })
+}
+
+export function apiUpdateVisit(id: string, updates: Record<string, unknown>) {
+  return jsonRequest<Visit>(`/visits/${id}`, { method: 'PATCH', body: JSON.stringify(updates) })
+}
+
+export function apiReorderVisits(plannedDate: string, orderedIds: string[]) {
+  return jsonRequest<Visit[]>('/visits/reorder', { method: 'POST', body: JSON.stringify({ plannedDate, orderedIds }) })
+}
+
+export function apiSaveVisitDebrief(visitId: string, debrief: Record<string, unknown>) {
+  return jsonRequest<{ ok: true; visit: Visit; debrief: VisitDebrief; venue: Venue }>(`/visits/${visitId}/debrief`, {
+    method: 'POST',
+    body: JSON.stringify(debrief),
+  })
+}
+
+export function apiSendVisitSameDayEmail(
+  visitId: string,
+  payload: { to?: string; contactId?: string; subject: string; body: string; startSequence?: boolean }
+) {
+  return jsonRequest<{ ok: true; sentAt: string; sequenceEnrollment: { enrolled: boolean; reason?: string } | null }>(
+    `/visits/${visitId}/send-same-day-email`,
+    { method: 'POST', body: JSON.stringify(payload) }
+  )
+}
+
+export function apiGetOutreachScoreboard(startDate: string, endDate: string) {
+  return jsonRequest<OutreachScoreboard>(`/outreach-scoreboard?start=${startDate}&end=${endDate}`)
+}
+
+export function apiUpdateOutreachSettings(updates: { dailyVisitTarget?: number }) {
+  return jsonRequest<{ dailyVisitTarget: number }>('/outreach-settings', { method: 'PATCH', body: JSON.stringify(updates) })
+}
+
+export function apiCreateOutreachRegion(name: string) {
+  return jsonRequest<OutreachRegion>('/outreach-regions', { method: 'POST', body: JSON.stringify({ name }) })
+}
+
+export function apiUpdateOutreachRegion(id: string, updates: Record<string, unknown>) {
+  return jsonRequest<OutreachRegion>(`/outreach-regions/${id}`, { method: 'PATCH', body: JSON.stringify(updates) })
+}

@@ -67,6 +67,29 @@ export async function runOutreachAutomationTick({
     return result
   }
 
+  // Reply detection and automatic sending are independent env flags — nothing above stops a
+  // deploy from enabling the scheduler without IMAP. In production, fail closed: never send
+  // automatically unless replies can actually be detected (or an operator explicitly overrides).
+  if (
+    schedulerEnabled &&
+    !imapEnabled &&
+    isOutreachCronProduction() &&
+    process.env.OUTREACH_ALLOW_SENDING_WITHOUT_IMAP !== 'true'
+  ) {
+    const result = {
+      ok: false,
+      sent: 0,
+      schedulerEnabled,
+      imapEnabled,
+      sendMode,
+      error: 'imap_reply_detection_required',
+      message:
+        'Automatic sending is blocked in production because reply detection (OUTREACH_IMAP_ENABLED + IMAP_USER/IMAP_PASS) is not enabled. Set OUTREACH_ALLOW_SENDING_WITHOUT_IMAP=true to override.',
+    }
+    logOutreach('tick_end', { component: 'cron', ...result }, { level: 'warn' })
+    return result
+  }
+
   let imap = null
   let scheduler = null
 

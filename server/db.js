@@ -18,6 +18,11 @@ import {
   migrateVenueFollowUp1TemplateBody,
 } from './partnershipEmailTemplates.js'
 import { nyBusinessDateString } from './businessDays.js'
+import {
+  initVenuesAndVisitsSchema,
+  migratePartnershipContactsToVenues,
+} from './venuesSchema.js'
+import { deriveStageAdvanceFromDebrief } from './venuePipeline.js'
 
 export {
   computePartnerReferralAmounts,
@@ -841,6 +846,12 @@ export function getState() {
     partnershipContacts: db.prepare('SELECT * FROM partnership_contacts WHERE deletedAt IS NULL ORDER BY updatedAt DESC').all().map(rowToPartnershipContact),
     outreachActivity: db.prepare('SELECT * FROM outreach_activity ORDER BY createdAt DESC').all().map(rowToOutreachActivity),
     emailTemplates: db.prepare('SELECT * FROM email_templates ORDER BY createdAt DESC').all().map(rowToEmailTemplate),
+    venues: db.prepare('SELECT * FROM venues WHERE deletedAt IS NULL ORDER BY updatedAt DESC').all().map(rowToVenue),
+    venueContacts: db.prepare('SELECT * FROM venue_contacts WHERE deletedAt IS NULL ORDER BY createdAt ASC').all().map(rowToVenueContact),
+    visits: db.prepare('SELECT * FROM visits ORDER BY plannedDate DESC, orderIndex ASC').all().map(rowToVisit),
+    visitDebriefs: db.prepare('SELECT * FROM visit_debriefs ORDER BY createdAt DESC').all().map(rowToVisitDebrief),
+    outreachRegions: db.prepare('SELECT * FROM outreach_regions ORDER BY sortOrder ASC').all().map(rowToOutreachRegion),
+    outreachSettings: { dailyVisitTarget: getDailyVisitTarget() },
   }
 }
 
@@ -967,6 +978,8 @@ function rowToPartnerReferral(row) {
     submissionDate: row.submissionDate,
     linkedVendorId: row.linkedVendorId || undefined,
     linkedLeadId: row.linkedLeadId || undefined,
+    venueId: row.venueId || undefined,
+    referringContactId: row.referringContactId || undefined,
     updatedAt: row.updatedAt,
   }
 }
@@ -1004,8 +1017,8 @@ export function createPartnerReferral(data) {
       eventDate, eventLocation, notes, referralStatus,
       bookingAmount, travelExpenseAmount, hotelExpenseAmount, expense_line_items,
       commissionableAmount, commissionableOverrideAmount, payoutAmount, payoutOverrideAmount,
-      payoutStatus, submissionDate, linkedVendorId, linkedLeadId, updatedAt
-    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+      payoutStatus, submissionDate, linkedVendorId, linkedLeadId, venueId, referringContactId, updatedAt
+    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
   ).run(
     id,
     referralReference,
@@ -1031,6 +1044,8 @@ export function createPartnerReferral(data) {
     submissionDate,
     data.linkedVendorId ?? null,
     data.linkedLeadId ?? null,
+    data.venueId ?? null,
+    data.referringContactId ?? null,
     now
   )
   return { id, referralReference }
@@ -1080,6 +1095,8 @@ export function updatePartnerReferral(id, updates) {
   const submissionDate = updates.submissionDate !== undefined ? updates.submissionDate : row.submissionDate
   const linkedVendorId = updates.linkedVendorId !== undefined ? updates.linkedVendorId : row.linkedVendorId
   const linkedLeadId = updates.linkedLeadId !== undefined ? updates.linkedLeadId : row.linkedLeadId
+  const venueId = updates.venueId !== undefined ? updates.venueId : row.venueId
+  const referringContactId = updates.referringContactId !== undefined ? updates.referringContactId : row.referringContactId
   const now = new Date().toISOString()
 
   db.prepare(
@@ -1089,7 +1106,7 @@ export function updatePartnerReferral(id, updates) {
       eventDate=?, eventLocation=?, notes=?, referralStatus=?,
       bookingAmount=?, travelExpenseAmount=?, hotelExpenseAmount=?, expense_line_items=?,
       commissionableAmount=?, commissionableOverrideAmount=?, payoutAmount=?, payoutOverrideAmount=?,
-      payoutStatus=?, submissionDate=?, linkedVendorId=?, linkedLeadId=?, updatedAt=?
+      payoutStatus=?, submissionDate=?, linkedVendorId=?, linkedLeadId=?, venueId=?, referringContactId=?, updatedAt=?
     WHERE id=?`
   ).run(
     row.referral_reference,
@@ -1115,6 +1132,8 @@ export function updatePartnerReferral(id, updates) {
     submissionDate,
     linkedVendorId ?? null,
     linkedLeadId ?? null,
+    venueId ?? null,
+    referringContactId ?? null,
     now,
     id
   )
@@ -1483,6 +1502,9 @@ function rowToOutreachSequence(r) {
     stoppedAt: r.stoppedAt || undefined,
     stopReason: r.stopReason || undefined,
     lastInboundAt: r.lastInboundAt || undefined,
+    sequenceType: r.sequenceType || 'cold_outreach',
+    visitId: r.visitId || undefined,
+    venueId: r.venueId || undefined,
     createdAt: r.createdAt,
     updatedAt: r.updatedAt,
   }
@@ -1504,6 +1526,9 @@ function rowToOutreachScheduledSend(r) {
     messageId: r.messageId || undefined,
     deferReason: r.deferReason || undefined,
     sortOrder: r.sortOrder,
+    sequenceType: r.sequenceType || 'cold_outreach',
+    visitId: r.visitId || undefined,
+    venueId: r.venueId || undefined,
     createdAt: r.createdAt,
     updatedAt: r.updatedAt,
   }
@@ -1531,8 +1556,8 @@ export function createOutreachSequence(sequence) {
   const id = sequence.id || getNextOutreachSequenceId()
   db.prepare(
     `INSERT INTO outreach_sequences
-      (id, partnershipContactId, status, currentStep, enrolledAt, anchorAt, pausedAt, stoppedAt, stopReason, lastInboundAt, createdAt, updatedAt)
-     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+      (id, partnershipContactId, status, currentStep, enrolledAt, anchorAt, pausedAt, stoppedAt, stopReason, lastInboundAt, sequenceType, visitId, venueId, createdAt, updatedAt)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
   ).run(
     id,
     sequence.partnershipContactId,
@@ -1544,6 +1569,9 @@ export function createOutreachSequence(sequence) {
     sequence.stoppedAt ?? null,
     sequence.stopReason ?? null,
     sequence.lastInboundAt ?? null,
+    sequence.sequenceType || 'cold_outreach',
+    sequence.visitId ?? null,
+    sequence.venueId ?? null,
     sequence.createdAt,
     sequence.updatedAt
   )
@@ -1574,7 +1602,7 @@ export function updateOutreachSequence(id, updates) {
   const s = { ...rowToOutreachSequence(row), ...updates }
   db.prepare(
     `UPDATE outreach_sequences SET
-      status=?, currentStep=?, enrolledAt=?, anchorAt=?, pausedAt=?, stoppedAt=?, stopReason=?, lastInboundAt=?, updatedAt=?
+      status=?, currentStep=?, enrolledAt=?, anchorAt=?, pausedAt=?, stoppedAt=?, stopReason=?, lastInboundAt=?, sequenceType=?, visitId=?, venueId=?, updatedAt=?
      WHERE id=?`
   ).run(
     s.status,
@@ -1585,6 +1613,9 @@ export function updateOutreachSequence(id, updates) {
     s.stoppedAt ?? null,
     s.stopReason ?? null,
     s.lastInboundAt ?? null,
+    s.sequenceType || 'cold_outreach',
+    s.visitId ?? null,
+    s.venueId ?? null,
     s.updatedAt || new Date().toISOString(),
     id
   )
@@ -1595,8 +1626,8 @@ export function createOutreachScheduledSend(send) {
   const id = send.id || getNextOutreachScheduledSendId()
   db.prepare(
     `INSERT INTO outreach_scheduled_sends
-      (id, sequenceId, partnershipContactId, step, templateId, scheduledAt, status, attemptCount, lastAttemptAt, lastError, sentAt, messageId, deferReason, sortOrder, createdAt, updatedAt)
-     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+      (id, sequenceId, partnershipContactId, step, templateId, scheduledAt, status, attemptCount, lastAttemptAt, lastError, sentAt, messageId, deferReason, sortOrder, sequenceType, visitId, venueId, createdAt, updatedAt)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
   ).run(
     id,
     send.sequenceId,
@@ -1612,6 +1643,9 @@ export function createOutreachScheduledSend(send) {
     send.messageId ?? null,
     send.deferReason ?? null,
     send.sortOrder ?? 0,
+    send.sequenceType || 'cold_outreach',
+    send.visitId ?? null,
+    send.venueId ?? null,
     send.createdAt,
     send.updatedAt
   )
@@ -1631,7 +1665,7 @@ export function updateOutreachScheduledSend(id, updates) {
   const s = { ...rowToOutreachScheduledSend(row), ...updates }
   db.prepare(
     `UPDATE outreach_scheduled_sends SET
-      sequenceId=?, partnershipContactId=?, step=?, templateId=?, scheduledAt=?, status=?, attemptCount=?, lastAttemptAt=?, lastError=?, sentAt=?, messageId=?, deferReason=?, sortOrder=?, updatedAt=?
+      sequenceId=?, partnershipContactId=?, step=?, templateId=?, scheduledAt=?, status=?, attemptCount=?, lastAttemptAt=?, lastError=?, sentAt=?, messageId=?, deferReason=?, sortOrder=?, sequenceType=?, visitId=?, venueId=?, updatedAt=?
      WHERE id=?`
   ).run(
     s.sequenceId,
@@ -1647,6 +1681,9 @@ export function updateOutreachScheduledSend(id, updates) {
     s.messageId ?? null,
     s.deferReason ?? null,
     s.sortOrder,
+    s.sequenceType || 'cold_outreach',
+    s.visitId ?? null,
+    s.venueId ?? null,
     s.updatedAt || new Date().toISOString(),
     id
   )
@@ -2067,6 +2104,625 @@ function stepAdvanceFor(step) {
 }
 
 export { stepAdvanceFor }
+
+// ---------------------------------------------------------------------------
+// Venue relationship pipeline (visits, debriefs, regions, app settings) — additive module.
+// Kept separate from the legacy partnership_contacts CRUD above; see venuesSchema.js for the
+// one-time migration that seeded venues/venue_contacts from existing partnership_contacts rows.
+// ---------------------------------------------------------------------------
+
+function rowToVenue(r) {
+  return {
+    id: r.id,
+    companyName: r.companyName,
+    partnerType: r.partnerType || undefined,
+    website: r.website || undefined,
+    instagram: r.instagram || undefined,
+    phone: r.phone || undefined,
+    officialContactFormUrl: r.officialContactFormUrl || undefined,
+    address: r.address || undefined,
+    neighborhood: r.neighborhood || undefined,
+    borough: r.borough || undefined,
+    city: r.city || undefined,
+    regionId: r.regionId || undefined,
+    regionRaw: r.regionRaw || undefined,
+    regionNeedsReview: Boolean(r.regionNeedsReview),
+    sourceUrl: r.sourceUrl || undefined,
+    lastVerifiedAt: r.lastVerifiedAt || undefined,
+    preferredMusicalStyle: r.preferredMusicalStyle || undefined,
+    typicalWeddingBudget: r.typicalWeddingBudget || undefined,
+    weddingsPerYearApprox: r.weddingsPerYearApprox || undefined,
+    existingVendors: r.existingVendors || undefined,
+    commonCoupleRequests: r.commonCoupleRequests || undefined,
+    bestTimeToVisit: r.bestTimeToVisit || undefined,
+    coordinatorNotes: r.coordinatorNotes || undefined,
+    teamStructure: r.teamStructure || undefined,
+    referralProcess: r.referralProcess || undefined,
+    preferredVendorProcess: r.preferredVendorProcess || undefined,
+    openToShowcase: r.openToShowcase || undefined,
+    showcaseHistory: r.showcaseHistory || undefined,
+    referralPotential: r.referralPotential || undefined,
+    fitLevel: r.fitLevel || undefined,
+    operatorGroup: r.operatorGroup || undefined,
+    notes: r.notes || undefined,
+    stage: r.stage || 'target',
+    relationshipStrength: r.relationshipStrength ?? undefined,
+    doNotContact: Boolean(r.doNotContact),
+    dailyVisitTargetOverride: r.dailyVisitTargetOverride ?? undefined,
+    linkedPartnershipContactId: r.linkedPartnershipContactId || undefined,
+    linkedReferralId: r.linkedReferralId || undefined,
+    source: r.source || undefined,
+    migratedFromPartnershipContactId: r.migratedFromPartnershipContactId || undefined,
+    createdAt: r.createdAt,
+    updatedAt: r.updatedAt,
+    deletedAt: r.deletedAt || undefined,
+  }
+}
+
+export function getNextVenueId() {
+  const rows = db.prepare("SELECT id FROM venues WHERE id LIKE 'ven-%'").all()
+  const max = rows.reduce((m, r) => {
+    const n = parseInt(String(r.id).replace(/^ven-/, ''), 10)
+    return Number.isNaN(n) ? m : Math.max(m, n)
+  }, 0)
+  return `ven-${max + 1}`
+}
+
+export function createVenue(v) {
+  const id = v.id || getNextVenueId()
+  const now = new Date().toISOString()
+  db.prepare(
+    `INSERT INTO venues (
+      id, companyName, partnerType, website, instagram, phone, officialContactFormUrl, address,
+      neighborhood, borough, city, regionId, regionRaw, regionNeedsReview, sourceUrl, lastVerifiedAt,
+      preferredMusicalStyle, typicalWeddingBudget, weddingsPerYearApprox, existingVendors,
+      commonCoupleRequests, bestTimeToVisit, coordinatorNotes, teamStructure, referralProcess,
+      preferredVendorProcess, openToShowcase, showcaseHistory, referralPotential, fitLevel,
+      operatorGroup, notes, stage, relationshipStrength, doNotContact, dailyVisitTargetOverride,
+      linkedPartnershipContactId, linkedReferralId, source, migratedFromPartnershipContactId,
+      createdAt, updatedAt
+    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+  ).run(
+    id,
+    v.companyName,
+    v.partnerType ?? null,
+    v.website ?? null,
+    v.instagram ?? null,
+    v.phone ?? null,
+    v.officialContactFormUrl ?? null,
+    v.address ?? null,
+    v.neighborhood ?? null,
+    v.borough ?? null,
+    v.city ?? null,
+    v.regionId ?? null,
+    v.regionRaw ?? null,
+    v.regionNeedsReview ? 1 : 0,
+    v.sourceUrl ?? null,
+    v.lastVerifiedAt ?? null,
+    v.preferredMusicalStyle ?? null,
+    v.typicalWeddingBudget ?? null,
+    v.weddingsPerYearApprox ?? null,
+    v.existingVendors ?? null,
+    v.commonCoupleRequests ?? null,
+    v.bestTimeToVisit ?? null,
+    v.coordinatorNotes ?? null,
+    v.teamStructure ?? null,
+    v.referralProcess ?? null,
+    v.preferredVendorProcess ?? null,
+    v.openToShowcase ?? null,
+    v.showcaseHistory ?? null,
+    v.referralPotential ?? null,
+    v.fitLevel ?? null,
+    v.operatorGroup ?? null,
+    v.notes ?? null,
+    v.stage || 'target',
+    v.relationshipStrength ?? null,
+    v.doNotContact ? 1 : 0,
+    v.dailyVisitTargetOverride ?? null,
+    v.linkedPartnershipContactId ?? null,
+    v.linkedReferralId ?? null,
+    v.source || 'manual',
+    v.migratedFromPartnershipContactId ?? null,
+    now,
+    now
+  )
+  return id
+}
+
+const VENUE_UPDATABLE_FIELDS = [
+  'companyName', 'partnerType', 'website', 'instagram', 'phone', 'officialContactFormUrl', 'address',
+  'neighborhood', 'borough', 'city', 'regionId', 'regionRaw', 'regionNeedsReview', 'sourceUrl',
+  'lastVerifiedAt', 'preferredMusicalStyle', 'typicalWeddingBudget', 'weddingsPerYearApprox',
+  'existingVendors', 'commonCoupleRequests', 'bestTimeToVisit', 'coordinatorNotes', 'teamStructure',
+  'referralProcess', 'preferredVendorProcess', 'openToShowcase', 'showcaseHistory', 'referralPotential',
+  'fitLevel', 'operatorGroup', 'notes', 'stage', 'relationshipStrength', 'doNotContact',
+  'dailyVisitTargetOverride', 'linkedPartnershipContactId', 'linkedReferralId',
+]
+const VENUE_BOOLEAN_FIELDS = new Set(['regionNeedsReview', 'doNotContact'])
+
+export function updateVenue(id, updates) {
+  const row = db.prepare('SELECT * FROM venues WHERE id = ?').get(id)
+  if (!row) return null
+  const v = { ...rowToVenue(row), ...updates }
+  const setClauses = []
+  const values = []
+  for (const field of VENUE_UPDATABLE_FIELDS) {
+    if (!Object.prototype.hasOwnProperty.call(updates, field)) continue
+    setClauses.push(`${field} = ?`)
+    const value = v[field]
+    values.push(VENUE_BOOLEAN_FIELDS.has(field) ? (value ? 1 : 0) : value ?? null)
+  }
+  if (setClauses.length === 0) return rowToVenue(row)
+  setClauses.push('updatedAt = ?')
+  values.push(new Date().toISOString())
+  values.push(id)
+  db.prepare(`UPDATE venues SET ${setClauses.join(', ')} WHERE id = ?`).run(...values)
+  return getVenueById(id)
+}
+
+export function getVenueById(id) {
+  const row = db.prepare('SELECT * FROM venues WHERE id = ?').get(id)
+  return row ? rowToVenue(row) : null
+}
+
+export function getVenueByLinkedPartnershipContactId(partnershipContactId) {
+  if (!partnershipContactId) return null
+  const row = db.prepare('SELECT * FROM venues WHERE linkedPartnershipContactId = ?').get(partnershipContactId)
+  return row ? rowToVenue(row) : null
+}
+
+export function listVenues() {
+  return db.prepare('SELECT * FROM venues WHERE deletedAt IS NULL ORDER BY updatedAt DESC').all().map(rowToVenue)
+}
+
+export function deleteVenue(id) {
+  const r = db.prepare('UPDATE venues SET deletedAt = ? WHERE id = ? AND deletedAt IS NULL').run(new Date().toISOString(), id)
+  return r.changes > 0
+}
+
+function rowToVenueContact(r) {
+  return {
+    id: r.id,
+    venueId: r.venueId,
+    name: r.name || undefined,
+    jobTitle: r.jobTitle || undefined,
+    email: r.email || undefined,
+    phone: r.phone || undefined,
+    businessCardCollected: Boolean(r.businessCardCollected),
+    isDecisionMaker: Boolean(r.isDecisionMaker),
+    preferredCommunicationMethod: r.preferredCommunicationMethod || undefined,
+    notes: r.notes || undefined,
+    createdAt: r.createdAt,
+    updatedAt: r.updatedAt,
+    deletedAt: r.deletedAt || undefined,
+  }
+}
+
+export function getNextVenueContactId() {
+  const rows = db.prepare("SELECT id FROM venue_contacts WHERE id LIKE 'vc-%'").all()
+  const max = rows.reduce((m, r) => {
+    const n = parseInt(String(r.id).replace(/^vc-/, ''), 10)
+    return Number.isNaN(n) ? m : Math.max(m, n)
+  }, 0)
+  return `vc-${max + 1}`
+}
+
+export function createVenueContact(c) {
+  const id = c.id || getNextVenueContactId()
+  const now = new Date().toISOString()
+  db.prepare(
+    `INSERT INTO venue_contacts
+      (id, venueId, name, jobTitle, email, phone, businessCardCollected, isDecisionMaker, preferredCommunicationMethod, notes, createdAt, updatedAt)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+  ).run(
+    id,
+    c.venueId,
+    c.name ?? null,
+    c.jobTitle ?? null,
+    c.email ?? null,
+    c.phone ?? null,
+    c.businessCardCollected ? 1 : 0,
+    c.isDecisionMaker ? 1 : 0,
+    c.preferredCommunicationMethod ?? null,
+    c.notes ?? null,
+    now,
+    now
+  )
+  return id
+}
+
+export function updateVenueContact(id, updates) {
+  const row = db.prepare('SELECT * FROM venue_contacts WHERE id = ?').get(id)
+  if (!row) return null
+  const c = { ...rowToVenueContact(row), ...updates }
+  db.prepare(
+    `UPDATE venue_contacts SET
+      name=?, jobTitle=?, email=?, phone=?, businessCardCollected=?, isDecisionMaker=?, preferredCommunicationMethod=?, notes=?, updatedAt=?
+     WHERE id=?`
+  ).run(
+    c.name ?? null,
+    c.jobTitle ?? null,
+    c.email ?? null,
+    c.phone ?? null,
+    c.businessCardCollected ? 1 : 0,
+    c.isDecisionMaker ? 1 : 0,
+    c.preferredCommunicationMethod ?? null,
+    c.notes ?? null,
+    new Date().toISOString(),
+    id
+  )
+  return getVenueContactById(id)
+}
+
+export function getVenueContactById(id) {
+  const row = db.prepare('SELECT * FROM venue_contacts WHERE id = ?').get(id)
+  return row ? rowToVenueContact(row) : null
+}
+
+export function listVenueContactsForVenue(venueId) {
+  return db
+    .prepare('SELECT * FROM venue_contacts WHERE venueId = ? AND deletedAt IS NULL ORDER BY createdAt ASC')
+    .all(venueId)
+    .map(rowToVenueContact)
+}
+
+export function deleteVenueContact(id) {
+  const r = db.prepare('UPDATE venue_contacts SET deletedAt = ? WHERE id = ? AND deletedAt IS NULL').run(new Date().toISOString(), id)
+  return r.changes > 0
+}
+
+function rowToVisit(r) {
+  return {
+    id: r.id,
+    venueId: r.venueId,
+    plannedDate: r.plannedDate,
+    visitDate: r.visitDate || undefined,
+    visitTime: r.visitTime || undefined,
+    orderIndex: r.orderIndex,
+    status: r.status,
+    sameDayEmailSentAt: r.sameDayEmailSentAt || undefined,
+    sequenceStartedAt: r.sequenceStartedAt || undefined,
+    createdAt: r.createdAt,
+    updatedAt: r.updatedAt,
+  }
+}
+
+export function getNextVisitId() {
+  const rows = db.prepare("SELECT id FROM visits WHERE id LIKE 'visit-%'").all()
+  const max = rows.reduce((m, r) => {
+    const n = parseInt(String(r.id).replace(/^visit-/, ''), 10)
+    return Number.isNaN(n) ? m : Math.max(m, n)
+  }, 0)
+  return `visit-${max + 1}`
+}
+
+export function createVisit(v) {
+  const id = v.id || getNextVisitId()
+  const now = new Date().toISOString()
+  let orderIndex = v.orderIndex
+  if (orderIndex == null) {
+    const row = db.prepare('SELECT MAX(orderIndex) AS m FROM visits WHERE plannedDate = ?').get(v.plannedDate)
+    orderIndex = (row?.m ?? -1) + 1
+  }
+  db.prepare(
+    `INSERT INTO visits (id, venueId, plannedDate, visitDate, visitTime, orderIndex, status, createdAt, updatedAt)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`
+  ).run(id, v.venueId, v.plannedDate, v.visitDate ?? null, v.visitTime ?? null, orderIndex, v.status || 'planned', now, now)
+  return getVisitById(id)
+}
+
+export function updateVisit(id, updates) {
+  const row = db.prepare('SELECT * FROM visits WHERE id = ?').get(id)
+  if (!row) return null
+  const v = { ...rowToVisit(row), ...updates }
+  db.prepare(
+    `UPDATE visits SET venueId=?, plannedDate=?, visitDate=?, visitTime=?, orderIndex=?, status=?, sameDayEmailSentAt=?, sequenceStartedAt=?, updatedAt=?
+     WHERE id=?`
+  ).run(
+    v.venueId,
+    v.plannedDate,
+    v.visitDate ?? null,
+    v.visitTime ?? null,
+    v.orderIndex,
+    v.status,
+    v.sameDayEmailSentAt ?? null,
+    v.sequenceStartedAt ?? null,
+    new Date().toISOString(),
+    id
+  )
+  return getVisitById(id)
+}
+
+export function getVisitById(id) {
+  const row = db.prepare('SELECT * FROM visits WHERE id = ?').get(id)
+  return row ? rowToVisit(row) : null
+}
+
+export function listVisitsForDate(plannedDate) {
+  return db
+    .prepare('SELECT * FROM visits WHERE plannedDate = ? ORDER BY orderIndex ASC, createdAt ASC')
+    .all(plannedDate)
+    .map(rowToVisit)
+}
+
+export function listVisitsInRange(startDate, endDate) {
+  return db
+    .prepare('SELECT * FROM visits WHERE plannedDate >= ? AND plannedDate <= ? ORDER BY plannedDate ASC, orderIndex ASC')
+    .all(startDate, endDate)
+    .map(rowToVisit)
+}
+
+export function listVisitsForVenue(venueId) {
+  return db
+    .prepare('SELECT * FROM visits WHERE venueId = ? ORDER BY plannedDate DESC, orderIndex ASC')
+    .all(venueId)
+    .map(rowToVisit)
+}
+
+/** Bulk-set orderIndex for a day's visits (mobile drag/reorder). ids in desired order. */
+export function reorderVisitsForDate(plannedDate, orderedIds) {
+  const tx = db.transaction(() => {
+    orderedIds.forEach((id, idx) => {
+      db.prepare('UPDATE visits SET orderIndex = ?, updatedAt = ? WHERE id = ? AND plannedDate = ?').run(
+        idx,
+        new Date().toISOString(),
+        id,
+        plannedDate
+      )
+    })
+  })
+  tx()
+  return listVisitsForDate(plannedDate)
+}
+
+function rowToVisitDebrief(r) {
+  let outcomes = []
+  let contactsMetIds = []
+  try {
+    outcomes = r.outcomes ? JSON.parse(r.outcomes) : []
+  } catch (_) {}
+  try {
+    contactsMetIds = r.contactsMetIds ? JSON.parse(r.contactsMetIds) : []
+  } catch (_) {}
+  return {
+    id: r.id,
+    visitId: r.visitId,
+    outcomes: Array.isArray(outcomes) ? outcomes : [],
+    partnershipConfidenceScore: r.partnershipConfidenceScore,
+    contactsMetIds: Array.isArray(contactsMetIds) ? contactsMetIds : [],
+    nextAction: r.nextAction,
+    nextActionDueDate: r.nextActionDueDate || undefined,
+    nextActionOtherNote: r.nextActionOtherNote || undefined,
+    noFurtherActionReason: r.noFurtherActionReason || undefined,
+    closedStatus: r.closedStatus || undefined,
+    whatWentWell: r.whatWentWell || undefined,
+    whatCouldGoBetter: r.whatCouldGoBetter || undefined,
+    objectionTag: r.objectionTag || undefined,
+    objectionNotes: r.objectionNotes || undefined,
+    whatLearned: r.whatLearned || undefined,
+    whatDoDifferently: r.whatDoDifferently || undefined,
+    whatWouldChangeOverall: r.whatWouldChangeOverall || undefined,
+    whatInterestedThem: r.whatInterestedThem || undefined,
+    generalNotes: r.generalNotes || undefined,
+    materialsLeft: r.materialsLeft || undefined,
+    permissionToFollowUp: Boolean(r.permissionToFollowUp),
+    agreedNextStep: r.agreedNextStep || undefined,
+    createdAt: r.createdAt,
+    updatedAt: r.updatedAt,
+  }
+}
+
+export function getNextVisitDebriefId() {
+  const rows = db.prepare("SELECT id FROM visit_debriefs WHERE id LIKE 'debrief-%'").all()
+  const max = rows.reduce((m, r) => {
+    const n = parseInt(String(r.id).replace(/^debrief-/, ''), 10)
+    return Number.isNaN(n) ? m : Math.max(m, n)
+  }, 0)
+  return `debrief-${max + 1}`
+}
+
+/** Create or replace the debrief for a visit (one debrief per visit — UNIQUE(visitId)). */
+export function saveVisitDebrief(visitId, d) {
+  const existing = db.prepare('SELECT id FROM visit_debriefs WHERE visitId = ?').get(visitId)
+  const now = new Date().toISOString()
+  const id = existing?.id || getNextVisitDebriefId()
+  const outcomesJson = JSON.stringify(Array.isArray(d.outcomes) ? d.outcomes : [])
+  const contactsMetJson = JSON.stringify(Array.isArray(d.contactsMetIds) ? d.contactsMetIds : [])
+  if (existing) {
+    db.prepare(
+      `UPDATE visit_debriefs SET
+        outcomes=?, partnershipConfidenceScore=?, contactsMetIds=?, nextAction=?, nextActionDueDate=?,
+        nextActionOtherNote=?, noFurtherActionReason=?, closedStatus=?, whatWentWell=?, whatCouldGoBetter=?,
+        objectionTag=?, objectionNotes=?, whatLearned=?, whatDoDifferently=?, whatWouldChangeOverall=?,
+        whatInterestedThem=?, generalNotes=?, materialsLeft=?, permissionToFollowUp=?, agreedNextStep=?, updatedAt=?
+       WHERE id=?`
+    ).run(
+      outcomesJson,
+      d.partnershipConfidenceScore,
+      contactsMetJson,
+      d.nextAction,
+      d.nextActionDueDate ?? null,
+      d.nextActionOtherNote ?? null,
+      d.noFurtherActionReason ?? null,
+      d.closedStatus ?? null,
+      d.whatWentWell ?? null,
+      d.whatCouldGoBetter ?? null,
+      d.objectionTag ?? null,
+      d.objectionNotes ?? null,
+      d.whatLearned ?? null,
+      d.whatDoDifferently ?? null,
+      d.whatWouldChangeOverall ?? null,
+      d.whatInterestedThem ?? null,
+      d.generalNotes ?? null,
+      d.materialsLeft ?? null,
+      d.permissionToFollowUp ? 1 : 0,
+      d.agreedNextStep ?? null,
+      now,
+      id
+    )
+  } else {
+    db.prepare(
+      `INSERT INTO visit_debriefs (
+        id, visitId, outcomes, partnershipConfidenceScore, contactsMetIds, nextAction, nextActionDueDate,
+        nextActionOtherNote, noFurtherActionReason, closedStatus, whatWentWell, whatCouldGoBetter, objectionTag,
+        objectionNotes, whatLearned, whatDoDifferently, whatWouldChangeOverall, whatInterestedThem, generalNotes,
+        materialsLeft, permissionToFollowUp, agreedNextStep, createdAt, updatedAt
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+    ).run(
+      id,
+      visitId,
+      outcomesJson,
+      d.partnershipConfidenceScore,
+      contactsMetJson,
+      d.nextAction,
+      d.nextActionDueDate ?? null,
+      d.nextActionOtherNote ?? null,
+      d.noFurtherActionReason ?? null,
+      d.closedStatus ?? null,
+      d.whatWentWell ?? null,
+      d.whatCouldGoBetter ?? null,
+      d.objectionTag ?? null,
+      d.objectionNotes ?? null,
+      d.whatLearned ?? null,
+      d.whatDoDifferently ?? null,
+      d.whatWouldChangeOverall ?? null,
+      d.whatInterestedThem ?? null,
+      d.generalNotes ?? null,
+      d.materialsLeft ?? null,
+      d.permissionToFollowUp ? 1 : 0,
+      d.agreedNextStep ?? null,
+      now,
+      now
+    )
+  }
+  return getVisitDebriefByVisitId(visitId)
+}
+
+export function getVisitDebriefByVisitId(visitId) {
+  const row = db.prepare('SELECT * FROM visit_debriefs WHERE visitId = ?').get(visitId)
+  return row ? rowToVisitDebrief(row) : null
+}
+
+export function listVisitDebriefsForVisitIds(visitIds) {
+  if (!visitIds.length) return []
+  const placeholders = visitIds.map(() => '?').join(',')
+  return db
+    .prepare(`SELECT * FROM visit_debriefs WHERE visitId IN (${placeholders})`)
+    .all(...visitIds)
+    .map(rowToVisitDebrief)
+}
+
+/**
+ * Server-side completion gate: saves the debrief (validation of required fields happens in the API
+ * route), marks the visit completed, and advances the venue's relationship stage forward-only.
+ * Runs as a single transaction so a visit can never end up "completed" without its debrief.
+ */
+export const completeVisitWithDebriefTx = db.transaction((visitId, debriefInput) => {
+  const visit = db.prepare('SELECT * FROM visits WHERE id = ?').get(visitId)
+  if (!visit) throw new Error('visit_not_found')
+  const venue = db.prepare('SELECT * FROM venues WHERE id = ?').get(visit.venueId)
+  if (!venue) throw new Error('venue_not_found')
+
+  const debrief = saveVisitDebrief(visitId, debriefInput)
+  const now = new Date().toISOString()
+  updateVisit(visitId, { status: 'completed', visitDate: visit.visitDate || now })
+
+  const nextStage = deriveStageAdvanceFromDebrief({
+    currentStage: venue.stage,
+    outcomes: debrief.outcomes,
+    nextAction: debrief.nextAction,
+    closedStatus: debrief.closedStatus,
+  })
+  const venueUpdates = { stage: nextStage }
+  if (debrief.partnershipConfidenceScore != null) {
+    // Relationship strength is a separate, human-set score; partnership confidence never overwrites it.
+  }
+  const updatedVenue = updateVenue(visit.venueId, venueUpdates)
+
+  return { visit: getVisitById(visitId), debrief, venue: updatedVenue }
+})
+
+// Outreach regions (Decision C: controlled dropdown backed by an editable list)
+function rowToOutreachRegion(r) {
+  return { id: r.id, name: r.name, sortOrder: r.sortOrder, active: Boolean(r.active), createdAt: r.createdAt }
+}
+
+export function listOutreachRegions({ includeInactive = false } = {}) {
+  const sql = includeInactive
+    ? 'SELECT * FROM outreach_regions ORDER BY sortOrder ASC'
+    : 'SELECT * FROM outreach_regions WHERE active = 1 ORDER BY sortOrder ASC'
+  return db.prepare(sql).all().map(rowToOutreachRegion)
+}
+
+export function createOutreachRegion({ id, name, sortOrder }) {
+  const now = new Date().toISOString()
+  const nextSort = sortOrder ?? (db.prepare('SELECT MAX(sortOrder) AS m FROM outreach_regions').get()?.m ?? -1) + 1
+  db.prepare('INSERT INTO outreach_regions (id, name, sortOrder, active, createdAt) VALUES (?, ?, ?, 1, ?)').run(
+    id,
+    name,
+    nextSort,
+    now
+  )
+  return rowToOutreachRegion(db.prepare('SELECT * FROM outreach_regions WHERE id = ?').get(id))
+}
+
+export function updateOutreachRegion(id, updates) {
+  const row = db.prepare('SELECT * FROM outreach_regions WHERE id = ?').get(id)
+  if (!row) return null
+  const r = { ...rowToOutreachRegion(row), ...updates }
+  db.prepare('UPDATE outreach_regions SET name=?, sortOrder=?, active=? WHERE id=?').run(
+    r.name,
+    r.sortOrder,
+    r.active ? 1 : 0,
+    id
+  )
+  return rowToOutreachRegion(db.prepare('SELECT * FROM outreach_regions WHERE id = ?').get(id))
+}
+
+// App-wide settings (Decision A: one editable daily visit target, default 5)
+export function getAppSetting(key, fallback = null) {
+  const row = db.prepare('SELECT value FROM app_settings WHERE key = ?').get(key)
+  return row ? row.value : fallback
+}
+
+export function setAppSetting(key, value) {
+  const now = new Date().toISOString()
+  db.prepare(
+    `INSERT INTO app_settings (key, value, updatedAt) VALUES (?, ?, ?)
+     ON CONFLICT(key) DO UPDATE SET value = excluded.value, updatedAt = excluded.updatedAt`
+  ).run(key, String(value), now)
+  return getAppSetting(key)
+}
+
+export function getDailyVisitTarget() {
+  const raw = getAppSetting('dailyVisitTarget', '5')
+  const n = parseInt(raw, 10)
+  return Number.isFinite(n) && n > 0 ? n : 5
+}
+
+/** All scheduled sends tagged sequenceType='post_visit' that actually sent within [start, end] (inclusive, ISO dates). */
+export function listSentPostVisitSendsInRange(startIso, endIso) {
+  return db
+    .prepare(
+      `SELECT * FROM outreach_scheduled_sends
+       WHERE sequenceType = 'post_visit' AND status = 'sent' AND sentAt >= ? AND sentAt <= ?
+       ORDER BY sentAt ASC`
+    )
+    .all(startIso, endIso)
+    .map(rowToOutreachScheduledSend)
+}
+
+/** partner_referrals rows linked to a venue, submitted within [start, end] (inclusive, YYYY-MM-DD). */
+export function listVenueReferralsInRange(startDate, endDate) {
+  return db
+    .prepare(
+      `SELECT * FROM partner_referrals
+       WHERE venueId IS NOT NULL AND submissionDate >= ? AND submissionDate <= ?
+       ORDER BY submissionDate ASC`
+    )
+    .all(startDate, endDate)
+    .map(rowToPartnerReferral)
+}
 
 export function getClientByEmail(email) {
   if (!email || typeof email !== 'string') return null
@@ -2633,5 +3289,10 @@ ensureDefaultPartnershipEmailTemplates(db, createEmailTemplate)
 migrateVenueFirstOutreachTemplateBody(db)
 migrateVenueFollowUp1TemplateBody(db)
 migrateScheduledSendActiveIndexExcludeSent(db)
+
+// Venue relationship pipeline (visit-first workflow) — additive schema + one-time idempotent
+// migration from partnership_contacts. See server/venuesSchema.js for full rationale.
+initVenuesAndVisitsSchema(db)
+migratePartnershipContactsToVenues(db, dataDir)
 
 export default db

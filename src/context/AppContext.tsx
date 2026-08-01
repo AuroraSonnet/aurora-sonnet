@@ -41,6 +41,11 @@ import {
   type PartnershipContact,
   type OutreachActivity,
   type EmailTemplate,
+  type Venue,
+  type VenueContact,
+  type Visit,
+  type VisitDebrief,
+  type OutreachRegion,
 } from '../api/db'
 import { playNewInquirySound, prepareInquirySoundContext } from '../utils/sound'
 import { getInquiryApiBaseUrl } from '../utils/inquiryApiUrl'
@@ -98,6 +103,12 @@ interface AppState {
   partnershipContacts: PartnershipContact[]
   outreachActivity: OutreachActivity[]
   emailTemplates: EmailTemplate[]
+  venues: Venue[]
+  venueContacts: VenueContact[]
+  visits: Visit[]
+  visitDebriefs: VisitDebrief[]
+  outreachRegions: OutreachRegion[]
+  outreachSettings: { dailyVisitTarget: number }
   config?: { publicAppUrl?: string }
 }
 
@@ -127,6 +138,12 @@ const defaultState: AppState = {
   partnershipContacts: [],
   outreachActivity: [],
   emailTemplates: [],
+  venues: [],
+  venueContacts: [],
+  visits: [],
+  visitDebriefs: [],
+  outreachRegions: [],
+  outreachSettings: { dailyVisitTarget: 5 },
 }
 
 /** Never overwrite existing data with an empty list. If we have data and the API returns empty for that list, we keep ours. */
@@ -161,6 +178,12 @@ function mergeStateFromApi(
     partnershipContacts: preferNonEmpty(prev.partnershipContacts ?? [], (apiState as { partnershipContacts?: PartnershipContact[] }).partnershipContacts),
     outreachActivity: preferNonEmpty(prev.outreachActivity ?? [], (apiState as { outreachActivity?: OutreachActivity[] }).outreachActivity),
     emailTemplates: preferNonEmpty(prev.emailTemplates ?? [], (apiState as { emailTemplates?: EmailTemplate[] }).emailTemplates),
+    venues: preferNonEmpty(prev.venues ?? [], (apiState as { venues?: Venue[] }).venues),
+    venueContacts: preferNonEmpty(prev.venueContacts ?? [], (apiState as { venueContacts?: VenueContact[] }).venueContacts),
+    visits: preferNonEmpty(prev.visits ?? [], (apiState as { visits?: Visit[] }).visits),
+    visitDebriefs: preferNonEmpty(prev.visitDebriefs ?? [], (apiState as { visitDebriefs?: VisitDebrief[] }).visitDebriefs),
+    outreachRegions: preferNonEmpty(prev.outreachRegions ?? [], (apiState as { outreachRegions?: OutreachRegion[] }).outreachRegions),
+    outreachSettings: (apiState as { outreachSettings?: { dailyVisitTarget: number } }).outreachSettings ?? prev.outreachSettings ?? { dailyVisitTarget: 5 },
     config: (apiState as { config?: { publicAppUrl?: string } }).config ?? prev.config,
   } as AppState
 }
@@ -190,6 +213,12 @@ function mergeStateFromApiTrusted(
     partnershipContacts: (apiState as { partnershipContacts?: PartnershipContact[] }).partnershipContacts ?? prev.partnershipContacts ?? [],
     outreachActivity: (apiState as { outreachActivity?: OutreachActivity[] }).outreachActivity ?? prev.outreachActivity ?? [],
     emailTemplates: (apiState as { emailTemplates?: EmailTemplate[] }).emailTemplates ?? prev.emailTemplates ?? [],
+    venues: (apiState as { venues?: Venue[] }).venues ?? prev.venues ?? [],
+    venueContacts: (apiState as { venueContacts?: VenueContact[] }).venueContacts ?? prev.venueContacts ?? [],
+    visits: (apiState as { visits?: Visit[] }).visits ?? prev.visits ?? [],
+    visitDebriefs: (apiState as { visitDebriefs?: VisitDebrief[] }).visitDebriefs ?? prev.visitDebriefs ?? [],
+    outreachRegions: (apiState as { outreachRegions?: OutreachRegion[] }).outreachRegions ?? prev.outreachRegions ?? [],
+    outreachSettings: (apiState as { outreachSettings?: { dailyVisitTarget: number } }).outreachSettings ?? prev.outreachSettings ?? { dailyVisitTarget: 5 },
     config: (apiState as { config?: { publicAppUrl?: string } }).config ?? prev.config,
   } as AppState
 }
@@ -217,6 +246,12 @@ function loadStateFromStorage(): AppState {
           partnershipContacts: parsed.partnershipContacts ?? defaultState.partnershipContacts ?? [],
           outreachActivity: parsed.outreachActivity ?? defaultState.outreachActivity ?? [],
           emailTemplates: parsed.emailTemplates ?? defaultState.emailTemplates ?? [],
+          venues: parsed.venues ?? defaultState.venues ?? [],
+          venueContacts: parsed.venueContacts ?? defaultState.venueContacts ?? [],
+          visits: parsed.visits ?? defaultState.visits ?? [],
+          visitDebriefs: parsed.visitDebriefs ?? defaultState.visitDebriefs ?? [],
+          outreachRegions: parsed.outreachRegions ?? defaultState.outreachRegions ?? [],
+          outreachSettings: parsed.outreachSettings ?? defaultState.outreachSettings ?? { dailyVisitTarget: 5 },
         }
     }
   } catch (_) {}
