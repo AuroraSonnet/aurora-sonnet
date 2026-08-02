@@ -68,7 +68,64 @@ export interface PartnerReferral {
   linkedLeadId?: string
   venueId?: string
   referringContactId?: string
+  partnershipId?: string
+  agreementId?: string
+  agreementTermsSnapshot?: Record<string, unknown>
+  agreementSnapshotKind?: 'agreement' | 'legacy_default'
+  eventCompletedAt?: string
+  clientPaidInFullAt?: string
+  linkedProjectId?: string
   updatedAt: string
+}
+
+export interface ReferralPartnership {
+  id: string
+  venueId: string
+  status: 'inactive' | 'pending_signature' | 'active'
+  activeAgreementId?: string
+  w9ReceivedAt?: string
+  createdAt: string
+  updatedAt: string
+}
+
+export interface ReferralPartnershipAgreement {
+  id: string
+  partnershipId: string
+  version: number
+  status: 'draft' | 'sent' | 'under_review' | 'fully_executed'
+  termsJson: Record<string, unknown>
+  contentHtml: string
+  authorizedSignatoryContactId?: string
+  signatoryName?: string
+  signatoryTitle?: string
+  partnerSignerName?: string
+  partnerSignerTitle?: string
+  partnerSignedDate?: string
+  agencySignerName?: string
+  agencySignedDate?: string
+  hasGeneratedPdf?: boolean
+  hasSignedPdf?: boolean
+  legalApprovalStatus?: 'pending' | 'approved' | 'rejected'
+  legalApprovedAt?: string
+  legalApprovalNotes?: string
+  legalReviewerName?: string
+  legalRecordedByUsername?: string
+  legalRejectedAt?: string
+  legalRejectionNotes?: string
+  agreementVersionIdentifier?: string
+  auditLog?: { at: string; event: string; [key: string]: unknown }[]
+  createdAt: string
+  updatedAt: string
+}
+
+export interface VenueActivity {
+  id: string
+  venueId: string
+  type: string
+  subject?: string
+  body?: string
+  metadata?: Record<string, unknown>
+  createdAt: string
 }
 
 export interface AppState {
@@ -84,6 +141,9 @@ export interface AppState {
   pipelineStages?: PipelineStage[]
   experiences?: Experience[]
   partnerReferrals?: PartnerReferral[]
+  referralPartnerships?: ReferralPartnership[]
+  referralPartnershipAgreements?: ReferralPartnershipAgreement[]
+  venueActivity?: VenueActivity[]
   config?: { publicAppUrl?: string }
 }
 
@@ -1719,4 +1779,80 @@ export async function apiDeletePartnerReferral(id: string): Promise<boolean> {
   } catch {
     return false
   }
+}
+
+export function apiCreateReferralOffer(body: Record<string, unknown>) {
+  return jsonRequest<{
+    partnership: ReferralPartnership
+    agreement: ReferralPartnershipAgreement
+    reusedDraft?: boolean
+  }>('/referral-partnerships/offer', { method: 'POST', body: JSON.stringify(body) })
+}
+
+export function apiUpdateReferralPartnershipAgreement(id: string, updates: Record<string, unknown>) {
+  return jsonRequest<ReferralPartnershipAgreement>(`/referral-partnership-agreements/${id}`, {
+    method: 'PATCH',
+    body: JSON.stringify(updates),
+  })
+}
+
+export async function apiUploadReferralAgreementSignedPdf(
+  id: string,
+  payload: Record<string, unknown>
+): Promise<{ ok: true; agreement: ReferralPartnershipAgreement } | { ok: false; error: string }> {
+  try {
+    const res = await apiFetch(`${API}/referral-partnership-agreements/${encodeURIComponent(id)}/signed-pdf`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(payload),
+    })
+    const data = (await res.json().catch(() => ({}))) as ReferralPartnershipAgreement & { error?: string }
+    if (res.ok && data.id) return { ok: true, agreement: data }
+    return { ok: false, error: typeof data.error === 'string' ? data.error : 'Upload failed' }
+  } catch {
+    return { ok: false, error: 'Network error' }
+  }
+}
+
+export function referralAgreementPdfUrl(id: string, kind: 'generated' | 'signed' = 'generated') {
+  return `${API}/referral-partnership-agreements/${encodeURIComponent(id)}/pdf?kind=${kind}`
+}
+
+export function apiApproveReferralAgreementLegal(
+  id: string,
+  payload: { legalReviewerName: string; notes?: string }
+) {
+  return jsonRequest<ReferralPartnershipAgreement>(`/referral-partnership-agreements/${id}/legal-approval`, {
+    method: 'POST',
+    body: JSON.stringify(payload),
+  })
+}
+
+export function apiRejectReferralAgreementLegal(id: string, rejectionNotes: string) {
+  return jsonRequest<ReferralPartnershipAgreement>(`/referral-partnership-agreements/${id}/legal-rejection`, {
+    method: 'POST',
+    body: JSON.stringify({ rejectionNotes }),
+  })
+}
+
+export function apiGetReferralOrganizationSettings() {
+  return jsonRequest<{ organization: AuroraOrganizationSettings }>('/settings/referral-organization')
+}
+
+export function apiUpdateReferralOrganizationSettings(organization: Partial<AuroraOrganizationSettings>) {
+  return jsonRequest<{ organization: AuroraOrganizationSettings }>('/settings/referral-organization', {
+    method: 'PATCH',
+    body: JSON.stringify(organization),
+  })
+}
+
+export interface AuroraOrganizationSettings {
+  legalName: string
+  legalAddress: string
+  signatoryName: string
+  signatoryTitle: string
+}
+
+export function apiGetVenueActivity(venueId: string) {
+  return jsonRequest<{ activity: VenueActivity[] }>(`/venues/${encodeURIComponent(venueId)}/activity`)
 }

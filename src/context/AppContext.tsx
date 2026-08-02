@@ -47,6 +47,9 @@ import {
   type VisitDebrief,
   type OutreachRegion,
   type PartnerReferral,
+  type ReferralPartnership,
+  type ReferralPartnershipAgreement,
+  type VenueActivity,
 } from '../api/db'
 import { playNewInquirySound, prepareInquirySoundContext } from '../utils/sound'
 import { getInquiryApiBaseUrl } from '../utils/inquiryApiUrl'
@@ -111,6 +114,9 @@ interface AppState {
   outreachRegions: OutreachRegion[]
   outreachSettings: { dailyVisitTarget: number }
   partnerReferrals: PartnerReferral[]
+  referralPartnerships: ReferralPartnership[]
+  referralPartnershipAgreements: ReferralPartnershipAgreement[]
+  venueActivity: VenueActivity[]
   config?: { publicAppUrl?: string }
 }
 
@@ -147,6 +153,9 @@ const defaultState: AppState = {
   outreachRegions: [],
   outreachSettings: { dailyVisitTarget: 5 },
   partnerReferrals: [],
+  referralPartnerships: [],
+  referralPartnershipAgreements: [],
+  venueActivity: [],
 }
 
 /** Never overwrite existing data with an empty list. If we have data and the API returns empty for that list, we keep ours. */
@@ -188,6 +197,15 @@ function mergeStateFromApi(
     outreachRegions: preferNonEmpty(prev.outreachRegions ?? [], (apiState as { outreachRegions?: OutreachRegion[] }).outreachRegions),
     outreachSettings: (apiState as { outreachSettings?: { dailyVisitTarget: number } }).outreachSettings ?? prev.outreachSettings ?? { dailyVisitTarget: 5 },
     partnerReferrals: preferNonEmpty(prev.partnerReferrals ?? [], (apiState as { partnerReferrals?: PartnerReferral[] }).partnerReferrals),
+    referralPartnerships: preferNonEmpty(
+      prev.referralPartnerships ?? [],
+      (apiState as { referralPartnerships?: ReferralPartnership[] }).referralPartnerships
+    ),
+    referralPartnershipAgreements: preferNonEmpty(
+      prev.referralPartnershipAgreements ?? [],
+      (apiState as { referralPartnershipAgreements?: ReferralPartnershipAgreement[] }).referralPartnershipAgreements
+    ),
+    venueActivity: preferNonEmpty(prev.venueActivity ?? [], (apiState as { venueActivity?: VenueActivity[] }).venueActivity),
     config: (apiState as { config?: { publicAppUrl?: string } }).config ?? prev.config,
   } as AppState
 }
@@ -224,6 +242,13 @@ function mergeStateFromApiTrusted(
     outreachRegions: (apiState as { outreachRegions?: OutreachRegion[] }).outreachRegions ?? prev.outreachRegions ?? [],
     outreachSettings: (apiState as { outreachSettings?: { dailyVisitTarget: number } }).outreachSettings ?? prev.outreachSettings ?? { dailyVisitTarget: 5 },
     partnerReferrals: (apiState as { partnerReferrals?: PartnerReferral[] }).partnerReferrals ?? prev.partnerReferrals ?? [],
+    referralPartnerships:
+      (apiState as { referralPartnerships?: ReferralPartnership[] }).referralPartnerships ?? prev.referralPartnerships ?? [],
+    referralPartnershipAgreements:
+      (apiState as { referralPartnershipAgreements?: ReferralPartnershipAgreement[] }).referralPartnershipAgreements ??
+      prev.referralPartnershipAgreements ??
+      [],
+    venueActivity: (apiState as { venueActivity?: VenueActivity[] }).venueActivity ?? prev.venueActivity ?? [],
     config: (apiState as { config?: { publicAppUrl?: string } }).config ?? prev.config,
   } as AppState
 }
@@ -306,6 +331,9 @@ function loadStateFromStorage(): AppState {
           outreachRegions: parsed.outreachRegions ?? defaultState.outreachRegions ?? [],
           outreachSettings: parsed.outreachSettings ?? defaultState.outreachSettings ?? { dailyVisitTarget: 5 },
           partnerReferrals: parsed.partnerReferrals ?? defaultState.partnerReferrals ?? [],
+          referralPartnerships: parsed.referralPartnerships ?? defaultState.referralPartnerships ?? [],
+          referralPartnershipAgreements: parsed.referralPartnershipAgreements ?? defaultState.referralPartnershipAgreements ?? [],
+          venueActivity: parsed.venueActivity ?? defaultState.venueActivity ?? [],
         }
     }
   } catch (_) {}

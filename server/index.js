@@ -63,6 +63,9 @@ import {
   updatePartnerReferral,
   deletePartnerReferral,
   getPartnerReferral,
+  getReferralPartnershipByVenueId,
+  getReferralPartnershipAgreementPdf,
+  listVenueActivity,
   getPartnershipContactByEmail,
   getPartnershipContactById,
   createPartnershipContact,
@@ -127,6 +130,16 @@ import {
   RELATIONSHIP_STRENGTH_VALUES,
   PARTNERSHIP_CONFIDENCE_VALUES,
 } from './venuePipeline.js'
+import {
+  createReferralOffer,
+  updateReferralOfferAgreement,
+  uploadSignedAgreementPdf,
+  regenerateOfferPdf,
+  approveReferralAgreementLegal,
+  rejectReferralAgreementLegal,
+} from './referralPartnership.js'
+import { getAuroraOrganizationSettings, updateAuroraOrganizationSettings } from './referralOrganizationSettings.js'
+import { canUserRecordLegalApproval, getLegalApprovalAuthorizedUsernames } from './referralLegalApprovalAuth.js'
 import { normalizeMessageId } from './outreachMailer.js'
 import { accelerateAndSendNextTestFollowUp, accelerateTestFollowUpScheduleOnly } from './outreachTestAccel.js'
 import {
@@ -3845,6 +3858,10 @@ app.post('/api/partner-referrals', (req, res) => {
         if (Number.isFinite(n)) payload.payoutOverrideAmount = Math.max(0, n)
       }
     }
+    if (b.venueId != null && String(b.venueId).trim()) payload.venueId = String(b.venueId).trim()
+    if (b.referringContactId != null && String(b.referringContactId).trim()) {
+      payload.referringContactId = String(b.referringContactId).trim()
+    }
     if (b.id != null && String(b.id).trim()) {
       if (getPartnerReferral(String(b.id).trim())) {
         return res.status(409).json({ error: 'Referral id already exists' })
@@ -3906,6 +3923,9 @@ app.patch('/api/partner-referrals/:id', (req, res) => {
     if (!updated) return res.status(404).json({ error: 'Partner referral not found' })
     res.json(updated)
   } catch (err) {
+    if (err instanceof Error && /snapshot|payout|Agreement/i.test(err.message)) {
+      return res.status(400).json({ error: err.message })
+    }
     logError('DB', 'Failed to update partner referral', err)
     res.status(500).json({ error: 'Failed to update partner referral' })
   }
@@ -3919,6 +3939,188 @@ app.delete('/api/partner-referrals/:id', (req, res) => {
   } catch (err) {
     logError('DB', 'Failed to delete partner referral', err)
     res.status(500).json({ error: 'Failed to delete partner referral' })
+  }
+})
+
+// Referral partnerships (1:1 with venues) — MVP: manual offer prep, external signing, no auto-send.
+app.post('/api/referral-partnerships/offer', async (req, res) => {
+  try {
+    const b = req.body || {}
+    const venueId = String(b.venueId || '').trim()
+    if (!venueId) return res.status(400).json({ error: 'venueId is required' })
+    const result = await createReferralOffer({
+      venueId,
+      primaryContactId: b.primaryContactId || null,
+      authorizedSignatoryContactId: b.authorizedSignatoryContactId || null,
+      signatoryName: b.signatoryName || null,
+      signatoryTitle: b.signatoryTitle || null,
+      termsJson: b.termsJson || undefined,
+      contentHtml: b.contentHtml || null,
+      createdBy: req.session?.username || 'crm',
+    })
+    res.status(result.reusedDraft ? 200 : 201).json(result)
+  } catch (err) {
+    logError('REFERRAL-PARTNERSHIP', 'Create offer failed', err)
+    res.status(500).json({ error: err instanceof Error ? err.message : 'Failed to create referral offer' })
+  }
+})
+
+app.patch('/api/referral-partnership-agreements/:id', async (req, res) => {
+  try {
+    const b = req.body || {}
+    const patch = {}
+    for (const key of [
+      'status',
+      'contentHtml',
+      'signatoryName',
+      'signatoryTitle',
+      'authorizedSignatoryContactId',
+      'partnerSignerName',
+      'partnerSignerTitle',
+      'partnerSignedDate',
+      'agencySignerName',
+      'agencySignedDate',
+    ]) {
+      if (Object.prototype.hasOwnProperty.call(b, key)) patch[key] = b[key]
+    }
+    if (Object.prototype.hasOwnProperty.call(b, 'termsJson')) {
+      patch.termsJson = typeof b.termsJson === 'string' ? b.termsJson : JSON.stringify(b.termsJson)
+    }
+    const result = updateReferralOfferAgreement(req.params.id, patch, req.session?.username || 'crm')
+    if (!result) return res.status(404).json({ error: 'Agreement not found' })
+    if (result.error) return res.status(400).json({ error: result.error })
+    let updated = result.agreement
+    if (b.regeneratePdf) {
+      updated = await regenerateOfferPdf(req.params.id)
+    }
+    res.json(updated)
+  } catch (err) {
+    logError('REFERRAL-PARTNERSHIP', 'Update agreement failed', err)
+    res.status(500).json({ error: 'Failed to update agreement' })
+  }
+})
+
+app.post('/api/referral-partnership-agreements/:id/signed-pdf', (req, res) => {
+  try {
+    const b = req.body || {}
+    const raw = b.pdfBase64 || b.pdf
+    if (!raw || typeof raw !== 'string') {
+      return res.status(400).json({ error: 'pdfBase64 is required' })
+    }
+    const pdfBuffer = Buffer.from(raw.replace(/^data:application\/pdf;base64,/, ''), 'base64')
+    if (!pdfBuffer.length) return res.status(400).json({ error: 'Invalid PDF data' })
+    const result = uploadSignedAgreementPdf(
+      req.params.id,
+      pdfBuffer,
+      {
+        partnerSignerName: b.partnerSignerName,
+        partnerSignerTitle: b.partnerSignerTitle,
+        partnerSignedDate: b.partnerSignedDate,
+        agencySignerName: b.agencySignerName,
+        agencySignedDate: b.agencySignedDate,
+        status: b.status,
+      },
+      req.session?.username || 'crm'
+    )
+    if (!result.ok) return res.status(result.error?.includes('Legal') || result.error?.includes('signature') ? 400 : 404).json({ error: result.error })
+    res.json(result.agreement)
+  } catch (err) {
+    logError('REFERRAL-PARTNERSHIP', 'Upload signed PDF failed', err)
+    res.status(500).json({ error: 'Failed to upload signed PDF' })
+  }
+})
+
+app.post('/api/referral-partnership-agreements/:id/legal-approval', (req, res) => {
+  try {
+    const actor = req.session?.username || ''
+    if (!canUserRecordLegalApproval(actor)) {
+      return res.status(403).json({ error: 'You are not authorized to record legal approval for referral agreements.' })
+    }
+    const b = req.body || {}
+    const result = approveReferralAgreementLegal(req.params.id, {
+      legalReviewerName: b.legalReviewerName || b.reviewerName || '',
+      notes: b.notes || b.legalApprovalNotes || null,
+      actor,
+    })
+    if (!result.ok) return res.status(result.error?.includes('not found') ? 404 : 400).json({ error: result.error })
+    res.json(result.agreement)
+  } catch (err) {
+    logError('REFERRAL-PARTNERSHIP', 'Legal approval failed', err)
+    res.status(500).json({ error: 'Failed to record legal approval' })
+  }
+})
+
+app.post('/api/referral-partnership-agreements/:id/legal-rejection', (req, res) => {
+  try {
+    const actor = req.session?.username || ''
+    if (!canUserRecordLegalApproval(actor)) {
+      return res.status(403).json({ error: 'You are not authorized to record legal rejection for referral agreements.' })
+    }
+    const b = req.body || {}
+    const result = rejectReferralAgreementLegal(req.params.id, {
+      rejectionNotes: b.rejectionNotes || b.notes || '',
+      actor,
+    })
+    if (!result.ok) return res.status(result.error?.includes('not found') ? 404 : 400).json({ error: result.error })
+    res.json(result.agreement)
+  } catch (err) {
+    logError('REFERRAL-PARTNERSHIP', 'Legal rejection failed', err)
+    res.status(500).json({ error: 'Failed to record legal rejection' })
+  }
+})
+
+app.get('/api/settings/referral-organization', (req, res) => {
+  try {
+    res.json({ organization: getAuroraOrganizationSettings() })
+  } catch (err) {
+    res.status(500).json({ error: 'Failed to load organization settings' })
+  }
+})
+
+app.patch('/api/settings/referral-organization', (req, res) => {
+  try {
+    const b = req.body || {}
+    const organization = updateAuroraOrganizationSettings({
+      legalName: b.legalName,
+      legalAddress: b.legalAddress,
+      signatoryName: b.signatoryName,
+      signatoryTitle: b.signatoryTitle,
+    })
+    res.json({ organization })
+  } catch (err) {
+    res.status(500).json({ error: 'Failed to update organization settings' })
+  }
+})
+
+app.get('/api/referral-partnership-agreements/:id/pdf', (req, res) => {
+  try {
+    const kind = req.query.kind === 'signed' ? 'signed' : 'generated'
+    const pdf = getReferralPartnershipAgreementPdf(req.params.id, kind)
+    if (!pdf) return res.status(404).json({ error: 'PDF not found' })
+    res.setHeader('Content-Type', 'application/pdf')
+    res.setHeader('Content-Disposition', `inline; filename="referral-agreement-${req.params.id}.pdf"`)
+    res.send(pdf)
+  } catch (err) {
+    logError('REFERRAL-PARTNERSHIP', 'Get PDF failed', err)
+    res.status(500).json({ error: 'Failed to load PDF' })
+  }
+})
+
+app.get('/api/venues/:id/activity', (req, res) => {
+  try {
+    res.json({ activity: listVenueActivity(req.params.id) })
+  } catch (err) {
+    logError('REFERRAL-PARTNERSHIP', 'List venue activity failed', err)
+    res.status(500).json({ error: 'Failed to list venue activity' })
+  }
+})
+
+app.get('/api/venues/:id/referral-partnership', (req, res) => {
+  try {
+    const partnership = getReferralPartnershipByVenueId(req.params.id)
+    res.json({ partnership: partnership || null })
+  } catch (err) {
+    res.status(500).json({ error: 'Failed to load partnership' })
   }
 })
 

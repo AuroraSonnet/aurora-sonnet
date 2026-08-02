@@ -14,6 +14,7 @@ import {
   type Visit,
 } from '../api/db'
 import PartnershipOutreachSequencePanel from './PartnershipOutreachSequencePanel'
+import CreateReferralOfferModal from '../components/CreateReferralOfferModal'
 import {
   OBJECTION_TAGS,
   OBJECTION_TAG_LABELS,
@@ -146,6 +147,10 @@ export default function OutreachToday() {
   const [sendingEmail, setSendingEmail] = useState(false)
 
   const [drawerVenueId, setDrawerVenueId] = useState<string | null>(null)
+  const [offerModalVenueId, setOfferModalVenueId] = useState<string | null>(null)
+  const [offerPrimaryContactId, setOfferPrimaryContactId] = useState<string | undefined>(undefined)
+  const [offerPromptVenueId, setOfferPromptVenueId] = useState<string | null>(null)
+  const [offerPromptContactId, setOfferPromptContactId] = useState<string | undefined>(undefined)
 
   const venuesById = useMemo(() => {
     const map: Record<string, Venue> = {}
@@ -431,6 +436,10 @@ export default function OutreachToday() {
       const wantsEmail = debriefForm.nextAction === 'send_email_today'
       closeDebrief()
       showToast('Debrief saved.')
+      if (finishedVisit) {
+        setOfferPromptVenueId(finishedVisit.venueId)
+        setOfferPromptContactId(debriefForm.contactsMetIds?.[0])
+      }
       if (wantsEmail && finishedVisit) openEmail(finishedVisit)
     } finally {
       setSavingDebrief(false)
@@ -481,6 +490,38 @@ export default function OutreachToday() {
   return (
     <div className={styles.page}>
       {toast && <p className={styles.toast} role="status">{toast}</p>}
+
+      {offerPromptVenueId && venuesById[offerPromptVenueId] ? (
+        <div className={styles.offerPrompt} role="region" aria-label="Referral offer prompt">
+          <p className={styles.offerPromptText}>
+            Create a referral offer for <strong>{venuesById[offerPromptVenueId].companyName}</strong>?
+          </p>
+          <div className={styles.offerPromptActions}>
+            <button
+              type="button"
+              className={styles.submitBtn}
+              onClick={() => {
+                setOfferPrimaryContactId(offerPromptContactId)
+                setOfferModalVenueId(offerPromptVenueId)
+                setOfferPromptVenueId(null)
+                setOfferPromptContactId(undefined)
+              }}
+            >
+              Create Offer
+            </button>
+            <button
+              type="button"
+              className={styles.cancelBtn}
+              onClick={() => {
+                setOfferPromptVenueId(null)
+                setOfferPromptContactId(undefined)
+              }}
+            >
+              Not Now
+            </button>
+          </div>
+        </div>
+      ) : null}
       <header className={styles.header}>
         <h1>Outreach Today</h1>
         <p className={styles.subtitle}>Plan visits, debrief right after, and send the personalized follow-up — the daily engine of the partnership playbook.</p>
@@ -978,8 +1019,31 @@ export default function OutreachToday() {
           venue={drawerVenue}
           onClose={() => setDrawerVenueId(null)}
           onToast={showToast}
+          onCreateOffer={() => {
+            setOfferPrimaryContactId(undefined)
+            setOfferModalVenueId(drawerVenue.id)
+          }}
         />
       )}
+
+      {offerModalVenueId && venuesById[offerModalVenueId] ? (
+        <CreateReferralOfferModal
+          venue={venuesById[offerModalVenueId]}
+          contacts={(state.venueContacts ?? []).filter((c) => c.venueId === offerModalVenueId && !c.deletedAt)}
+          primaryContactId={offerPrimaryContactId}
+          existingAgreement={(() => {
+            const p = (state.referralPartnerships ?? []).find((x) => x.venueId === offerModalVenueId)
+            if (!p) return null
+            return (state.referralPartnershipAgreements ?? []).find((a) => a.status === 'draft' && a.partnershipId === p.id) ?? null
+          })()}
+          onClose={() => {
+            setOfferModalVenueId(null)
+            setOfferPrimaryContactId(undefined)
+          }}
+          onSaved={() => void actions.refreshState()}
+          onToast={showToast}
+        />
+      ) : null}
     </div>
   )
 }
@@ -988,10 +1052,12 @@ function VenueDrawer({
   venue,
   onClose,
   onToast,
+  onCreateOffer,
 }: {
   venue: Venue
   onClose: () => void
   onToast: (msg: string) => void
+  onCreateOffer: () => void
 }) {
   const { state, actions } = useApp()
   const [form, setForm] = useState({
@@ -1021,6 +1087,8 @@ function VenueDrawer({
   const debriefsByVisitId: Record<string, (typeof state.visitDebriefs)[number]> = {}
   for (const d of state.visitDebriefs ?? []) debriefsByVisitId[d.visitId] = d
   const regions = state.outreachRegions ?? []
+  const venueTimeline = (state.venueActivity ?? []).filter((a) => a.venueId === venue.id).slice(0, 20)
+  const partnership = (state.referralPartnerships ?? []).find((p) => p.venueId === venue.id)
 
   const handleSave = async () => {
     setError(null)
@@ -1139,7 +1207,31 @@ function VenueDrawer({
           <button type="button" className={styles.submitBtn} onClick={handleSave} disabled={saving}>
             {saving ? 'Saving…' : 'Save venue'}
           </button>
+          <button type="button" className={styles.smallBtn} onClick={onCreateOffer}>
+            Create Referral Offer
+          </button>
         </div>
+
+        {partnership ? (
+          <p className={styles.visitMeta}>
+            Referral partnership: <strong>{partnership.status.replace(/_/g, ' ')}</strong>
+            {partnership.status === 'active' ? ' · active for new referral snapshots' : ''}
+          </p>
+        ) : null}
+
+        <p className={styles.fieldLabel}>Venue timeline</p>
+        {venueTimeline.length === 0 ? (
+          <p className={styles.empty}>No activity logged yet.</p>
+        ) : (
+          <ul style={{ listStyle: 'none', padding: 0, margin: '0 0 0.75rem', display: 'flex', flexDirection: 'column', gap: '0.35rem' }}>
+            {venueTimeline.map((a) => (
+              <li key={a.id} className={styles.visitMeta}>
+                <strong>{a.createdAt.slice(0, 10)}</strong> — {a.subject || a.type}
+                {a.body ? `: ${a.body.slice(0, 120)}${a.body.length > 120 ? '…' : ''}` : ''}
+              </li>
+            ))}
+          </ul>
+        )}
 
         <p className={styles.fieldLabel}>Contacts</p>
         {contacts.length === 0 ? (

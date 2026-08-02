@@ -3,6 +3,7 @@ import bcrypt from 'bcryptjs'
 import { randomBytes, createHash } from 'node:crypto'
 import { Store } from 'express-session'
 import db from './db.js'
+import { canUserRecordLegalApproval } from './referralLegalApprovalAuth.js'
 
 const SESSION_MAX_AGE_MS = 24 * 60 * 60 * 1000 // 24-hour sliding window
 const LOGIN_RATE_WINDOW_MS = 15 * 60 * 1000
@@ -312,7 +313,12 @@ export function registerAuthRoutes(app) {
       return res.status(503).json({ authenticated: false, error: authConfigError || 'Auth not configured' })
     }
     if (req.session?.authenticated) {
-      return res.json({ authenticated: true, username: req.session.username || null })
+      const username = req.session.username || null
+      return res.json({
+        authenticated: true,
+        username,
+        canRecordReferralLegalApproval: canUserRecordLegalApproval(username),
+      })
     }
     return res.json({ authenticated: false })
   })
@@ -339,7 +345,11 @@ export function registerAuthRoutes(app) {
     req.session.authenticated = true
     req.session.username = creds.username
     req.session.loginAt = Date.now()
-    return res.json({ ok: true, username: creds.username })
+    return res.json({
+      ok: true,
+      username: creds.username,
+      canRecordReferralLegalApproval: canUserRecordLegalApproval(creds.username),
+    })
   })
 
   app.post('/api/forgot-password', async (req, res) => {

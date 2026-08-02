@@ -4,6 +4,7 @@ import { fetchAuthMe, login as apiLogin, logout as apiLogout } from '../api/auth
 type AuthContextValue = {
   authenticated: boolean
   username: string | null
+  canRecordReferralLegalApproval: boolean
   loading: boolean
   login: (username: string, password: string) => Promise<{ ok: true } | { ok: false; error: string }>
   logout: () => Promise<void>
@@ -15,12 +16,14 @@ const AuthContext = createContext<AuthContextValue | null>(null)
 export function AuthProvider({ children }: { children: ReactNode }) {
   const [authenticated, setAuthenticated] = useState(false)
   const [username, setUsername] = useState<string | null>(null)
+  const [canRecordReferralLegalApproval, setCanRecordReferralLegalApproval] = useState(false)
   const [loading, setLoading] = useState(true)
 
   const refresh = useCallback(async () => {
     const me = await fetchAuthMe()
     setAuthenticated(Boolean(me.authenticated))
     setUsername(me.username ?? null)
+    setCanRecordReferralLegalApproval(Boolean(me.canRecordReferralLegalApproval))
   }, [])
 
   useEffect(() => {
@@ -45,10 +48,13 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     await apiLogout()
     setAuthenticated(false)
     setUsername(null)
+    setCanRecordReferralLegalApproval(false)
   }, [])
 
   return (
-    <AuthContext.Provider value={{ authenticated, username, loading, login, logout, refresh }}>
+    <AuthContext.Provider
+      value={{ authenticated, username, canRecordReferralLegalApproval, loading, login, logout, refresh }}
+    >
       {children}
     </AuthContext.Provider>
   )

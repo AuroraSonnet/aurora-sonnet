@@ -48,7 +48,103 @@ describe('normalizeExpenseLineItems', () => {
   })
 })
 
-describe('computePartnerReferralAmounts — user examples', () => {
+describe('partnership terms (10%, no minimum)', () => {
+  const partnershipTerms = {
+    termsKind: 'referral_partnership_mvp',
+    commissionRate: 0.1,
+    minPayoutAmount: null,
+  }
+  const booked = { referralStatus: 'booked' }
+
+  it('$500 subtotal → $50 commission', () => {
+    const r = computePartnerReferralAmounts({ bookingAmount: 500, ...booked }, { termsSnapshot: partnershipTerms })
+    assert.equal(r.payoutAmount, 50)
+  })
+
+  it('$2,000 booking → $200 (no $100 floor)', () => {
+    const r = computePartnerReferralAmounts(
+      { bookingAmount: 2000, travelExpenseAmount: 0, hotelExpenseAmount: 0, ...booked },
+      { termsSnapshot: partnershipTerms }
+    )
+    assert.equal(r.payoutAmount, 200)
+  })
+
+  it('travel/hotel expenses do not reduce commission base', () => {
+    const r = computePartnerReferralAmounts(
+      {
+        bookingAmount: 4000,
+        travelExpenseAmount: 300,
+        hotelExpenseAmount: 200,
+        ...booked,
+      },
+      { termsSnapshot: partnershipTerms }
+    )
+    assert.equal(r.commissionableAmount, 4000)
+    assert.equal(r.payoutAmount, 400)
+  })
+
+  it('pays less below $1,000 commissionable vs legacy, equal at $1,000, more above', () => {
+    const legacy = {
+      termsKind: 'legacy_default',
+      commissionRate: 0.05,
+      minPayoutAmount: 100,
+      useLegacyExpenseDeduction: true,
+    }
+    assert.equal(
+      computePartnerReferralAmounts({ bookingAmount: 500, ...booked }, { termsSnapshot: partnershipTerms }).payoutAmount,
+      50
+    )
+    assert.equal(
+      computePartnerReferralAmounts({ bookingAmount: 500, ...booked }, { termsSnapshot: legacy }).payoutAmount,
+      100
+    )
+    assert.equal(
+      computePartnerReferralAmounts({ bookingAmount: 1000, ...booked }, { termsSnapshot: partnershipTerms }).payoutAmount,
+      100
+    )
+    assert.equal(
+      computePartnerReferralAmounts({ bookingAmount: 1000, ...booked }, { termsSnapshot: legacy }).payoutAmount,
+      100
+    )
+    assert.equal(
+      computePartnerReferralAmounts({ bookingAmount: 2000, ...booked }, { termsSnapshot: partnershipTerms }).payoutAmount,
+      200
+    )
+    assert.equal(
+      computePartnerReferralAmounts({ bookingAmount: 2000, ...booked }, { termsSnapshot: legacy }).payoutAmount,
+      100
+    )
+  })
+})
+
+describe('legacy_default snapshot (5% / $100 min) unchanged', () => {
+  const legacy = {
+    termsKind: 'legacy_default',
+    commissionRate: 0.05,
+    minPayoutAmount: 100,
+    useLegacyExpenseDeduction: true,
+  }
+  const booked = { referralStatus: 'booked' }
+
+  it('$2,000 booking → $100 (5%=$100, min $100)', () => {
+    const r = computePartnerReferralAmounts(
+      { bookingAmount: 2000, travelExpenseAmount: 0, hotelExpenseAmount: 0, ...booked },
+      { termsSnapshot: legacy }
+    )
+    assert.equal(r.payoutAmount, 100)
+  })
+
+  it('expenses reduce commissionable base', () => {
+    const r = computePartnerReferralAmounts(
+      { bookingAmount: 4000, travelExpenseAmount: 300, hotelExpenseAmount: 200, ...booked },
+      { termsSnapshot: legacy }
+    )
+    assert.equal(r.commissionableAmount, 3500)
+    assert.equal(r.payoutAmount, 175)
+  })
+})
+
+describe('computePartnerReferralAmounts — user examples (default legacy, no termsSnapshot)', () => {
   const booked = { referralStatus: 'booked' }
 
   it('$2,000 booking, no travel/hotel → payout $100 (5%=$100, min $100)', () => {

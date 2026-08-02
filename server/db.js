@@ -11,7 +11,13 @@ import {
   PARTNER_REFERRAL_STATUS_LABELS,
   referralStatusEligibleForBookingPayout,
   normalizeReferralStatusKey,
+  validatePayoutStatusChange,
+  assertAgreementSnapshotImmutable,
+  isReferralEventCompleted,
+  isReferralClientPaidInFull,
 } from './partnerReferralPayout.js'
+import { initReferralPartnershipSchema } from './referralPartnershipSchema.js'
+import { buildLegacyDefaultTermsSnapshot, parseTermsSnapshot } from './referralPartnershipTerms.js'
 import {
   ensureDefaultPartnershipEmailTemplates,
   migrateVenueFirstOutreachTemplateBody,
@@ -852,6 +858,12 @@ export function getState() {
     visitDebriefs: db.prepare('SELECT * FROM visit_debriefs ORDER BY createdAt DESC').all().map(rowToVisitDebrief),
     outreachRegions: db.prepare('SELECT * FROM outreach_regions ORDER BY sortOrder ASC').all().map(rowToOutreachRegion),
     outreachSettings: { dailyVisitTarget: getDailyVisitTarget() },
+    referralPartnerships: db.prepare('SELECT * FROM referral_partnerships ORDER BY updatedAt DESC').all().map(rowToReferralPartnership),
+    referralPartnershipAgreements: db
+      .prepare('SELECT * FROM referral_partnership_agreements ORDER BY updatedAt DESC')
+      .all()
+      .map(rowToReferralPartnershipAgreement),
+    venueActivity: db.prepare('SELECT * FROM venue_activity ORDER BY createdAt DESC LIMIT 500').all().map(rowToVenueActivity),
   }
 }
 
@@ -980,8 +992,39 @@ function rowToPartnerReferral(row) {
     linkedLeadId: row.linkedLeadId || undefined,
     venueId: row.venueId || undefined,
     referringContactId: row.referringContactId || undefined,
+    partnershipId: row.partnershipId || undefined,
+    agreementId: row.agreementId || undefined,
+    agreementSnapshotKind: row.agreementSnapshotKind || (row.agreementTermsSnapshot ? undefined : 'legacy_default'),
+    agreementTermsSnapshot:
+      parseTermsSnapshot(row.agreementTermsSnapshot) || buildLegacyDefaultTermsSnapshot(),
+    eventCompletedAt: row.eventCompletedAt || undefined,
+    clientPaidInFullAt: row.clientPaidInFullAt || undefined,
+    linkedProjectId: row.linkedProjectId || undefined,
     updatedAt: row.updatedAt,
   }
+}
+
+function referralPayableContext(referral) {
+  const projectId = referral.linkedProjectId || referral.linkedLeadId
+  const project = projectId
+    ? db.prepare('SELECT * FROM projects WHERE id = ? AND deletedAt IS NULL').get(projectId)
+    : null
+  const projectInvoices = projectId
+    ? db.prepare('SELECT * FROM invoices WHERE projectId = ?').all()
+    : []
+  return { project: project ? rowToProject(project) : null, projectInvoices: projectInvoices.map(rowToInvoice) }
+}
+
+function applyReferralPaymentFlagsFromProject(referral) {
+  const ctx = referralPayableContext(referral)
+  const patch = {}
+  if (isReferralEventCompleted(referral, ctx.project) && !referral.eventCompletedAt) {
+    patch.eventCompletedAt = new Date().toISOString()
+  }
+  if (isReferralClientPaidInFull(referral, ctx.projectInvoices) && !referral.clientPaidInFullAt) {
+    patch.clientPaidInFullAt = new Date().toISOString()
+  }
+  return patch
 }
 
 export function getNextPartnerReferralId() {
@@ -999,17 +1042,56 @@ export function createPartnerReferral(data) {
   const now = new Date().toISOString()
   const submissionDate = data.submissionDate || now.slice(0, 10)
   const referralStatus = data.referralStatus != null ? String(data.referralStatus) : 'new'
-  const payoutStatus = data.payoutStatus != null ? String(data.payoutStatus) : 'none'
+  let payoutStatus = data.payoutStatus != null ? String(data.payoutStatus) : 'none'
 
-  const amounts = computePartnerReferralAmounts({
-    bookingAmount: data.bookingAmount,
-    travelExpenseAmount: data.travelExpenseAmount,
-    hotelExpenseAmount: data.hotelExpenseAmount,
-    expenseLineItems: data.expenseLineItems,
+  let partnershipId = data.partnershipId ?? null
+  let agreementId = data.agreementId ?? null
+  let agreementSnapshotKind = data.agreementSnapshotKind ?? null
+  let agreementTermsSnapshot = data.agreementTermsSnapshot ?? null
+
+  if (!agreementTermsSnapshot) {
+    const snap = resolveReferralTermsSnapshotForCreate(data.venueId, agreementId)
+    partnershipId = snap.partnershipId
+    agreementId = snap.agreementId
+    agreementSnapshotKind = snap.agreementSnapshotKind
+    agreementTermsSnapshot = snap.agreementTermsSnapshot
+  } else if (typeof agreementTermsSnapshot === 'object') {
+    agreementTermsSnapshot = JSON.stringify(agreementTermsSnapshot)
+  }
+
+  const termsForCompute = parseTermsSnapshot(agreementTermsSnapshot)
+
+  const amounts = computePartnerReferralAmounts(
+    {
+      bookingAmount: data.bookingAmount,
+      travelExpenseAmount: data.travelExpenseAmount,
+      hotelExpenseAmount: data.hotelExpenseAmount,
+      expenseLineItems: data.expenseLineItems,
+      referralStatus,
+      commissionableOverrideAmount: data.commissionableOverrideAmount,
+      payoutOverrideAmount: data.payoutOverrideAmount,
+    },
+    { termsSnapshot: termsForCompute }
+  )
+
+  const draftReferral = {
     referralStatus,
-    commissionableOverrideAmount: data.commissionableOverrideAmount,
-    payoutOverrideAmount: data.payoutOverrideAmount,
-  })
+    payoutStatus,
+    linkedProjectId: data.linkedProjectId ?? data.linkedLeadId ?? null,
+    linkedLeadId: data.linkedLeadId ?? null,
+    eventCompletedAt: data.eventCompletedAt ?? null,
+    clientPaidInFullAt: data.clientPaidInFullAt ?? null,
+  }
+  const payFlags = applyReferralPaymentFlagsFromProject(draftReferral)
+  const eventCompletedAt = data.eventCompletedAt ?? payFlags.eventCompletedAt ?? null
+  const clientPaidInFullAt = data.clientPaidInFullAt ?? payFlags.clientPaidInFullAt ?? null
+
+  const payoutErr = validatePayoutStatusChange(
+    { ...draftReferral, eventCompletedAt, clientPaidInFullAt },
+    payoutStatus,
+    referralPayableContext(draftReferral)
+  )
+  if (payoutErr) payoutStatus = 'none'
 
   db.prepare(
     `INSERT INTO partner_referrals (
@@ -1017,8 +1099,10 @@ export function createPartnerReferral(data) {
       eventDate, eventLocation, notes, referralStatus,
       bookingAmount, travelExpenseAmount, hotelExpenseAmount, expense_line_items,
       commissionableAmount, commissionableOverrideAmount, payoutAmount, payoutOverrideAmount,
-      payoutStatus, submissionDate, linkedVendorId, linkedLeadId, venueId, referringContactId, updatedAt
-    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+      payoutStatus, submissionDate, linkedVendorId, linkedLeadId, venueId, referringContactId,
+      partnershipId, agreementId, agreementTermsSnapshot, agreementSnapshotKind,
+      eventCompletedAt, clientPaidInFullAt, linkedProjectId, updatedAt
+    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
   ).run(
     id,
     referralReference,
@@ -1046,6 +1130,13 @@ export function createPartnerReferral(data) {
     data.linkedLeadId ?? null,
     data.venueId ?? null,
     data.referringContactId ?? null,
+    partnershipId,
+    agreementId,
+    agreementTermsSnapshot,
+    agreementSnapshotKind,
+    eventCompletedAt,
+    clientPaidInFullAt,
+    data.linkedProjectId ?? data.linkedLeadId ?? null,
     now
   )
   return { id, referralReference }
@@ -1054,6 +1145,10 @@ export function createPartnerReferral(data) {
 export function updatePartnerReferral(id, updates) {
   const row = db.prepare('SELECT * FROM partner_referrals WHERE id = ?').get(id)
   if (!row) return null
+
+  const existing = rowToPartnerReferral(row)
+  const snapErr = assertAgreementSnapshotImmutable(existing, updates)
+  if (snapErr) throw new Error(snapErr)
 
   const expenseLineItemsForCompute = Object.prototype.hasOwnProperty.call(updates, 'expenseLineItems')
     ? updates.expenseLineItems
@@ -1072,15 +1167,20 @@ export function updatePartnerReferral(id, updates) {
       : row.payoutOverrideAmount,
   }
 
-  const amounts = computePartnerReferralAmounts({
-    bookingAmount: merged.bookingAmount,
-    travelExpenseAmount: merged.travelExpenseAmount,
-    hotelExpenseAmount: merged.hotelExpenseAmount,
-    expenseLineItems: expenseLineItemsForCompute,
-    referralStatus: merged.referralStatus,
-    commissionableOverrideAmount: merged.commissionableOverrideAmount,
-    payoutOverrideAmount: merged.payoutOverrideAmount,
-  })
+  const termsForCompute = parseTermsSnapshot(row.agreementTermsSnapshot)
+
+  const amounts = computePartnerReferralAmounts(
+    {
+      bookingAmount: merged.bookingAmount,
+      travelExpenseAmount: merged.travelExpenseAmount,
+      hotelExpenseAmount: merged.hotelExpenseAmount,
+      expenseLineItems: expenseLineItemsForCompute,
+      referralStatus: merged.referralStatus,
+      commissionableOverrideAmount: merged.commissionableOverrideAmount,
+      payoutOverrideAmount: merged.payoutOverrideAmount,
+    },
+    { termsSnapshot: termsForCompute }
+  )
 
   const partnerName = updates.partnerName !== undefined ? updates.partnerName : row.partnerName
   const companyName = updates.companyName !== undefined ? updates.companyName : row.companyName
@@ -1091,12 +1191,42 @@ export function updatePartnerReferral(id, updates) {
   const eventDate = updates.eventDate !== undefined ? updates.eventDate : row.eventDate
   const eventLocation = updates.eventLocation !== undefined ? updates.eventLocation : row.eventLocation
   const notes = updates.notes !== undefined ? updates.notes : row.notes
-  const payoutStatus = updates.payoutStatus !== undefined ? updates.payoutStatus : row.payoutStatus
+  let payoutStatus = updates.payoutStatus !== undefined ? updates.payoutStatus : row.payoutStatus
   const submissionDate = updates.submissionDate !== undefined ? updates.submissionDate : row.submissionDate
   const linkedVendorId = updates.linkedVendorId !== undefined ? updates.linkedVendorId : row.linkedVendorId
   const linkedLeadId = updates.linkedLeadId !== undefined ? updates.linkedLeadId : row.linkedLeadId
+  const linkedProjectId =
+    updates.linkedProjectId !== undefined
+      ? updates.linkedProjectId
+      : updates.linkedLeadId !== undefined
+        ? updates.linkedLeadId
+        : row.linkedProjectId || row.linkedLeadId
   const venueId = updates.venueId !== undefined ? updates.venueId : row.venueId
   const referringContactId = updates.referringContactId !== undefined ? updates.referringContactId : row.referringContactId
+  const partnershipId = updates.partnershipId !== undefined ? updates.partnershipId : row.partnershipId
+  const agreementId = updates.agreementId !== undefined ? updates.agreementId : row.agreementId
+  let eventCompletedAt = updates.eventCompletedAt !== undefined ? updates.eventCompletedAt : row.eventCompletedAt
+  let clientPaidInFullAt = updates.clientPaidInFullAt !== undefined ? updates.clientPaidInFullAt : row.clientPaidInFullAt
+
+  const draft = {
+    referralStatus: merged.referralStatus,
+    payoutStatus,
+    linkedProjectId,
+    linkedLeadId,
+    eventCompletedAt,
+    clientPaidInFullAt,
+  }
+  const payFlags = applyReferralPaymentFlagsFromProject(draft)
+  if (!eventCompletedAt && payFlags.eventCompletedAt) eventCompletedAt = payFlags.eventCompletedAt
+  if (!clientPaidInFullAt && payFlags.clientPaidInFullAt) clientPaidInFullAt = payFlags.clientPaidInFullAt
+
+  const payoutErr = validatePayoutStatusChange(
+    { ...draft, eventCompletedAt, clientPaidInFullAt },
+    payoutStatus,
+    referralPayableContext({ linkedProjectId, linkedLeadId, eventCompletedAt, clientPaidInFullAt })
+  )
+  if (payoutErr) throw new Error(payoutErr)
+
   const now = new Date().toISOString()
 
   db.prepare(
@@ -1106,7 +1236,8 @@ export function updatePartnerReferral(id, updates) {
       eventDate=?, eventLocation=?, notes=?, referralStatus=?,
       bookingAmount=?, travelExpenseAmount=?, hotelExpenseAmount=?, expense_line_items=?,
       commissionableAmount=?, commissionableOverrideAmount=?, payoutAmount=?, payoutOverrideAmount=?,
-      payoutStatus=?, submissionDate=?, linkedVendorId=?, linkedLeadId=?, venueId=?, referringContactId=?, updatedAt=?
+      payoutStatus=?, submissionDate=?, linkedVendorId=?, linkedLeadId=?, venueId=?, referringContactId=?,
+      partnershipId=?, agreementId=?, eventCompletedAt=?, clientPaidInFullAt=?, linkedProjectId=?, updatedAt=?
     WHERE id=?`
   ).run(
     row.referral_reference,
@@ -1134,6 +1265,11 @@ export function updatePartnerReferral(id, updates) {
     linkedLeadId ?? null,
     venueId ?? null,
     referringContactId ?? null,
+    partnershipId ?? null,
+    agreementId ?? null,
+    eventCompletedAt ?? null,
+    clientPaidInFullAt ?? null,
+    linkedProjectId ?? null,
     now,
     id
   )
@@ -1148,6 +1284,281 @@ export function deletePartnerReferral(id) {
 export function getPartnerReferral(id) {
   const row = db.prepare('SELECT * FROM partner_referrals WHERE id = ?').get(id)
   return row ? rowToPartnerReferral(row) : null
+}
+
+function rowToReferralPartnership(r) {
+  return {
+    id: r.id,
+    venueId: r.venueId,
+    status: r.status,
+    activeAgreementId: r.activeAgreementId || undefined,
+    w9ReceivedAt: r.w9ReceivedAt || undefined,
+    createdAt: r.createdAt,
+    updatedAt: r.updatedAt,
+  }
+}
+
+function rowToReferralPartnershipAgreement(r) {
+  return {
+    id: r.id,
+    partnershipId: r.partnershipId,
+    version: r.version,
+    status: r.status,
+    termsJson: parseTermsSnapshot(r.termsJson) || {},
+    contentHtml: r.contentHtml,
+    authorizedSignatoryContactId: r.authorizedSignatoryContactId || undefined,
+    signatoryName: r.signatoryName || undefined,
+    signatoryTitle: r.signatoryTitle || undefined,
+    partnerSignerName: r.partnerSignerName || undefined,
+    partnerSignerTitle: r.partnerSignerTitle || undefined,
+    partnerSignedDate: r.partnerSignedDate || undefined,
+    agencySignerName: r.agencySignerName || undefined,
+    agencySignedDate: r.agencySignedDate || undefined,
+    hasGeneratedPdf: Boolean(r.generatedPdfBlob && r.generatedPdfBlob.length),
+    hasSignedPdf: Boolean(r.signedPdfBlob && r.signedPdfBlob.length),
+    legalApprovalStatus: r.legalApprovalStatus || 'pending',
+    legalApprovedAt: r.legalApprovedAt || undefined,
+    legalApprovalNotes: r.legalApprovalNotes || undefined,
+    legalReviewerName: r.legalReviewerName || undefined,
+    legalRecordedByUsername: r.legalRecordedByUsername || undefined,
+    legalRejectedAt: r.legalRejectedAt || undefined,
+    legalRejectionNotes: r.legalRejectionNotes || undefined,
+    agreementVersionIdentifier: r.agreementVersionIdentifier || undefined,
+    auditLog: (() => {
+      try {
+        return JSON.parse(r.auditLogJson || '[]')
+      } catch {
+        return []
+      }
+    })(),
+    createdAt: r.createdAt,
+    updatedAt: r.updatedAt,
+  }
+}
+
+function rowToVenueActivity(r) {
+  let metadata
+  try {
+    metadata = r.metadataJson ? JSON.parse(r.metadataJson) : undefined
+  } catch {
+    metadata = undefined
+  }
+  return {
+    id: r.id,
+    venueId: r.venueId,
+    type: r.type,
+    subject: r.subject || undefined,
+    body: r.body || undefined,
+    metadata,
+    createdAt: r.createdAt,
+  }
+}
+
+export function resolveReferralTermsSnapshotForCreate(venueId, agreementId) {
+  if (agreementId) {
+    const agreement = getReferralPartnershipAgreementById(agreementId)
+    if (agreement && agreement.status === 'fully_executed' && agreement.legalApprovalStatus === 'approved') {
+      return {
+        agreementId: agreement.id,
+        partnershipId: agreement.partnershipId,
+        agreementSnapshotKind: 'agreement',
+        agreementTermsSnapshot: JSON.stringify({
+          ...parseTermsSnapshot(agreement.termsJson),
+          agreementId: agreement.id,
+          agreementVersion: agreement.version,
+        }),
+      }
+    }
+  }
+  if (venueId) {
+    const partnership = getReferralPartnershipByVenueId(venueId)
+    if (partnership?.status === 'active' && partnership.activeAgreementId) {
+      const agreement = getReferralPartnershipAgreementById(partnership.activeAgreementId)
+      if (agreement && agreement.status === 'fully_executed' && agreement.legalApprovalStatus === 'approved') {
+        return {
+          agreementId: agreement.id,
+          partnershipId: partnership.id,
+          agreementSnapshotKind: 'agreement',
+          agreementTermsSnapshot: JSON.stringify({
+            ...parseTermsSnapshot(agreement.termsJson),
+            agreementId: agreement.id,
+            agreementVersion: agreement.version,
+          }),
+        }
+      }
+    }
+    return {
+      agreementId: null,
+      partnershipId: partnership?.id ?? null,
+      agreementSnapshotKind: 'legacy_default',
+      agreementTermsSnapshot: JSON.stringify(buildLegacyDefaultTermsSnapshot()),
+    }
+  }
+  return {
+    agreementId: null,
+    partnershipId: null,
+    agreementSnapshotKind: 'legacy_default',
+    agreementTermsSnapshot: JSON.stringify(buildLegacyDefaultTermsSnapshot()),
+  }
+}
+
+export function listReferralPartnerships() {
+  return db.prepare('SELECT * FROM referral_partnerships ORDER BY updatedAt DESC').all().map(rowToReferralPartnership)
+}
+
+export function getReferralPartnershipById(id) {
+  const row = db.prepare('SELECT * FROM referral_partnerships WHERE id = ?').get(id)
+  return row ? rowToReferralPartnership(row) : null
+}
+
+export function getReferralPartnershipByVenueId(venueId) {
+  const row = db.prepare('SELECT * FROM referral_partnerships WHERE venueId = ?').get(venueId)
+  return row ? rowToReferralPartnership(row) : null
+}
+
+export function insertReferralPartnership(p) {
+  db.prepare(
+    `INSERT INTO referral_partnerships (id, venueId, status, activeAgreementId, w9ReceivedAt, createdAt, updatedAt)
+     VALUES (?, ?, ?, ?, ?, ?, ?)`
+  ).run(p.id, p.venueId, p.status, p.activeAgreementId ?? null, p.w9ReceivedAt ?? null, p.createdAt, p.updatedAt)
+}
+
+export function updateReferralPartnership(id, updates) {
+  const row = db.prepare('SELECT * FROM referral_partnerships WHERE id = ?').get(id)
+  if (!row) return null
+  const cur = rowToReferralPartnership(row)
+  const next = { ...cur, ...updates }
+  db.prepare(
+    `UPDATE referral_partnerships SET venueId=?, status=?, activeAgreementId=?, w9ReceivedAt=?, updatedAt=? WHERE id=?`
+  ).run(
+    next.venueId,
+    next.status,
+    next.activeAgreementId ?? null,
+    next.w9ReceivedAt ?? null,
+    next.updatedAt || new Date().toISOString(),
+    id
+  )
+  return getReferralPartnershipById(id)
+}
+
+export function listReferralPartnershipAgreementsForPartnership(partnershipId) {
+  return db
+    .prepare('SELECT * FROM referral_partnership_agreements WHERE partnershipId = ? ORDER BY version ASC')
+    .all(partnershipId)
+    .map(rowToReferralPartnershipAgreement)
+}
+
+export function getReferralPartnershipAgreementById(id) {
+  const row = db.prepare('SELECT * FROM referral_partnership_agreements WHERE id = ?').get(id)
+  return row ? rowToReferralPartnershipAgreement(row) : null
+}
+
+export function getReferralPartnershipAgreementPdf(id, kind = 'generated') {
+  const row = db.prepare('SELECT generatedPdfBlob, signedPdfBlob FROM referral_partnership_agreements WHERE id = ?').get(id)
+  if (!row) return null
+  if (kind === 'signed') return row.signedPdfBlob || null
+  return row.generatedPdfBlob || null
+}
+
+export function insertReferralPartnershipAgreement(a) {
+  db.prepare(
+    `INSERT INTO referral_partnership_agreements (
+      id, partnershipId, version, status, termsJson, contentHtml,
+      authorizedSignatoryContactId, signatoryName, signatoryTitle,
+      partnerSignerName, partnerSignerTitle, partnerSignedDate,
+      agencySignerName, agencySignedDate,
+      generatedPdfBlob, signedPdfBlob, auditLogJson,
+      legalApprovalStatus, legalApprovedAt, legalApprovalNotes,
+      legalReviewerName, legalRecordedByUsername, legalRejectedAt, legalRejectionNotes,
+      agreementVersionIdentifier,
+      createdAt, updatedAt
+    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+  ).run(
+    a.id,
+    a.partnershipId,
+    a.version,
+    a.status,
+    a.termsJson,
+    a.contentHtml,
+    a.authorizedSignatoryContactId ?? null,
+    a.signatoryName ?? null,
+    a.signatoryTitle ?? null,
+    a.partnerSignerName ?? null,
+    a.partnerSignerTitle ?? null,
+    a.partnerSignedDate ?? null,
+    a.agencySignerName ?? null,
+    a.agencySignedDate ?? null,
+    a.generatedPdfBlob ?? null,
+    a.signedPdfBlob ?? null,
+    a.auditLogJson || '[]',
+    a.legalApprovalStatus ?? 'pending',
+    a.legalApprovedAt ?? null,
+    a.legalApprovalNotes ?? null,
+    a.legalReviewerName ?? null,
+    a.legalRecordedByUsername ?? null,
+    a.legalRejectedAt ?? null,
+    a.legalRejectionNotes ?? null,
+    a.agreementVersionIdentifier ?? null,
+    a.createdAt,
+    a.updatedAt
+  )
+}
+
+export function updateReferralPartnershipAgreement(id, updates) {
+  const row = db.prepare('SELECT * FROM referral_partnership_agreements WHERE id = ?').get(id)
+  if (!row) return null
+  const fields = []
+  const values = []
+  const allowed = [
+    'status',
+    'termsJson',
+    'contentHtml',
+    'authorizedSignatoryContactId',
+    'signatoryName',
+    'signatoryTitle',
+    'partnerSignerName',
+    'partnerSignerTitle',
+    'partnerSignedDate',
+    'agencySignerName',
+    'agencySignedDate',
+    'generatedPdfBlob',
+    'signedPdfBlob',
+    'auditLogJson',
+    'legalApprovalStatus',
+    'legalApprovedAt',
+    'legalApprovalNotes',
+    'legalReviewerName',
+    'legalRecordedByUsername',
+    'legalRejectedAt',
+    'legalRejectionNotes',
+    'agreementVersionIdentifier',
+    'updatedAt',
+  ]
+  for (const key of allowed) {
+    if (Object.prototype.hasOwnProperty.call(updates, key)) {
+      fields.push(`${key}=?`)
+      values.push(updates[key] ?? null)
+    }
+  }
+  if (fields.length === 0) return getReferralPartnershipAgreementById(id)
+  values.push(id)
+  db.prepare(`UPDATE referral_partnership_agreements SET ${fields.join(', ')} WHERE id=?`).run(...values)
+  return getReferralPartnershipAgreementById(id)
+}
+
+export function createVenueActivity(a) {
+  db.prepare(
+    `INSERT INTO venue_activity (id, venueId, type, subject, body, metadataJson, createdAt)
+     VALUES (?, ?, ?, ?, ?, ?, ?)`
+  ).run(a.id, a.venueId, a.type, a.subject ?? null, a.body ?? null, a.metadataJson ?? null, a.createdAt)
+  return a.id
+}
+
+export function listVenueActivity(venueId, limit = 100) {
+  return db
+    .prepare('SELECT * FROM venue_activity WHERE venueId = ? ORDER BY createdAt DESC LIMIT ?')
+    .all(venueId, limit)
+    .map(rowToVenueActivity)
 }
 
 // ---------------------------------------------------------------------------
@@ -3294,5 +3705,6 @@ migrateScheduledSendActiveIndexExcludeSent(db)
 // migration from partnership_contacts. See server/venuesSchema.js for full rationale.
 initVenuesAndVisitsSchema(db)
 migratePartnershipContactsToVenues(db, dataDir)
+initReferralPartnershipSchema(db)
 
 export default db

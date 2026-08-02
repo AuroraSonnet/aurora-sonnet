@@ -5,8 +5,56 @@ import type { PartnerReferral, PartnerReferralExpenseLine } from '../api/db'
 import { getInquiryApiBaseUrl } from '../utils/inquiryApiUrl'
 import styles from './PartnerReferrals.module.css'
 
-const PARTNER_COMMISSION_RATE = 0.05
-const PARTNER_MIN_PAYOUT = 100
+const LEGACY_COMMISSION_RATE = 0.05
+const LEGACY_MIN_PAYOUT = 100
+
+type TermsSnap = {
+  termsKind?: string
+  commissionRate?: number
+  minPayoutAmount?: number | null
+  useLegacyExpenseDeduction?: boolean
+}
+
+function parseTermsSnapshot(raw: unknown): TermsSnap | null {
+  if (raw == null || raw === '') return null
+  if (typeof raw === 'object') return raw as TermsSnap
+  try {
+    return JSON.parse(String(raw)) as TermsSnap
+  } catch {
+    return null
+  }
+}
+
+function legacyExpenseMode(terms: TermsSnap | null): boolean {
+  if (!terms) return true
+  return terms.termsKind === 'legacy_default' || Boolean(terms.useLegacyExpenseDeduction)
+}
+
+function commissionRateFromTerms(terms: TermsSnap | null): number {
+  if (terms?.termsKind === 'referral_partnership_mvp') {
+    const rate = terms.commissionRate
+    return Number.isFinite(rate) ? (rate as number) : 0.1
+  }
+  const rate = terms?.commissionRate
+  return Number.isFinite(rate) ? (rate as number) : LEGACY_COMMISSION_RATE
+}
+
+function minPayoutFromTerms(terms: TermsSnap | null): number {
+  if (terms?.termsKind === 'referral_partnership_mvp') return 0
+  if (terms?.termsKind === 'legacy_default' || terms?.useLegacyExpenseDeduction) {
+    const min = terms.minPayoutAmount
+    return Number.isFinite(min) && min != null ? (min as number) : LEGACY_MIN_PAYOUT
+  }
+  if (terms?.minPayoutAmount == null) return 0
+  return Number.isFinite(terms.minPayoutAmount) ? (terms.minPayoutAmount as number) : LEGACY_MIN_PAYOUT
+}
+
+function payoutFormulaLabel(terms: TermsSnap | null): string {
+  const ratePct = Math.round(commissionRateFromTerms(terms) * 100)
+  const min = minPayoutFromTerms(terms)
+  if (min > 0) return `max(${ratePct}% of commissionable, $${min})`
+  return `${ratePct}% of commissionable (no minimum)`
+}
 
 type EditorState = null | { type: 'new' } | { type: 'edit'; row: PartnerReferral }
 
@@ -44,7 +92,6 @@ const REFERRAL_STATUS_OPTIONS: { value: string; label: string }[] = [
   { value: 'contacted', label: 'Contacted' },
   { value: 'booked', label: 'Booked' },
   { value: 'closed_lost', label: 'Closed Lost' },
-  { value: 'paid', label: 'Paid' },
   { value: 'pending', label: 'New (legacy)' },
   { value: 'confirmed', label: 'Booked (legacy)' },
 ]
@@ -187,6 +234,9 @@ function buildPayload(
     expenseLines: ExpenseLineDraft[]
     commissionableOverride: string
     payoutOverride: string
+    venueId: string
+    referringContactId: string
+    linkedProjectId: string
   }
 ): Record<string, unknown> {
   const linesPayload: PartnerReferralExpenseLine[] = fields.expenseLines.map((l) => ({
@@ -212,12 +262,30 @@ function buildPayload(
     payoutStatus: fields.payoutStatus,
     commissionableOverrideAmount: optionalOverride(fields.commissionableOverride),
     payoutOverrideAmount: optionalOverride(fields.payoutOverride),
+    venueId: fields.venueId.trim() || null,
+    referringContactId: fields.referringContactId.trim() || null,
+    linkedProjectId: fields.linkedProjectId.trim() || null,
   }
 }
 
 export default function PartnerReferrals() {
   const { state, actions } = useApp()
   const rows = useMemo(() => [...(state.partnerReferrals ?? [])].sort(compareReferrals), [state.partnerReferrals])
+  const venuesById = useMemo(() => {
+    const m: Record<string, { companyName: string }> = {}
+    for (const v of state.venues ?? []) m[v.id] = v
+    return m
+  }, [state.venues])
+  const contactsById = useMemo(() => {
+    const m: Record<string, { name?: string; email?: string }> = {}
+    for (const c of state.venueContacts ?? []) m[c.id] = c
+    return m
+  }, [state.venueContacts])
+  const agreementsById = useMemo(() => {
+    const m: Record<string, { version: number; status: string }> = {}
+    for (const a of state.referralPartnershipAgreements ?? []) m[a.id] = a
+    return m
+  }, [state.referralPartnershipAgreements])
 
   const [listQuery, setListQuery] = useState('')
   const [listRefreshing, setListRefreshing] = useState(false)
@@ -322,6 +390,9 @@ export default function PartnerReferrals() {
   const [payoutStatus, setPayoutStatus] = useState('none')
   const [commissionableOverride, setCommissionableOverride] = useState('')
   const [payoutOverride, setPayoutOverride] = useState('')
+  const [venueId, setVenueId] = useState('')
+  const [referringContactId, setReferringContactId] = useState('')
+  const [linkedProjectId, setLinkedProjectId] = useState('')
   const [saving, setSaving] = useState(false)
   const [formError, setFormError] = useState('')
 
@@ -343,6 +414,9 @@ export default function PartnerReferrals() {
       setPayoutStatus('none')
       setCommissionableOverride('')
       setPayoutOverride('')
+      setVenueId('')
+      setReferringContactId('')
+      setLinkedProjectId('')
       setFormError('')
       return
     }
@@ -362,18 +436,55 @@ export default function PartnerReferrals() {
     setPayoutStatus(String(r.payoutStatus || 'none').toLowerCase())
     setCommissionableOverride(r.commissionableOverrideAmount != null ? String(r.commissionableOverrideAmount) : '')
     setPayoutOverride(r.payoutOverrideAmount != null ? String(r.payoutOverrideAmount) : '')
+    setVenueId(r.venueId ?? '')
+    setReferringContactId(r.referringContactId ?? '')
+    setLinkedProjectId(r.linkedProjectId ?? r.linkedLeadId ?? '')
     setFormError('')
   }, [editor])
+
+  const previewTerms = useMemo((): TermsSnap => {
+    if (editor?.type === 'edit') {
+      return (
+        parseTermsSnapshot(editor.row.agreementTermsSnapshot) ?? {
+          termsKind: 'legacy_default',
+          commissionRate: LEGACY_COMMISSION_RATE,
+          minPayoutAmount: LEGACY_MIN_PAYOUT,
+          useLegacyExpenseDeduction: true,
+        }
+      )
+    }
+    if (venueId) {
+      const partnership = (state.referralPartnerships ?? []).find((p) => p.venueId === venueId && p.status === 'active')
+      if (partnership?.activeAgreementId) {
+        const agreement = (state.referralPartnershipAgreements ?? []).find((a) => a.id === partnership.activeAgreementId)
+        if (agreement?.termsJson) {
+          const parsed = parseTermsSnapshot(agreement.termsJson)
+          if (parsed) return parsed
+        }
+      }
+    }
+    return {
+      termsKind: 'legacy_default',
+      commissionRate: LEGACY_COMMISSION_RATE,
+      minPayoutAmount: LEGACY_MIN_PAYOUT,
+      useLegacyExpenseDeduction: true,
+    }
+  }, [editor, venueId, state.referralPartnerships, state.referralPartnershipAgreements])
 
   const preview = useMemo(() => {
     const booking = parseWholeUsd(bookingAmount)
     const totalExpenses = expenseLines.reduce((s, l) => s + parseWholeUsd(l.amountStr), 0)
     const co = optionalOverride(commissionableOverride)
-    const commissionable = co != null ? co : Math.max(0, booking - totalExpenses)
+    const deductExpenses = legacyExpenseMode(previewTerms)
+    const commissionable =
+      co != null ? co : deductExpenses ? Math.max(0, booking - totalExpenses) : Math.max(0, booking)
     const po = optionalOverride(payoutOverride)
-    const fivePct = Math.round(commissionable * PARTNER_COMMISSION_RATE)
+    const rate = commissionRateFromTerms(previewTerms)
+    const minPayout = minPayoutFromTerms(previewTerms)
+    const pctPayout = Math.round(commissionable * rate)
+    const formulaPayout = minPayout > 0 ? Math.max(pctPayout, minPayout) : pctPayout
     /** What the formula would pay once status qualifies (same rule as server for Booked/Paid). */
-    const estimatedPayout = po != null ? po : Math.max(fivePct, PARTNER_MIN_PAYOUT)
+    const estimatedPayout = po != null ? po : formulaPayout
     /** Stored rule: $0 until Booked/Paid unless payout override is set. */
     let currentPayout: number
     if (po != null) {
@@ -381,7 +492,7 @@ export default function PartnerReferrals() {
     } else if (!referralStatusEligibleForBookingPayout(referralStatus)) {
       currentPayout = 0
     } else {
-      currentPayout = Math.max(fivePct, PARTNER_MIN_PAYOUT)
+      currentPayout = formulaPayout
     }
     const hasPayoutOverride = po != null
     const payoutPreviewDiffers = currentPayout !== estimatedPayout
@@ -393,8 +504,9 @@ export default function PartnerReferrals() {
       estimatedPayout,
       hasPayoutOverride,
       payoutPreviewDiffers,
+      formulaLabel: payoutFormulaLabel(previewTerms),
     }
-  }, [bookingAmount, expenseLines, commissionableOverride, payoutOverride, referralStatus])
+  }, [bookingAmount, expenseLines, commissionableOverride, payoutOverride, referralStatus, previewTerms])
 
   const closeModal = useCallback(() => {
     if (saving) return
@@ -456,6 +568,9 @@ export default function PartnerReferrals() {
         expenseLines,
         commissionableOverride,
         payoutOverride,
+        venueId,
+        referringContactId,
+        linkedProjectId,
       })
       if (editor.type === 'new') {
         dlog('request:start', { op: 'create' })
@@ -510,6 +625,9 @@ export default function PartnerReferrals() {
     expenseLines,
     commissionableOverride,
     payoutOverride,
+    venueId,
+    referringContactId,
+    linkedProjectId,
     actions,
     dlog,
     saving,
@@ -616,6 +734,7 @@ export default function PartnerReferrals() {
               <th className={styles.colRef}>Reference</th>
               <th className={styles.colPartner}>Partner</th>
               <th className={styles.colClient}>Client</th>
+              <th className={styles.colVenue}>Venue</th>
               <th className={styles.colStatus}>Status</th>
               <th className={styles.colMoney}>Booking</th>
               <th className={styles.colMoney}>Payout</th>
@@ -625,13 +744,13 @@ export default function PartnerReferrals() {
           <tbody>
             {rows.length === 0 ? (
               <tr>
-                <td colSpan={7} className={styles.emptyCell}>
+                <td colSpan={8} className={styles.emptyCell}>
                   No partner referrals yet. Use Add referral or the website form to create one.
                 </td>
               </tr>
             ) : filteredRows.length === 0 ? (
               <tr>
-                <td colSpan={7} className={styles.emptyCell}>
+                <td colSpan={8} className={styles.emptyCell}>
                   No referrals match your search. Clear the search box to see all referrals.
                 </td>
               </tr>
@@ -668,6 +787,21 @@ export default function PartnerReferrals() {
                   </td>
                   <td className={styles.colClient} title={r.clientName}>
                     {r.clientName}
+                  </td>
+                  <td className={styles.colVenue} title={r.venueId || ''}>
+                    {r.venueId ? venuesById[r.venueId]?.companyName || r.venueId : '—'}
+                    {r.referringContactId ? (
+                      <div className={styles.partnerEmail}>
+                        {contactsById[r.referringContactId]?.name || contactsById[r.referringContactId]?.email || 'Contact linked'}
+                      </div>
+                    ) : null}
+                    {r.agreementSnapshotKind ? (
+                      <div className={styles.partnerCompany}>
+                        {r.agreementSnapshotKind === 'legacy_default'
+                          ? 'Legacy default terms'
+                          : `Agreement v${agreementsById[r.agreementId || '']?.version ?? '?'}`}
+                      </div>
+                    ) : null}
                   </td>
                   <td className={styles.colStatus}>
                     <span
@@ -888,6 +1022,54 @@ export default function PartnerReferrals() {
                 />
               </label>
 
+              <p className={styles.formSectionLabel}>CRM links (optional)</p>
+              <div className={styles.formGrid}>
+                <label className={styles.formField}>
+                  Venue
+                  <select className={styles.select} value={venueId} onChange={(e) => setVenueId(e.target.value)}>
+                    <option value="">Unlinked</option>
+                    {(state.venues ?? []).map((v) => (
+                      <option key={v.id} value={v.id}>
+                        {v.companyName}
+                      </option>
+                    ))}
+                  </select>
+                </label>
+                <label className={styles.formField}>
+                  Referring contact
+                  <select
+                    className={styles.select}
+                    value={referringContactId}
+                    onChange={(e) => setReferringContactId(e.target.value)}
+                  >
+                    <option value="">None</option>
+                    {(state.venueContacts ?? [])
+                      .filter((c) => !venueId || c.venueId === venueId)
+                      .map((c) => (
+                        <option key={c.id} value={c.id}>
+                          {c.name || c.email || c.id}
+                        </option>
+                      ))}
+                  </select>
+                </label>
+                <label className={styles.formField}>
+                  Linked project id
+                  <input
+                    className={styles.input}
+                    value={linkedProjectId}
+                    onChange={(e) => setLinkedProjectId(e.target.value)}
+                    placeholder="e.g. p12"
+                  />
+                </label>
+              </div>
+              {isEdit && editRow ? (
+                <p className={styles.summaryFoot}>
+                  Submitted as: {editRow.partnerName} · {editRow.partnerEmail}
+                  {editRow.companyName ? ` · ${editRow.companyName}` : ''}. Terms snapshot:{' '}
+                  {editRow.agreementSnapshotKind === 'legacy_default' ? 'Legacy default' : 'Agreement-based'} (immutable).
+                </p>
+              ) : null}
+
               <p className={styles.formSectionLabel}>Status and amounts</p>
               <div className={styles.formGrid}>
                 <label className={styles.formField}>
@@ -920,6 +1102,11 @@ export default function PartnerReferrals() {
                       </option>
                     ))}
                   </select>
+                  {(payoutStatus === 'pending' || payoutStatus === 'paid') && (
+                    <span className={styles.hint}>
+                      Requires event completed and client paid in full (link a project or set flags on save).
+                    </span>
+                  )}
                 </label>
                 <label className={styles.formField}>
                   Booking amount (USD, whole dollars)
@@ -1012,8 +1199,11 @@ export default function PartnerReferrals() {
                   {preview.hasPayoutOverride
                     ? 'Payout override is set; both amounts use that value (same rule as when saved).'
                     : preview.payoutPreviewDiffers
-                      ? 'Stored payout stays $0 until status is Booked or Paid. The estimate is max(5% of commissionable, $100) using booking − expenses above.'
-                      : 'With status Booked or Paid, the stored payout matches this estimate: max(5% of commissionable, $100).'}
+                      ? `Stored payout stays $0 until status is Booked or Paid. The estimate is ${preview.formulaLabel} using booking − expenses above (when applicable).`
+                      : `With status Booked or Paid, the stored payout matches this estimate: ${preview.formulaLabel}.`}
+                </p>
+                <p className={styles.summaryFoot}>
+                  New agreements: 10% with no minimum. Legacy (pre-agreement): 5% with $100 minimum. New pays less below $1,000 commissionable, equal at $1,000, more above. Historical referrals unchanged.
                 </p>
               </div>
 
@@ -1042,7 +1232,7 @@ export default function PartnerReferrals() {
                     placeholder="Leave blank for formula"
                     autoComplete="off"
                   />
-                  <span className={styles.hint}>Blank = 5% rule (min $100) when Booked/Paid.</span>
+                  <span className={styles.hint}>Blank = {preview.formulaLabel} when Booked/Paid.</span>
                 </label>
               </div>
 

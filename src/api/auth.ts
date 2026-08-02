@@ -3,6 +3,7 @@ const API = '/api'
 export type AuthUser = {
   authenticated: boolean
   username: string | null
+  canRecordReferralLegalApproval?: boolean
 }
 
 export async function fetchAuthMe(): Promise<AuthUser> {
