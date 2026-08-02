@@ -23,7 +23,7 @@ const html = buildDraftAgreementHtml({
   agencyLegalName: 'Aurora Sonnet LLC',
   agencyAddress: '[Configure Aurora Sonnet legal/mailing address in CRM — business address only]',
   agencySignatoryName: 'Lisa Dubocquet',
-  agencySignatoryTitle: 'Founder & Managing Member',
+  agencySignatoryTitle: 'Founder & Artistic Director',
   effectiveDate: '2026-08-02',
   agreementVersionIdentifier: SAMPLE_VERSION_ID,
   terms: DEFAULT_REFERRAL_PARTNERSHIP_TERMS,

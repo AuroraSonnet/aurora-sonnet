@@ -133,6 +133,7 @@ function fullAgreementBodyHtml(fields, t) {
 <p><strong>Partner:</strong> ${escapeHtml(partnerLegalName)}, with its principal address at ${escapeHtml(partnerAddress)} ("Partner").</p>
 <p><strong>Aurora Sonnet:</strong> ${escapeHtml(agencyLegalName)}, with its principal address at ${escapeHtml(agencyAddress)} ("Aurora Sonnet").</p>
 <p>Partner's authorized signatory for this Agreement: ${escapeHtml(signatoryName)}, ${escapeHtml(signatoryTitle)}.</p>
+<p>Aurora Sonnet's signatory for this Agreement, ${escapeHtml(agencySignatoryName)}, ${escapeHtml(agencySignatoryTitle)}, acts as Aurora Sonnet's duly authorized representative.</p>
 
 <h3>2. Purpose</h3>
 <p>Partner may refer prospective clients to Aurora Sonnet for live musical performance services at weddings and related events. This Agreement sets the commercial and legal terms for eligible referrals and commission payments.</p>
@@ -202,7 +203,7 @@ function fullAgreementBodyHtml(fields, t) {
 <p>Title: ${escapeHtml(signatoryTitle)}</p>
 <p>Date: _________________________________</p>
 <p>&nbsp;</p>
-<p><strong>Aurora Sonnet</strong> (${escapeHtml(agencyLegalName)})</p>
+<p><strong>Aurora Sonnet</strong> (${escapeHtml(agencyLegalName)}), by its duly authorized representative:</p>
 <p>Signature: _________________________________</p>
 <p>Printed name: ${escapeHtml(agencySignatoryName)}</p>
 <p>Title: ${escapeHtml(agencySignatoryTitle)}</p>

@@ -23,7 +23,7 @@ function setupTestOrgAndAuth() {
     legalName: 'Aurora Sonnet LLC',
     legalAddress: '200 Business Center, New York, NY 10001',
     signatoryName: 'Lisa Dubocquet',
-    signatoryTitle: 'Founder & Managing Member',
+    signatoryTitle: 'Founder & Artistic Director',
   })
   const legalAuth = requireLegalAuthModule()
   legalAuth.setLegalApprovalAuthorizedUsernames([TEST_ACTOR])
@@ -51,6 +51,26 @@ test.before(async () => {
 test.after(() => {
   delete process.env.DATA_DIR
   if (dataDir) rmSync(dataDir, { recursive: true, force: true })
+})
+
+test('agreement template uses Founder & Artistic Director and duly authorized representative language', async () => {
+  const { buildDraftAgreementHtml, DEFAULT_REFERRAL_PARTNERSHIP_TERMS } = await import('../server/referralPartnershipTerms.js')
+  const html = buildDraftAgreementHtml({
+    venueName: 'Test Venue LLC',
+    partnerLegalName: 'Test Venue LLC',
+    partnerAddress: '1 Test St, Brooklyn, NY',
+    signatoryName: 'Alex Planner',
+    signatoryTitle: 'Events Director',
+    agencyLegalName: 'Aurora Sonnet LLC',
+    agencyAddress: '200 Business Center, New York, NY',
+    agencySignatoryName: 'Lisa Dubocquet',
+    agencySignatoryTitle: 'Founder & Artistic Director',
+    agreementVersionIdentifier: 'RPA-test-template',
+    terms: DEFAULT_REFERRAL_PARTNERSHIP_TERMS,
+    draftBanner: false,
+  })
+  assert.match(html, /Founder &amp; Artistic Director/)
+  assert.match(html, /duly authorized representative/i)
 })
 
 test('legacy_default snapshot uses expense deduction; agreement terms do not', () => {

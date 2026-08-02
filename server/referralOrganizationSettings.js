@@ -15,7 +15,7 @@ export const DEFAULT_AURORA_ORG = {
   legalName: 'Aurora Sonnet LLC',
   legalAddress: '',
   signatoryName: 'Lisa Dubocquet',
-  signatoryTitle: 'Founder & Managing Member',
+  signatoryTitle: 'Founder & Artistic Director',
 }
 
 export function getAuroraOrganizationSettings() {
