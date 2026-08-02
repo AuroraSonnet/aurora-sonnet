@@ -26,6 +26,7 @@ import SignContract from './pages/SignContract'
 import AcceptProposal from './pages/AcceptProposal'
 import WeddingMusicSelection from './pages/WeddingMusicSelection'
 import PartnershipOutreach from './pages/PartnershipOutreach'
+import PartnerReferrals from './pages/PartnerReferrals'
 import OutreachToday from './pages/OutreachToday'
 import OutreachScoreboard from './pages/OutreachScoreboard'
 
@@ -62,6 +63,7 @@ export default function App() {
         <Route path="newsletter" element={<Newsletter />} />
         <Route path="bookings" element={<Projects />} />
         <Route path="proposals" element={<Proposals />} />
+        <Route path="partner-referrals" element={<PartnerReferrals />} />
         <Route path="partnership-outreach" element={<PartnershipOutreach />} />
         <Route path="outreach-today" element={<OutreachToday />} />
         <Route path="outreach-scoreboard" element={<OutreachScoreboard />} />

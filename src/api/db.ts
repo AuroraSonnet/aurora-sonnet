@@ -1,3 +1,5 @@
+import { getInquiryApiBaseUrl } from '../utils/inquiryApiUrl'
+
 const API = '/api'
 
 function apiFetch(input: RequestInfo | URL, init?: RequestInit): Promise<Response> {
@@ -29,6 +31,46 @@ export interface Experience {
   createdAt: string
 }
 
+/** Single deductible line for partner referral payout (whole USD). */
+export interface PartnerReferralExpenseLine {
+  id: string
+  name: string
+  amount: number
+}
+
+/** Whole USD (same as invoices). Payout rule applied on create/update when status is booked/paid. */
+export interface PartnerReferral {
+  id: string
+  /** Human-facing reference, e.g. REF-1001 (generated on create). */
+  referralReference?: string
+  partnerName: string
+  companyName?: string
+  partnerEmail: string
+  clientName: string
+  clientEmail: string
+  clientPhone?: string
+  eventDate?: string
+  eventLocation?: string
+  notes?: string
+  referralStatus: string
+  bookingAmount: number
+  travelExpenseAmount: number
+  hotelExpenseAmount: number
+  expenseLineItems?: PartnerReferralExpenseLine[]
+  totalExpenseAmount?: number
+  commissionableAmount: number
+  commissionableOverrideAmount?: number
+  payoutAmount: number
+  payoutOverrideAmount?: number
+  payoutStatus: string
+  submissionDate: string
+  linkedVendorId?: string
+  linkedLeadId?: string
+  venueId?: string
+  referringContactId?: string
+  updatedAt: string
+}
+
 export interface AppState {
   clients: { id: string; name: string; email: string; phone?: string; partnerName?: string; createdAt: string }[]
   projects: { id: string; clientId: string; clientName: string; title: string; stage: string; value: number; weddingDate: string; venue?: string; packageType?: string; dueDate: string; createdAt?: string; archivedAt?: string }[]
@@ -41,6 +83,7 @@ export interface AppState {
   invoiceTemplates?: DocumentTemplate[]
   pipelineStages?: PipelineStage[]
   experiences?: Experience[]
+  partnerReferrals?: PartnerReferral[]
   config?: { publicAppUrl?: string }
 }
 
@@ -1565,4 +1608,115 @@ export function apiCreateOutreachRegion(name: string) {
 
 export function apiUpdateOutreachRegion(id: string, updates: Record<string, unknown>) {
   return jsonRequest<OutreachRegion>(`/outreach-regions/${id}`, { method: 'PATCH', body: JSON.stringify(updates) })
+}
+
+export async function apiCreatePartnerReferral(
+  body: Record<string, unknown>
+): Promise<{ ok: true; id: string; referralReference?: string } | { ok: false; error: string }> {
+  try {
+    const res = await apiFetch(`${API}/partner-referrals`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(body),
+    })
+    const data = (await res.json().catch(() => ({}))) as { id?: string; referralReference?: string; error?: string }
+    if (res.ok && data.id) {
+      return {
+        ok: true,
+        id: String(data.id),
+        referralReference: typeof data.referralReference === 'string' ? data.referralReference : undefined,
+      }
+    }
+    return { ok: false, error: typeof data.error === 'string' ? data.error : 'Failed to create partner referral' }
+  } catch {
+    return { ok: false, error: 'Network error' }
+  }
+}
+
+export async function apiUpdatePartnerReferral(
+  id: string,
+  updates: Record<string, unknown>
+): Promise<{ ok: true; referral: PartnerReferral } | { ok: false; error: string }> {
+  const enc = encodeURIComponent(id)
+  const parseReferral = async (res: Response): Promise<PartnerReferral & { error?: string }> =>
+    (await res.json().catch(() => ({}))) as PartnerReferral & { error?: string }
+
+  try {
+    const controller = new AbortController()
+    const tid = setTimeout(() => controller.abort(), 20000)
+    const res = await apiFetch(`${API}/partner-referrals/${enc}`, {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(updates),
+      signal: controller.signal,
+    })
+    clearTimeout(tid)
+
+    if (res.status === 404) {
+      const base = getInquiryApiBaseUrl()
+      if (base && base.startsWith('http')) {
+        const b = base.replace(/\/$/, '')
+        const rController = new AbortController()
+        const rTid = setTimeout(() => rController.abort(), 20000)
+        try {
+          const rRes = await fetch(`${b}/api/partner-referrals/${enc}`, {
+            method: 'PATCH',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(updates),
+            signal: rController.signal,
+            credentials: 'include',
+          })
+          clearTimeout(rTid)
+          const data = await parseReferral(rRes)
+          if (rRes.ok) {
+            if (data.id) return { ok: true, referral: data as PartnerReferral }
+            return { ok: true, referral: { ...(data as PartnerReferral), id } as PartnerReferral }
+          }
+          const errMsg =
+            typeof data.error === 'string'
+              ? data.error
+              : `Failed to update partner referral on remote (HTTP ${rRes.status})`
+          return { ok: false, error: errMsg }
+        } catch {
+          clearTimeout(rTid)
+          return { ok: false, error: 'Network error (or request timed out) on remote' }
+        }
+      }
+    }
+
+    const data = await parseReferral(res)
+    if (res.ok) {
+      if (data.id) return { ok: true, referral: data as PartnerReferral }
+      return { ok: true, referral: { ...(data as PartnerReferral), id } as PartnerReferral }
+    }
+    const errMsg =
+      typeof data.error === 'string' ? data.error : `Failed to update partner referral (HTTP ${res.status})`
+    return { ok: false, error: errMsg }
+  } catch {
+    return { ok: false, error: 'Network error (or request timed out)' }
+  }
+}
+
+/** Delete on local CRM server; also on Inquiry/Render URL when set so merge/refresh does not resurrect the row. */
+export async function apiDeletePartnerReferral(id: string): Promise<boolean> {
+  const enc = encodeURIComponent(id)
+  let localOk = false
+  try {
+    const res = await apiFetch(`${API}/partner-referrals/${enc}`, { method: 'DELETE' })
+    localOk = res.ok || res.status === 404
+  } catch {
+    localOk = false
+  }
+  const base = getInquiryApiBaseUrl()
+  if (!base || !base.startsWith('http')) {
+    return localOk
+  }
+  try {
+    const b = base.replace(/\/$/, '')
+    const res = await fetch(`${b}/api/partner-referrals/${enc}`, { method: 'DELETE', credentials: 'include' })
+    const remoteOk = res.ok || res.status === 404
+    return localOk && remoteOk
+  } catch {
+    return false
+  }
 }

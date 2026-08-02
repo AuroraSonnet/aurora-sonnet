@@ -1,4 +1,4 @@
-import { createContext, useContext, useCallback, useMemo, useRef, useState, useEffect, type ReactNode } from 'react'
+import { createContext, useContext, useCallback, useMemo, useRef, useState, useEffect, type ReactNode, type Dispatch, type SetStateAction } from 'react'
 import {
   clients as initialClients,
   projects as initialProjects,
@@ -46,6 +46,7 @@ import {
   type Visit,
   type VisitDebrief,
   type OutreachRegion,
+  type PartnerReferral,
 } from '../api/db'
 import { playNewInquirySound, prepareInquirySoundContext } from '../utils/sound'
 import { getInquiryApiBaseUrl } from '../utils/inquiryApiUrl'
@@ -109,6 +110,7 @@ interface AppState {
   visitDebriefs: VisitDebrief[]
   outreachRegions: OutreachRegion[]
   outreachSettings: { dailyVisitTarget: number }
+  partnerReferrals: PartnerReferral[]
   config?: { publicAppUrl?: string }
 }
 
@@ -144,6 +146,7 @@ const defaultState: AppState = {
   visitDebriefs: [],
   outreachRegions: [],
   outreachSettings: { dailyVisitTarget: 5 },
+  partnerReferrals: [],
 }
 
 /** Never overwrite existing data with an empty list. If we have data and the API returns empty for that list, we keep ours. */
@@ -184,6 +187,7 @@ function mergeStateFromApi(
     visitDebriefs: preferNonEmpty(prev.visitDebriefs ?? [], (apiState as { visitDebriefs?: VisitDebrief[] }).visitDebriefs),
     outreachRegions: preferNonEmpty(prev.outreachRegions ?? [], (apiState as { outreachRegions?: OutreachRegion[] }).outreachRegions),
     outreachSettings: (apiState as { outreachSettings?: { dailyVisitTarget: number } }).outreachSettings ?? prev.outreachSettings ?? { dailyVisitTarget: 5 },
+    partnerReferrals: preferNonEmpty(prev.partnerReferrals ?? [], (apiState as { partnerReferrals?: PartnerReferral[] }).partnerReferrals),
     config: (apiState as { config?: { publicAppUrl?: string } }).config ?? prev.config,
   } as AppState
 }
@@ -219,8 +223,57 @@ function mergeStateFromApiTrusted(
     visitDebriefs: (apiState as { visitDebriefs?: VisitDebrief[] }).visitDebriefs ?? prev.visitDebriefs ?? [],
     outreachRegions: (apiState as { outreachRegions?: OutreachRegion[] }).outreachRegions ?? prev.outreachRegions ?? [],
     outreachSettings: (apiState as { outreachSettings?: { dailyVisitTarget: number } }).outreachSettings ?? prev.outreachSettings ?? { dailyVisitTarget: 5 },
+    partnerReferrals: (apiState as { partnerReferrals?: PartnerReferral[] }).partnerReferrals ?? prev.partnerReferrals ?? [],
     config: (apiState as { config?: { publicAppUrl?: string } }).config ?? prev.config,
   } as AppState
+}
+
+function partnerReferralUpdatedAt(r: PartnerReferral): string {
+  return String(r.updatedAt ?? '')
+}
+
+function mergePartnerReferralListsById(local: PartnerReferral[], remote: PartnerReferral[]): PartnerReferral[] {
+  const map = new Map<string, PartnerReferral>()
+  for (const r of local ?? []) map.set(r.id, r)
+  for (const r of remote ?? []) {
+    const prev = map.get(r.id)
+    if (!prev) {
+      map.set(r.id, r)
+      continue
+    }
+    const pt = partnerReferralUpdatedAt(prev)
+    const rt = partnerReferralUpdatedAt(r)
+    if (rt > pt) map.set(r.id, r)
+    else if (rt < pt) map.set(r.id, prev)
+  }
+  return Array.from(map.values()).sort((a, b) => {
+    const da = String(a.submissionDate || '').localeCompare(String(b.submissionDate || ''))
+    if (da !== 0) return -da
+    return String(b.updatedAt || '').localeCompare(String(a.updatedAt || ''))
+  })
+}
+
+async function fetchAndMergeRemotePartnerReferrals(setState: Dispatch<SetStateAction<AppState>>): Promise<void> {
+  const baseRaw = getInquiryApiBaseUrl()
+  const base = baseRaw.replace(/\/$/, '')
+  if (!base) return
+  try {
+    const url = `${base}/api/state`
+    const controller = new AbortController()
+    const tid = setTimeout(() => controller.abort(), 20000)
+    const res = await fetch(url, { headers: { Accept: 'application/json' }, signal: controller.signal })
+    clearTimeout(tid)
+    if (!res.ok) return
+    const data = (await res.json()) as { partnerReferrals?: PartnerReferral[] }
+    const remote = data.partnerReferrals
+    if (!Array.isArray(remote)) return
+    setState((prev) => ({
+      ...prev,
+      partnerReferrals: mergePartnerReferralListsById(prev.partnerReferrals ?? [], remote),
+    }))
+  } catch {
+    // ignore — network / offline
+  }
 }
 
 function loadStateFromStorage(): AppState {
@@ -252,6 +305,7 @@ function loadStateFromStorage(): AppState {
           visitDebriefs: parsed.visitDebriefs ?? defaultState.visitDebriefs ?? [],
           outreachRegions: parsed.outreachRegions ?? defaultState.outreachRegions ?? [],
           outreachSettings: parsed.outreachSettings ?? defaultState.outreachSettings ?? { dailyVisitTarget: 5 },
+          partnerReferrals: parsed.partnerReferrals ?? defaultState.partnerReferrals ?? [],
         }
     }
   } catch (_) {}
@@ -282,6 +336,8 @@ type AppActions = {
   deleteCalendarReminder: (id: string) => void
   setAutomationEnabled: (id: string, enabled: boolean) => void
   refreshState: () => Promise<void>
+  /** Merge `partnerReferrals` from Inquiry/Render into local state (same path as startup/refreshState tail). */
+  refreshPartnerReferralsRemote: () => Promise<void>
   /** Remove one client and their projects from local state only (after API delete succeeded). Avoids refreshState overwriting with empty. */
   removeClientLocally: (clientId: string) => void
   /** Remove one contract from local state (after API delete succeeded). Lets user recreate contract for same project. */
@@ -323,45 +379,51 @@ export function AppProvider({ children }: { children: ReactNode }) {
   useEffect(() => {
     let cancelled = false
     async function loadInitialState() {
-      const apiState = await fetchState()
-      if (cancelled) return
-      if (apiState) {
-        setUseApi(true)
-        const hasData =
-          (apiState.clients?.length ?? 0) > 0 ||
-          (apiState.projects?.length ?? 0) > 0 ||
-          (apiState.proposals?.length ?? 0) > 0 ||
-          (apiState.invoices?.length ?? 0) > 0 ||
-          (apiState.contracts?.length ?? 0) > 0 ||
-          (apiState.expenses?.length ?? 0) > 0 ||
-          ((apiState as { partnershipContacts?: unknown[] }).partnershipContacts?.length ?? 0) > 0
-        if (hasData) {
-          setState((prev) => mergeStateFromApi(prev, apiState as AppState & { automations?: Automation[]; contractTemplates?: DocumentTemplate[]; invoiceTemplates?: DocumentTemplate[]; pipelineStages?: PipelineStage[] }))
-          return
-        }
-      }
-      // Fallback: same-origin failed or returned empty — fetch from inquiry API URL so URL app shows inquiries (e.g. when opened from aurorasonnet.com or after cold start)
-      const base = getInquiryApiBaseUrl()
-      if (!base) return
       try {
-        const res = await fetch(`${base}/api/state`)
-        if (cancelled || !res.ok) return
-        const fallbackState = (await res.json()) as AppState & { automations?: Automation[]; contractTemplates?: DocumentTemplate[]; invoiceTemplates?: DocumentTemplate[]; pipelineStages?: PipelineStage[] }
+        const apiState = await fetchState()
         if (cancelled) return
-        const hasData =
-          (fallbackState.clients?.length ?? 0) > 0 ||
-          (fallbackState.projects?.length ?? 0) > 0 ||
-          (fallbackState.proposals?.length ?? 0) > 0 ||
-          (fallbackState.invoices?.length ?? 0) > 0 ||
-          (fallbackState.contracts?.length ?? 0) > 0 ||
-          (fallbackState.expenses?.length ?? 0) > 0 ||
-          ((fallbackState as { partnershipContacts?: unknown[] }).partnershipContacts?.length ?? 0) > 0
-        if (hasData) {
+        if (apiState) {
           setUseApi(true)
-          setState((prev) => mergeStateFromApi(prev, fallbackState))
+          const hasData =
+            (apiState.clients?.length ?? 0) > 0 ||
+            (apiState.projects?.length ?? 0) > 0 ||
+            (apiState.proposals?.length ?? 0) > 0 ||
+            (apiState.invoices?.length ?? 0) > 0 ||
+            (apiState.contracts?.length ?? 0) > 0 ||
+            (apiState.expenses?.length ?? 0) > 0 ||
+            ((apiState as { partnershipContacts?: unknown[] }).partnershipContacts?.length ?? 0) > 0 ||
+            ((apiState as { partnerReferrals?: PartnerReferral[] }).partnerReferrals?.length ?? 0) > 0
+          if (hasData) {
+            setState((prev) => mergeStateFromApi(prev, apiState as AppState & { automations?: Automation[]; contractTemplates?: DocumentTemplate[]; invoiceTemplates?: DocumentTemplate[]; pipelineStages?: PipelineStage[] }))
+            return
+          }
         }
-      } catch {
-        // ignore
+        // Fallback: same-origin failed or returned empty — fetch from inquiry API URL so URL app shows inquiries (e.g. when opened from aurorasonnet.com or after cold start)
+        const base = getInquiryApiBaseUrl()
+        if (!base) return
+        try {
+          const res = await fetch(`${base}/api/state`)
+          if (cancelled || !res.ok) return
+          const fallbackState = (await res.json()) as AppState & { automations?: Automation[]; contractTemplates?: DocumentTemplate[]; invoiceTemplates?: DocumentTemplate[]; pipelineStages?: PipelineStage[] }
+          if (cancelled) return
+          const hasData =
+            (fallbackState.clients?.length ?? 0) > 0 ||
+            (fallbackState.projects?.length ?? 0) > 0 ||
+            (fallbackState.proposals?.length ?? 0) > 0 ||
+            (fallbackState.invoices?.length ?? 0) > 0 ||
+            (fallbackState.contracts?.length ?? 0) > 0 ||
+            (fallbackState.expenses?.length ?? 0) > 0 ||
+            ((fallbackState as { partnershipContacts?: unknown[] }).partnershipContacts?.length ?? 0) > 0 ||
+            ((fallbackState as { partnerReferrals?: PartnerReferral[] }).partnerReferrals?.length ?? 0) > 0
+          if (hasData) {
+            setUseApi(true)
+            setState((prev) => mergeStateFromApi(prev, fallbackState))
+          }
+        } catch {
+          // ignore
+        }
+      } finally {
+        if (!cancelled) await fetchAndMergeRemotePartnerReferrals(setState)
       }
     }
     loadInitialState()
@@ -594,7 +656,8 @@ export function AppProvider({ children }: { children: ReactNode }) {
         (s.invoices?.length ?? 0) > 0 ||
         (s.contracts?.length ?? 0) > 0 ||
         (s.expenses?.length ?? 0) > 0 ||
-        (s.partnershipContacts?.length ?? 0) > 0
+        (s.partnershipContacts?.length ?? 0) > 0 ||
+        ((s as { partnerReferrals?: { id: string }[] }).partnerReferrals?.length ?? 0) > 0
       )
     }
     let apiState = await fetchState()
@@ -624,6 +687,11 @@ export function AppProvider({ children }: { children: ReactNode }) {
       saveState(next) // persist so deleted bookings/clients stay gone after app restart
       return next
     })
+    await fetchAndMergeRemotePartnerReferrals(setState)
+  }, [])
+
+  const refreshPartnerReferralsRemote = useCallback(async () => {
+    await fetchAndMergeRemotePartnerReferrals(setState)
   }, [])
 
   const removeClientLocally = useCallback((clientId: string) => {
@@ -1015,6 +1083,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
         deleteCalendarReminder,
         setAutomationEnabled,
         refreshState,
+        refreshPartnerReferralsRemote,
         removeClientLocally,
         removeContractLocally,
         restoreClientLocally,
@@ -1047,6 +1116,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
       deleteCalendarReminder,
       setAutomationEnabled,
       refreshState,
+      refreshPartnerReferralsRemote,
       removeClientLocally,
       removeContractLocally,
       restoreClientLocally,
