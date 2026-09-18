@@ -1809,11 +1809,64 @@ async function sendDuoRepertoireAgencyNotification(saved) {
 }
 
 /** Client-facing confirmation immediately after any inquiry form (solo / duo / general). */
-async function sendInquiryClientConfirmation(fullName, clientEmail) {
+function isHomepageQuoteInquiry(body, inquiryMessage) {
+  const source = String((body && body.source) || '').trim().toLowerCase()
+  if (source === 'homepage-quote' || source === 'quote') return true
+  return /^homepage quote request/i.test(String(inquiryMessage || ''))
+}
+
+function accompanimentFromQuoteMessage(message) {
+  const m = String(message || '').match(/^Accompaniment:\s*(.+)$/im)
+  return m ? String(m[1] || '').trim() : ''
+}
+
+function formatQuoteWeddingDate(raw) {
+  const s = String(raw || '').trim()
+  const m = s.match(/^(\d{4})-(\d{2})-(\d{2})/)
+  if (!m) return s
+  const months = [
+    'January', 'February', 'March', 'April', 'May', 'June',
+    'July', 'August', 'September', 'October', 'November', 'December',
+  ]
+  const month = months[Number(m[2]) - 1]
+  if (!month) return s
+  return `${month} ${Number(m[3])}, ${m[1]}`
+}
+
+function quoteSoundPhrase(label) {
+  const s = String(label || '').trim()
+  if (!s) return ''
+  const key = s.toLowerCase()
+  if (key === 'self-accompanied' || key === 'self accompanied') return 'self-accompanied'
+  if (key === 'backing track' || key === 'backing-track') return 'with a backing track'
+  if (key === 'piano') return 'with piano'
+  if (key === 'guitar') return 'with guitar'
+  return `with ${s.charAt(0).toLowerCase()}${s.slice(1)}`
+}
+
+function quoteThankYouLine(options) {
+  const artist = String((options && options.requestedArtist) || '').trim()
+  const soundPhrase = quoteSoundPhrase((options && options.accompaniment) || '')
+  const date = formatQuoteWeddingDate((options && options.weddingDate) || '')
+  let forWhat = ''
+  if (artist && soundPhrase === 'self-accompanied') forWhat = `${artist}, self-accompanied`
+  else if (artist && soundPhrase) forWhat = `${artist} ${soundPhrase}`
+  else if (artist) forWhat = artist
+  else if (soundPhrase === 'self-accompanied') forWhat = 'a self-accompanied performance'
+  else if (soundPhrase) forWhat = soundPhrase.replace(/^with /, '')
+  if (forWhat && date) return `Thank you for requesting a quote for ${forWhat} on ${date}.`
+  if (forWhat) return `Thank you for requesting a quote for ${forWhat}.`
+  if (date) return `Thank you for requesting a quote for your wedding on ${date}.`
+  return "Thank you. We've received your quote request."
+}
+
+async function sendInquiryClientConfirmation(fullName, clientEmail, options) {
+  const isQuote = Boolean(options && options.isQuote)
   console.log('[CLIENT-EMAIL] sendInquiryClientConfirmation invoked', {
     hasTransporter: Boolean(reminderTransporter),
     clientEmailLen: clientEmail != null ? String(clientEmail).length : 0,
     nameLen: fullName != null ? String(fullName).length : 0,
+    isQuote,
   })
   const mailFrom = smtpFromAddress()
   if (!reminderTransporter) {
@@ -1829,24 +1882,37 @@ async function sendInquiryClientConfirmation(fullName, clientEmail) {
     console.log('[CLIENT-EMAIL] skipped: recipient email empty after trim')
     return
   }
-  console.log('[CLIENT-EMAIL] sendMail attempt', { from: mailFrom, to })
+  console.log('[CLIENT-EMAIL] sendMail attempt', { from: mailFrom, to, isQuote })
   const first = inquiryFirstNameFromFullName(fullName)
   const greetingLine = first ? `Hi ${first},` : 'Hi there,'
-  const subject = 'We Received Your Inquiry'
-  const text = [
-    greetingLine,
-    '',
-    'Thank you for reaching out to Aurora Sonnet. We\'ve received your inquiry and are so glad to hear from you.',
-    '',
-    'We\'ll be in touch shortly to learn more about your wedding and help guide you toward the right vocal experience for your day.',
-    '',
-    'If you\'d prefer, you\'re also welcome to schedule a short consultation here: https://calendar.app.google/APPAKGdYYG8mAzsdA',
-    '',
-    'Warmly,',
-    'Lisa Dubocquet',
-    'Aurora Sonnet LLC',
-    'aurorasonnet.com',
-  ].join('\n')
+  const subject = isQuote ? "We've received your quote request" : 'We Received Your Inquiry'
+  const text = isQuote
+    ? [
+        greetingLine,
+        '',
+        quoteThankYouLine(options),
+        '',
+        "We're reviewing your selections now and will be in touch shortly with your quote.",
+        '',
+        'Warmly,',
+        'Lisa Dubocquet',
+        'Aurora Sonnet LLC',
+        'aurorasonnet.com',
+      ].join('\n')
+    : [
+        greetingLine,
+        '',
+        'Thank you for reaching out to Aurora Sonnet. We\'ve received your inquiry and are so glad to hear from you.',
+        '',
+        'We\'ll be in touch shortly to learn more about your wedding and help guide you toward the right vocal experience for your day.',
+        '',
+        'If you\'d prefer, you\'re also welcome to schedule a short consultation here: https://calendar.app.google/APPAKGdYYG8mAzsdA',
+        '',
+        'Warmly,',
+        'Lisa Dubocquet',
+        'Aurora Sonnet LLC',
+        'aurorasonnet.com',
+      ].join('\n')
   try {
     const info = await reminderTransporter.sendMail({
       from: mailFrom,
@@ -1963,8 +2029,15 @@ app.post('/api/inquiry', async (req, res) => {
         logError('SMTP', 'Inquiry notification (non-blocking)', err)
       })
 
-    console.log('[CLIENT-EMAIL] before sendInquiryClientConfirmation (scheduling)', { to: email })
-    sendInquiryClientConfirmation(name, email)
+    const isQuote = isHomepageQuoteInquiry(body, inquiryMessage)
+    const submittedWeddingDate = String(body.weddingDate ?? '').trim()
+    console.log('[CLIENT-EMAIL] before sendInquiryClientConfirmation (scheduling)', { to: email, isQuote })
+    sendInquiryClientConfirmation(name, email, {
+      isQuote,
+      requestedArtist,
+      accompaniment: accompanimentFromQuoteMessage(inquiryMessage),
+      weddingDate: submittedWeddingDate || undefined,
+    })
       .then(() => console.log('[CLIENT-EMAIL] after sendInquiryClientConfirmation (promise settled)'))
       .catch((err) => {
         console.error('[CLIENT-EMAIL] promise rejection (unexpected)', err && err.message, err)
