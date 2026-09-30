@@ -196,7 +196,9 @@ function mergeStateFromApi(
     visitDebriefs: preferNonEmpty(prev.visitDebriefs ?? [], (apiState as { visitDebriefs?: VisitDebrief[] }).visitDebriefs),
     outreachRegions: preferNonEmpty(prev.outreachRegions ?? [], (apiState as { outreachRegions?: OutreachRegion[] }).outreachRegions),
     outreachSettings: (apiState as { outreachSettings?: { dailyVisitTarget: number } }).outreachSettings ?? prev.outreachSettings ?? { dailyVisitTarget: 5 },
-    partnerReferrals: preferNonEmpty(prev.partnerReferrals ?? [], (apiState as { partnerReferrals?: PartnerReferral[] }).partnerReferrals),
+    partnerReferrals: withoutDeletedPartnerReferrals(
+      preferNonEmpty(prev.partnerReferrals ?? [], (apiState as { partnerReferrals?: PartnerReferral[] }).partnerReferrals)
+    ),
     referralPartnerships: preferNonEmpty(
       prev.referralPartnerships ?? [],
       (apiState as { referralPartnerships?: ReferralPartnership[] }).referralPartnerships
@@ -241,7 +243,9 @@ function mergeStateFromApiTrusted(
     visitDebriefs: (apiState as { visitDebriefs?: VisitDebrief[] }).visitDebriefs ?? prev.visitDebriefs ?? [],
     outreachRegions: (apiState as { outreachRegions?: OutreachRegion[] }).outreachRegions ?? prev.outreachRegions ?? [],
     outreachSettings: (apiState as { outreachSettings?: { dailyVisitTarget: number } }).outreachSettings ?? prev.outreachSettings ?? { dailyVisitTarget: 5 },
-    partnerReferrals: (apiState as { partnerReferrals?: PartnerReferral[] }).partnerReferrals ?? prev.partnerReferrals ?? [],
+    partnerReferrals: withoutDeletedPartnerReferrals(
+      (apiState as { partnerReferrals?: PartnerReferral[] }).partnerReferrals ?? prev.partnerReferrals ?? []
+    ),
     referralPartnerships:
       (apiState as { referralPartnerships?: ReferralPartnership[] }).referralPartnerships ?? prev.referralPartnerships ?? [],
     referralPartnershipAgreements:
@@ -257,10 +261,18 @@ function partnerReferralUpdatedAt(r: PartnerReferral): string {
   return String(r.updatedAt ?? '')
 }
 
+/** Ids deleted this session. A /api/state snapshot fetched before the delete finished must not add them back. */
+const deletedPartnerReferralIds = new Set<string>()
+
+function withoutDeletedPartnerReferrals(list: PartnerReferral[]): PartnerReferral[] {
+  return deletedPartnerReferralIds.size ? list.filter((r) => !deletedPartnerReferralIds.has(r.id)) : list
+}
+
 function mergePartnerReferralListsById(local: PartnerReferral[], remote: PartnerReferral[]): PartnerReferral[] {
   const map = new Map<string, PartnerReferral>()
   for (const r of local ?? []) map.set(r.id, r)
   for (const r of remote ?? []) {
+    if (deletedPartnerReferralIds.has(r.id)) continue
     const prev = map.get(r.id)
     if (!prev) {
       map.set(r.id, r)
@@ -378,6 +390,8 @@ type AppActions = {
   refreshState: () => Promise<void>
   /** Merge `partnerReferrals` from Inquiry/Render into local state (same path as startup/refreshState tail). */
   refreshPartnerReferralsRemote: () => Promise<void>
+  /** Drop a referral from state after a successful server delete and keep background merges from re-adding it. */
+  removePartnerReferralLocally: (id: string) => void
   /** Remove one client and their projects from local state only (after API delete succeeded). Avoids refreshState overwriting with empty. */
   removeClientLocally: (clientId: string) => void
   /** Remove one contract from local state (after API delete succeeded). Lets user recreate contract for same project. */
@@ -732,6 +746,11 @@ export function AppProvider({ children }: { children: ReactNode }) {
 
   const refreshPartnerReferralsRemote = useCallback(async () => {
     await fetchAndMergeRemotePartnerReferrals(setState)
+  }, [])
+
+  const removePartnerReferralLocally = useCallback((id: string) => {
+    deletedPartnerReferralIds.add(id)
+    setState((s) => ({ ...s, partnerReferrals: (s.partnerReferrals ?? []).filter((r) => r.id !== id) }))
   }, [])
 
   const removeClientLocally = useCallback((clientId: string) => {
@@ -1124,6 +1143,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
         setAutomationEnabled,
         refreshState,
         refreshPartnerReferralsRemote,
+        removePartnerReferralLocally,
         removeClientLocally,
         removeContractLocally,
         restoreClientLocally,
@@ -1157,6 +1177,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
       setAutomationEnabled,
       refreshState,
       refreshPartnerReferralsRemote,
+      removePartnerReferralLocally,
       removeClientLocally,
       removeContractLocally,
       restoreClientLocally,

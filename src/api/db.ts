@@ -1837,27 +1837,25 @@ export function apiRecordPartnerReferralCommissionStatementDelivery(
 }
 
 /** Delete on local CRM server; also on Inquiry/Render URL when set so merge/refresh does not resurrect the row. */
-export async function apiDeletePartnerReferral(id: string): Promise<boolean> {
+export async function apiDeletePartnerReferral(id: string): Promise<{ ok: true } | { ok: false; error: string }> {
   const enc = encodeURIComponent(id)
-  let localOk = false
-  try {
-    const res = await apiFetch(`${API}/partner-referrals/${enc}`, { method: 'DELETE' })
-    localOk = res.ok || res.status === 404
-  } catch {
-    localOk = false
+  const attempt = async (url: string, init: RequestInit, where: string): Promise<string | null> => {
+    try {
+      const res = await apiFetch(url, { ...init, method: 'DELETE' })
+      if (res.ok || res.status === 404) return null
+      const data = (await res.json().catch(() => ({}))) as { error?: string }
+      if (res.status === 401) return `${where}: not signed in. Sign in again and retry.`
+      return `${where}: ${data.error || `server returned ${res.status}`}`
+    } catch {
+      return `${where}: could not reach the server. Check your connection and try again.`
+    }
   }
-  const base = getInquiryApiBaseUrl()
-  if (!base || !base.startsWith('http')) {
-    return localOk
-  }
-  try {
-    const b = base.replace(/\/$/, '')
-    const res = await fetch(`${b}/api/partner-referrals/${enc}`, { method: 'DELETE', credentials: 'include' })
-    const remoteOk = res.ok || res.status === 404
-    return localOk && remoteOk
-  } catch {
-    return false
-  }
+  const localErr = await attempt(`${API}/partner-referrals/${enc}`, {}, 'App server')
+  if (localErr) return { ok: false, error: localErr }
+  const base = getInquiryApiBaseUrl().replace(/\/$/, '')
+  if (!base.startsWith('http') || base === window.location.origin) return { ok: true }
+  const remoteErr = await attempt(`${base}/api/partner-referrals/${enc}`, { credentials: 'include' }, base)
+  return remoteErr ? { ok: false, error: remoteErr } : { ok: true }
 }
 
 export function apiCreateReferralOffer(body: Record<string, unknown>) {

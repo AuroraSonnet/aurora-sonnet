@@ -488,6 +488,8 @@ app.use('/api/inquiry', (req, res, next) => {
   next()
 })
 app.use('/api/state', (req, res, next) => {
+  // The admin app re-reads state after every edit/delete; requireAuth still rejects forged cookies.
+  if (/(?:^|;\s*)aurora_sid=/.test(req.headers.cookie || '')) return next()
   cleanupRateLimit(rateLimitState, rateLimitWindowMs)
   const key = getClientKey(req)
   const data = rateLimitState.get(key) || { count: 0, start: Date.now() }

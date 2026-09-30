@@ -596,7 +596,11 @@ function getNextReferralReference() {
     const m = String(r.referral_reference).match(/^REF-(\d+)$/i)
     if (m) maxNum = Math.max(maxNum, parseInt(m[1], 10))
   }
-  return `REF-${maxNum + 1}`
+  // High-water mark so a deleted referral's reference is never handed to a new referral.
+  const hwm = parseInt(getAppSetting('partner_referral_ref_hwm', '0'), 10) || 0
+  const next = Math.max(maxNum, hwm) + 1
+  setAppSetting('partner_referral_ref_hwm', next)
+  return `REF-${next}`
 }
 
 // Ensure inquiry-related columns exist (handles old DBs on Render or restores)
@@ -1073,7 +1077,11 @@ export function getNextPartnerReferralId() {
     const n = parseInt(String(r.id).replace(/^pref-/, ''), 10)
     return Number.isNaN(n) ? m : Math.max(m, n)
   }, 0)
-  return `pref-${max + 1}`
+  // High-water mark so a deleted referral's id is never reused (clients merge referral lists by id).
+  const hwm = parseInt(getAppSetting('partner_referral_id_hwm', '0'), 10) || 0
+  const next = Math.max(max, hwm) + 1
+  setAppSetting('partner_referral_id_hwm', next)
+  return `pref-${next}`
 }
 
 export function createPartnerReferral(data) {

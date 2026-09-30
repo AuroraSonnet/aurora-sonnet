@@ -17,7 +17,7 @@
     "server": "node server/index.js",
     "test:referral-payout": "node --test server/partnerReferralPayout.test.mjs",
     "test:referral-partnership-mvp": "node --test scripts/test-referral-partnership-mvp.mjs",
-    "test:referral": "node --test --test-isolation=process server/partnerReferralPayout.test.mjs scripts/test-referral-partnership-mvp.mjs scripts/test-referral-decisions.mjs scripts/test-public-referral-program.mjs scripts/test-partner-portal.mjs",
+    "test:referral": "node --test --test-isolation=process server/partnerReferralPayout.test.mjs scripts/test-referral-partnership-mvp.mjs scripts/test-referral-decisions.mjs scripts/test-public-referral-program.mjs scripts/test-partner-portal.mjs scripts/test-referral-delete.mjs",
     "report:referral-status": "node scripts/report-partner-referral-status.mjs",
     "electron": "npx electron .",
     "build:mac": "npm run build && electron-builder --mac zip",

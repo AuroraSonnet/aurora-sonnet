@@ -663,16 +663,17 @@ export default function PartnerReferrals() {
   const handleDelete = useCallback(
     (r: PartnerReferral) => {
       const ref = r.referralReference?.trim() || r.id
-      const msg = `Delete this referral record?\n\nOnly this referral row will be removed (not a vendor account).\nThis cannot be undone.\n${r.clientName} · ${ref}`
+      const msg = `Delete this referral record?\n\nOnly this referral row will be removed. The client, booking, partnership and agreement are kept.\nThis cannot be undone.\n${r.clientName} · ${ref}`
       if (!window.confirm(msg)) return
       void (async () => {
-        const ok = await apiDeletePartnerReferral(r.id)
-        if (!ok) {
-          window.alert('Could not delete referral. Check your connection and try again.')
+        const res = await apiDeletePartnerReferral(r.id)
+        if (!res.ok) {
+          window.alert(`Could not delete referral.\n\n${res.error}`)
           return
         }
-        await actions.refreshState()
+        actions.removePartnerReferralLocally(r.id)
         setEditor((cur) => (cur?.type === 'edit' && cur.row.id === r.id ? null : cur))
+        await actions.refreshState()
       })()
     },
     [actions]
