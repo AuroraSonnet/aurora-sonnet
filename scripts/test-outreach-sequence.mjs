@@ -68,8 +68,8 @@ test('enrollment schedules chained follow-ups with venue templates', () => {
   assert.equal(fu3.templateId, VENUE_FINAL_FOLLOW_UP_TEMPLATE_ID)
 
   assert.equal(nyBusinessDateString(new Date(fu1.scheduledAt)), '2025-01-13')
-  assert.equal(nyBusinessDateString(new Date(fu2.scheduledAt)), '2025-01-22')
-  assert.equal(nyBusinessDateString(new Date(fu3.scheduledAt)), '2025-02-05')
+  assert.equal(nyBusinessDateString(new Date(fu2.scheduledAt)), '2025-01-23')
+  assert.equal(nyBusinessDateString(new Date(fu3.scheduledAt)), '2025-02-06')
 
   for (const send of result.scheduledSends) {
     assert.equal(send.status, 'pending')

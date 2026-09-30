@@ -1,8 +1,9 @@
 import { useCallback, useEffect, useMemo, useState } from 'react'
 import {
-  apiApproveReferralAgreementLegal,
+  apiApproveReferralAgreementOwner,
   apiCreateReferralOffer,
   apiGetReferralOrganizationSettings,
+  apiRecordReferralExternalCounselReview,
   apiRejectReferralAgreementLegal,
   apiUpdateReferralOrganizationSettings,
   apiUpdateReferralPartnershipAgreement,
@@ -18,13 +19,13 @@ import { useApp } from '../context/AppContext'
 import styles from './CreateReferralOfferModal.module.css'
 
 const DEFAULT_TERMS_SUMMARY = [
-  '10% of the collected performance-service subtotal (no minimum payout)',
+  '10% of performance-service subtotal actually received and retained (no minimum payout)',
   'Example: $500 qualifying subtotal → $50 commission',
   'Excludes taxes, travel, lodging, rentals, gratuities, payment processing fees, refunded amounts',
   'Aurora Sonnet internal and performer costs do not reduce the commission base',
-  'Nonexclusive · 12-month attribution window',
-  'Payee: contracted venue/business',
-  'Tax documentation (W-9) required before commission is issued — not required to sign or activate the partnership',
+  'Same-event scope only · 12-month attribution · 5-business-day referral acceptance',
+  'Payee: venue/business legal entity only — never an individual',
+  'Tax documentation (W-9) required before commission is issued — not required to sign or activate',
 ]
 
 const ECONOMICS_NOTE =
@@ -49,7 +50,7 @@ export default function CreateReferralOfferModal({
   onSaved,
   onToast,
 }: Props) {
-  const { canRecordReferralLegalApproval } = useAuth()
+  const { canRecordReferralOwnerApproval } = useAuth()
   const { state } = useApp()
 
   const primary =
@@ -69,14 +70,16 @@ export default function CreateReferralOfferModal({
   const [partnerSignedDate, setPartnerSignedDate] = useState(existingAgreement?.partnerSignedDate || '')
   const [agencySignerName, setAgencySignerName] = useState(existingAgreement?.agencySignerName || '')
   const [agencySignedDate, setAgencySignedDate] = useState(existingAgreement?.agencySignedDate || '')
-  const [legalReviewerName, setLegalReviewerName] = useState('')
-  const [legalNotes, setLegalNotes] = useState('')
+  const [ownerApprovalNotes, setOwnerApprovalNotes] = useState('')
+  const [externalCounselName, setExternalCounselName] = useState('')
+  const [externalCounselNotes, setExternalCounselNotes] = useState('')
   const [rejectionNotes, setRejectionNotes] = useState('')
   const [org, setOrg] = useState<AuroraOrganizationSettings | null>(null)
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState<string | null>(null)
 
-  const legalApproved = agreement?.legalApprovalStatus === 'approved'
+  const ownerApproved =
+    agreement?.legalApprovalStatus === 'owner_approved' || agreement?.legalApprovalStatus === 'approved'
   const legalRejected = agreement?.legalApprovalStatus === 'rejected'
   const readOnly = legalRejected
 
@@ -210,33 +213,53 @@ export default function CreateReferralOfferModal({
     onToast,
   ])
 
-  const handleLegalApproval = useCallback(async () => {
-    if (!agreement || !canRecordReferralLegalApproval) return
-    if (!legalReviewerName.trim()) {
-      setError('External attorney/reviewer name is required.')
-      return
-    }
+  const handleOwnerApproval = useCallback(async () => {
+    if (!agreement || !canRecordReferralOwnerApproval) return
     setBusy(true)
     setError(null)
     try {
-      const result = await apiApproveReferralAgreementLegal(agreement.id, {
-        legalReviewerName: legalReviewerName.trim(),
-        notes: legalNotes.trim() || undefined,
+      const result = await apiApproveReferralAgreementOwner(agreement.id, {
+        notes: ownerApprovalNotes.trim() || undefined,
       })
       if (!result.ok) {
         setError(result.error)
         return
       }
       setAgreement(result.data)
-      onToast(`Legal approval recorded for ${result.data.agreementVersionIdentifier || `v${result.data.version}`}.`)
+      onToast(`Owner Approval recorded for ${result.data.agreementVersionIdentifier || `v${result.data.version}`}.`)
       onSaved()
     } finally {
       setBusy(false)
     }
-  }, [agreement, canRecordReferralLegalApproval, legalReviewerName, legalNotes, onSaved, onToast])
+  }, [agreement, canRecordReferralOwnerApproval, ownerApprovalNotes, onSaved, onToast])
+
+  const handleExternalCounselReview = useCallback(async () => {
+    if (!agreement || !canRecordReferralOwnerApproval) return
+    if (!externalCounselName.trim()) {
+      setError('External counsel / reviewer name is required.')
+      return
+    }
+    setBusy(true)
+    setError(null)
+    try {
+      const result = await apiRecordReferralExternalCounselReview(agreement.id, {
+        reviewerName: externalCounselName.trim(),
+        notes: externalCounselNotes.trim() || undefined,
+      })
+      if (!result.ok) {
+        setError(result.error)
+        return
+      }
+      setAgreement(result.data)
+      onToast(`External counsel review recorded for ${result.data.agreementVersionIdentifier || `v${result.data.version}`}.`)
+      onSaved()
+    } finally {
+      setBusy(false)
+    }
+  }, [agreement, canRecordReferralOwnerApproval, externalCounselName, externalCounselNotes, onSaved, onToast])
 
   const handleLegalRejection = useCallback(async () => {
-    if (!agreement || !canRecordReferralLegalApproval) return
+    if (!agreement || !canRecordReferralOwnerApproval) return
     if (!rejectionNotes.trim()) {
       setError('Rejection notes are required.')
       return
@@ -255,7 +278,7 @@ export default function CreateReferralOfferModal({
     } finally {
       setBusy(false)
     }
-  }, [agreement, canRecordReferralLegalApproval, rejectionNotes, onSaved, onToast])
+  }, [agreement, canRecordReferralOwnerApproval, rejectionNotes, onSaved, onToast])
 
   const handleUploadSigned = useCallback(
     async (file: File) => {
@@ -319,7 +342,9 @@ export default function CreateReferralOfferModal({
           </p>
         ) : null}
 
-        <p className={styles.legalBanner}>DRAFT — LEGAL REVIEW REQUIRED</p>
+        {agreement?.status === 'draft' ? (
+          <p className={styles.legalBanner}>DRAFT — NOT FOR SIGNATURE</p>
+        ) : null}
 
         <section className={styles.section}>
           <h3>Aurora Sonnet organization (legal entity on agreement)</h3>
@@ -330,7 +355,7 @@ export default function CreateReferralOfferModal({
                 <input className={styles.input} value={org.legalName} onChange={(e) => setOrg({ ...org, legalName: e.target.value })} />
               </label>
               <label>
-                Legal / mailing address
+                Business mailing address
                 <input
                   className={styles.input}
                   value={org.legalAddress}
@@ -345,6 +370,10 @@ export default function CreateReferralOfferModal({
               <label>
                 Signatory title
                 <input className={styles.input} value={org.signatoryTitle} onChange={(e) => setOrg({ ...org, signatoryTitle: e.target.value })} />
+              </label>
+              <label>
+                Notice email
+                <input className={styles.input} type="email" value={org.noticeEmail} onChange={(e) => setOrg({ ...org, noticeEmail: e.target.value })} />
               </label>
             </div>
           ) : (
@@ -417,7 +446,7 @@ export default function CreateReferralOfferModal({
             <ul className={styles.termsList}>
               {agreementHistory.map((a) => (
                 <li key={a.id}>
-                  {a.agreementVersionIdentifier || `v${a.version}`} · {a.status.replace(/_/g, ' ')} · legal:{' '}
+                  {a.agreementVersionIdentifier || `v${a.version}`} · {a.status.replace(/_/g, ' ')} · owner:{' '}
                   {a.legalApprovalStatus || 'pending'}
                   {a.id === agreement?.id ? ' (current)' : ''}
                 </li>
@@ -432,28 +461,37 @@ export default function CreateReferralOfferModal({
               Agreement {agreement.agreementVersionIdentifier || `v${agreement.version}`} · {agreement.status.replace(/_/g, ' ')}
             </h3>
             <p className={styles.legalStatus}>
-              Legal: <strong>{agreement.legalApprovalStatus || 'pending'}</strong>
-              {agreement.legalApprovedAt ? ` · approved ${agreement.legalApprovedAt.slice(0, 10)}` : ''}
+              Owner Approval: <strong>{ownerApproved ? 'owner_approved' : agreement.legalApprovalStatus || 'pending'}</strong>
+              {agreement.legalApprovedAt ? ` · ${agreement.legalApprovedAt.slice(0, 10)}` : ''}
               {agreement.legalRejectedAt ? ` · rejected ${agreement.legalRejectedAt.slice(0, 10)}` : ''}
-              {agreement.legalReviewerName ? ` · reviewer: ${agreement.legalReviewerName}` : ''}
               {agreement.legalRecordedByUsername ? ` · recorded by ${agreement.legalRecordedByUsername}` : ''}
+              {agreement.externalCounselReviewerName
+                ? ` · external counsel: ${agreement.externalCounselReviewerName}${agreement.externalCounselReviewedAt ? ` (${agreement.externalCounselReviewedAt.slice(0, 10)})` : ''}`
+                : ''}
             </p>
             {legalRejected && agreement.legalRejectionNotes ? (
               <p className={styles.hint}>Rejection notes: {agreement.legalRejectionNotes}</p>
             ) : null}
 
-            {!legalApproved && !legalRejected && canRecordReferralLegalApproval ? (
+            {!ownerApproved && !legalRejected && canRecordReferralOwnerApproval ? (
               <div className={styles.legalBlock}>
                 <label>
-                  External attorney / reviewer name
-                  <input className={styles.input} value={legalReviewerName} onChange={(e) => setLegalReviewerName(e.target.value)} />
+                  Owner Approval notes (optional)
+                  <input className={styles.input} value={ownerApprovalNotes} onChange={(e) => setOwnerApprovalNotes(e.target.value)} />
+                </label>
+                <button type="button" className={styles.secondaryBtn} disabled={busy} onClick={() => void handleOwnerApproval()}>
+                  Record Owner Approval
+                </button>
+                <label>
+                  External counsel / reviewer name (optional)
+                  <input className={styles.input} value={externalCounselName} onChange={(e) => setExternalCounselName(e.target.value)} />
                 </label>
                 <label>
-                  Approval notes (optional)
-                  <input className={styles.input} value={legalNotes} onChange={(e) => setLegalNotes(e.target.value)} />
+                  External counsel notes (optional)
+                  <input className={styles.input} value={externalCounselNotes} onChange={(e) => setExternalCounselNotes(e.target.value)} />
                 </label>
-                <button type="button" className={styles.secondaryBtn} disabled={busy} onClick={() => void handleLegalApproval()}>
-                  Record external legal approval
+                <button type="button" className={styles.secondaryBtn} disabled={busy} onClick={() => void handleExternalCounselReview()}>
+                  Record external counsel review
                 </button>
                 <label>
                   Rejection notes (required to reject)
@@ -463,13 +501,13 @@ export default function CreateReferralOfferModal({
                   Reject version
                 </button>
                 <p className={styles.hint}>
-                  Only authorized owner/admin users may record approval or rejection. The attorney does not need CRM access.
+                  Owner Approval is required before send, execution, or activation. External counsel review is optional and does not gate those steps.
                 </p>
               </div>
             ) : null}
 
-            {!canRecordReferralLegalApproval && !legalApproved && !legalRejected ? (
-              <p className={styles.hint}>Legal approval must be recorded by an authorized owner/admin after external counsel review.</p>
+            {!canRecordReferralOwnerApproval && !ownerApproved && !legalRejected ? (
+              <p className={styles.hint}>Owner Approval must be recorded by an authorized owner/admin before this version can be sent or executed.</p>
             ) : null}
 
             <div className={styles.grid}>
@@ -482,12 +520,12 @@ export default function CreateReferralOfferModal({
                   disabled={readOnly}
                 >
                   <option value="draft">Draft</option>
-                  <option value="sent" disabled={!legalApproved}>
-                    Sent{!legalApproved ? ' (legal approval + complete party info required)' : ''}
+                  <option value="sent" disabled={!ownerApproved}>
+                    Sent{!ownerApproved ? ' (Owner Approval + complete party info required)' : ''}
                   </option>
                   <option value="under_review">Under Review</option>
-                  <option value="fully_executed" disabled={!legalApproved}>
-                    Fully Executed{!legalApproved ? ' (legal approval + complete party info required)' : ''}
+                  <option value="fully_executed" disabled={!ownerApproved}>
+                    Fully Executed{!ownerApproved ? ' (Owner Approval + complete party info required)' : ''}
                   </option>
                 </select>
               </label>
@@ -495,7 +533,7 @@ export default function CreateReferralOfferModal({
             {pdfUrl ? (
               <p>
                 <a className={styles.link} href={pdfUrl} target="_blank" rel="noreferrer">
-                  Download generated PDF (draft)
+                  Download generated PDF{agreement.status === 'draft' ? ' (draft)' : ''}
                 </a>
               </p>
             ) : null}

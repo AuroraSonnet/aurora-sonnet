@@ -1,5 +1,7 @@
 /** Business-day and America/New_York send-window helpers for outreach scheduling. */
 
+import { isUsFederalHoliday } from './usFederalHolidays.js'
+
 export const OUTREACH_TIMEZONE = 'America/New_York'
 
 export const OUTREACH_SEND_WINDOW_START = { hour: 9, minute: 30 }
@@ -50,10 +52,11 @@ export function nyBusinessDateString(instant) {
   return `${year}-${String(month).padStart(2, '0')}-${String(day).padStart(2, '0')}`
 }
 
-/** True when the instant falls on Mon–Fri in America/New_York. */
+/** True when the instant falls on Mon–Fri in America/New_York and is not a U.S. federal holiday. */
 export function isBusinessDay(instant) {
   const wd = NY_WEEKDAY.format(instant)
-  return wd !== 'Sat' && wd !== 'Sun'
+  if (wd === 'Sat' || wd === 'Sun') return false
+  return !isUsFederalHoliday(nyBusinessDateString(instant))
 }
 
 /** Minutes since midnight for an NY-local hour/minute pair. */
@@ -79,7 +82,7 @@ export function isWithinSendWindow(instant) {
 }
 
 /**
- * Add N business days (Mon–Fri, America/New_York) to a UTC anchor instant.
+ * Add N business days (Mon–Fri excluding U.S. federal holidays, America/New_York) to a UTC anchor instant.
  * Returns a UTC instant at the same NY-local clock time as the anchor (or midnight if anchor is invalid).
  */
 export function addBusinessDays(anchor, days) {

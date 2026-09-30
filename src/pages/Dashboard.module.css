@@ -270,3 +270,8 @@
 .suggestionLink:hover {
   color: var(--accent-hover);
 }
+
+.noticeOverdue {
+  color: var(--warning);
+  font-weight: 600;
+}

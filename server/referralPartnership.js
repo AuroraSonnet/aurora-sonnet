@@ -1,27 +1,32 @@
 /**
  * Referral partnership CRUD, offer creation, PDF generation, and venue timeline logging.
  */
-import { PDFDocument, StandardFonts, rgb } from 'pdf-lib'
 import {
   DEFAULT_REFERRAL_PARTNERSHIP_TERMS,
-  buildDraftAgreementHtml,
+  buildAgreementHtml,
   buildAgreementFieldsFromVenue,
   agreementVersionIdentifier,
   snapshotFromAgreementRecord,
+  computeEffectiveDateFromSignatures,
+  parseTermsSnapshot,
 } from './referralPartnershipTerms.js'
 import {
   validateAgreementStatusTransition,
   validatePartnershipActivation,
   validateAgreementMutable,
-  validateLegalApprovalRecord,
-  validateLegalRejectionRecord,
-  isAgreementLegallyApproved,
+  validateOwnerApprovalRecord,
+  validateOwnerRejectionRecord,
+  validateExternalCounselReviewRecord,
+  isAgreementOwnerApproved,
+  agreementPdfDocumentMode,
 } from './referralPartnershipLegal.js'
 import { auroraOrgFieldsForAgreement } from './referralOrganizationSettings.js'
-import { canUserRecordLegalApproval } from './referralLegalApprovalAuth.js'
+import { canUserRecordOwnerApproval } from './referralLegalApprovalAuth.js'
+import { renderAgreementPdfFromHtml } from './referralAgreementPdf.js'
 import {
   createVenueActivity as dbCreateVenueActivity,
   getReferralPartnershipAgreementById,
+  getReferralPartnershipAgreementPdf,
   getReferralPartnershipById,
   getReferralPartnershipByVenueId,
   getVenueById,
@@ -34,76 +39,6 @@ import {
   updateReferralPartnership,
   updateReferralPartnershipAgreement,
 } from './db.js'
-
-function htmlToPlainText(html) {
-  return String(html || '')
-    .replace(/<br\s*\/?>/gi, '\n')
-    .replace(/<\/p>/gi, '\n\n')
-    .replace(/<\/li>/gi, '\n')
-    .replace(/<[^>]+>/g, '')
-    .replace(/&nbsp;/g, ' ')
-    .replace(/&amp;/g, '&')
-    .replace(/&lt;/g, '<')
-    .replace(/&gt;/g, '>')
-    .replace(/&quot;/g, '"')
-    .replace(/\n{3,}/g, '\n\n')
-    .trim()
-}
-
-function wrapTextLines(text, maxChars) {
-  const out = []
-  for (const para of text.split('\n')) {
-    if (!para.trim()) {
-      out.push('')
-      continue
-    }
-    const words = para.split(/\s+/)
-    let line = ''
-    for (const w of words) {
-      const next = line ? `${line} ${w}` : w
-      if (next.length > maxChars) {
-        if (line) out.push(line)
-        line = w
-      } else {
-        line = next
-      }
-    }
-    if (line) out.push(line)
-  }
-  return out
-}
-
-export async function createAgreementPdfBuffer(contentHtml) {
-  const text = htmlToPlainText(contentHtml)
-  const lines = wrapTextLines(text, 92)
-  const pdf = await PDFDocument.create()
-  const font = await pdf.embedStandardFont(StandardFonts.Helvetica)
-  const fontSize = 10
-  const lineHeight = 13
-  const margin = 50
-  const pageWidth = 595
-  const pageHeight = 842
-  let page = pdf.addPage([pageWidth, pageHeight])
-  let y = pageHeight - margin
-  for (const line of lines) {
-    if (y < margin) {
-      page = pdf.addPage([pageWidth, pageHeight])
-      y = pageHeight - margin
-    }
-    if (line) {
-      page.drawText(line.slice(0, 500), {
-        x: margin,
-        y,
-        size: fontSize,
-        font,
-        color: rgb(0, 0, 0),
-        maxWidth: pageWidth - margin * 2,
-      })
-    }
-    y -= lineHeight
-  }
-  return Buffer.from(await pdf.save())
-}
 
 function parseAuditLog(raw) {
   if (!raw) return []
@@ -151,30 +86,86 @@ function agreementVenueContext(agreement, partnership) {
   return getVenueById(partnership?.venueId)
 }
 
-export function approveReferralAgreementLegal(agreementId, { legalReviewerName, notes, actor } = {}) {
-  if (!canUserRecordLegalApproval(actor)) {
-    return { ok: false, error: 'You are not authorized to record legal approval for referral agreements.' }
+function agreementContact(agreement) {
+  if (!agreement?.authorizedSignatoryContactId) return null
+  return getVenueContactById(agreement.authorizedSignatoryContactId)
+}
+
+function buildHtmlForAgreement(agreement, partnership, { statusOverride, editedBody } = {}) {
+  const venue = agreementVenueContext(agreement, partnership)
+  const contact = agreementContact(agreement)
+  const orgFields = auroraOrgFieldsForAgreement()
+  const status = statusOverride || agreement.status
+  const documentMode = agreementPdfDocumentMode({ ...agreement, status })
+  const effectiveDate =
+    documentMode === 'executed'
+      ? computeEffectiveDateFromSignatures(agreement.partnerSignedDate, agreement.agencySignedDate) || null
+      : null
+  const fields = buildAgreementFieldsFromVenue(venue, contact, {
+    signatoryName: agreement.signatoryName,
+    signatoryTitle: agreement.signatoryTitle,
+    agreementVersionIdentifier: agreement.agreementVersionIdentifier,
+    effectiveDate,
+    ...orgFields,
+  })
+  const terms = parseTermsSnapshot(agreement.termsJson) || DEFAULT_REFERRAL_PARTNERSHIP_TERMS
+  const body = editedBody ?? agreement.contentHtml
+  const usesTemplate = !body?.trim() || String(body).includes('Referral Partnership Agreement')
+  return buildAgreementHtml({
+    ...fields,
+    terms,
+    documentMode,
+    effectiveDate,
+    editedBody: usesTemplate ? undefined : body,
+  })
+}
+
+export async function createAgreementPdfBuffer(contentHtml, { documentMode = 'draft' } = {}) {
+  const includeDraftBanner = documentMode === 'draft'
+  return renderAgreementPdfFromHtml(contentHtml, { includeDraftBanner })
+}
+
+async function syncAgreementDocument(agreementId, { statusOverride, editedBody } = {}) {
+  const agreement = getReferralPartnershipAgreementById(agreementId)
+  if (!agreement) return null
+  const terms = parseTermsSnapshot(agreement.termsJson)
+  if (terms?.termsKind === 'public_partner_agreement') {
+    const pdfBuffer = getReferralPartnershipAgreementPdf(agreementId, 'generated')
+    if (pdfBuffer) return { html: agreement.contentHtml, pdfBuffer, documentMode: 'executed' }
+  }
+  const partnership = getReferralPartnershipById(agreement.partnershipId)
+  if (!partnership) return null
+  const html = buildHtmlForAgreement(agreement, partnership, { statusOverride, editedBody })
+  const status = statusOverride || agreement.status
+  const documentMode = agreementPdfDocumentMode({ ...agreement, status })
+  const pdfBuffer = await renderAgreementPdfFromHtml(html, {
+    includeDraftBanner: documentMode === 'draft',
+  })
+  return { html, pdfBuffer, documentMode }
+}
+
+export function approveReferralAgreementOwner(agreementId, { notes, actor } = {}) {
+  if (!canUserRecordOwnerApproval(actor)) {
+    return { ok: false, error: 'You are not authorized to record Owner Approval for referral agreements.' }
   }
   const agreement = getReferralPartnershipAgreementById(agreementId)
   if (!agreement) return { ok: false, error: 'Agreement not found' }
   const partnership = getReferralPartnershipById(agreement.partnershipId)
   if (!partnership) return { ok: false, error: 'Partnership not found' }
 
-  const validationErr = validateLegalApprovalRecord({ legalReviewerName, agreement })
+  const validationErr = validateOwnerApprovalRecord({ agreement })
   if (validationErr) return { ok: false, error: validationErr }
 
   const now = new Date().toISOString()
   const versionId = agreementVersionIdentifier(agreement)
   updateReferralPartnershipAgreement(agreementId, {
-    legalApprovalStatus: 'approved',
+    legalApprovalStatus: 'owner_approved',
     legalApprovedAt: now,
     legalApprovalNotes: notes?.trim() || null,
-    legalReviewerName: String(legalReviewerName).trim(),
     legalRecordedByUsername: actor || null,
     updatedAt: now,
-    auditLogJson: appendAudit(agreement, 'legal_approved', {
+    auditLogJson: appendAudit(agreement, 'owner_approved', {
       by: actor || 'crm',
-      legalReviewerName: String(legalReviewerName).trim(),
       agreementVersionIdentifier: versionId,
       notes: notes?.trim() || null,
     }),
@@ -182,29 +173,34 @@ export function approveReferralAgreementLegal(agreementId, { legalReviewerName, 
   const updated = getReferralPartnershipAgreementById(agreementId)
   logVenueActivity(
     partnership.venueId,
-    'referral_agreement_legal_approved',
-    `Legal approval recorded (v${updated.version})`,
-    `External reviewer ${updated.legalReviewerName} approved ${updated.agreementVersionIdentifier}. Recorded by ${actor || 'crm'}.`,
+    'referral_agreement_owner_approved',
+    `Owner Approval recorded (v${updated.version})`,
+    `Version ${updated.agreementVersionIdentifier} Owner Approved. Recorded by ${actor || 'crm'}.`,
     {
       agreementId,
-      agreementVersionIdentifier: updated.agreementVersionIdentifier,
-      legalReviewerName: updated.legalReviewerName,
+      agreementVersionIdentifier: versionId,
       recordedBy: actor,
     }
   )
   return { ok: true, agreement: updated }
 }
 
-export function rejectReferralAgreementLegal(agreementId, { rejectionNotes, actor } = {}) {
-  if (!canUserRecordLegalApproval(actor)) {
-    return { ok: false, error: 'You are not authorized to record legal rejection for referral agreements.' }
+/** @deprecated use approveReferralAgreementOwner */
+export function approveReferralAgreementLegal(agreementId, opts = {}) {
+  void opts.legalReviewerName
+  return approveReferralAgreementOwner(agreementId, { notes: opts.notes, actor: opts.actor })
+}
+
+export function rejectReferralAgreementOwner(agreementId, { rejectionNotes, actor } = {}) {
+  if (!canUserRecordOwnerApproval(actor)) {
+    return { ok: false, error: 'You are not authorized to record rejection for referral agreements.' }
   }
   const agreement = getReferralPartnershipAgreementById(agreementId)
   if (!agreement) return { ok: false, error: 'Agreement not found' }
   const partnership = getReferralPartnershipById(agreement.partnershipId)
   if (!partnership) return { ok: false, error: 'Partnership not found' }
 
-  const validationErr = validateLegalRejectionRecord({ rejectionNotes, agreement })
+  const validationErr = validateOwnerRejectionRecord({ rejectionNotes, agreement })
   if (validationErr) return { ok: false, error: validationErr }
 
   const now = new Date().toISOString()
@@ -215,7 +211,7 @@ export function rejectReferralAgreementLegal(agreementId, { rejectionNotes, acto
     legalRejectionNotes: String(rejectionNotes).trim(),
     legalRecordedByUsername: actor || null,
     updatedAt: now,
-    auditLogJson: appendAudit(agreement, 'legal_rejected', {
+    auditLogJson: appendAudit(agreement, 'owner_rejected', {
       by: actor || 'crm',
       agreementVersionIdentifier: versionId,
       rejectionNotes: String(rejectionNotes).trim(),
@@ -224,9 +220,51 @@ export function rejectReferralAgreementLegal(agreementId, { rejectionNotes, acto
   const updated = getReferralPartnershipAgreementById(agreementId)
   logVenueActivity(
     partnership.venueId,
-    'referral_agreement_legal_rejected',
+    'referral_agreement_rejected',
     `Agreement rejected (v${updated.version})`,
     `Version ${updated.agreementVersionIdentifier} rejected. Recorded by ${actor || 'crm'}.`,
+    { agreementId, agreementVersionIdentifier: versionId, recordedBy: actor }
+  )
+  return { ok: true, agreement: updated }
+}
+
+/** @deprecated use rejectReferralAgreementOwner */
+export function rejectReferralAgreementLegal(agreementId, opts = {}) {
+  return rejectReferralAgreementOwner(agreementId, opts)
+}
+
+export function recordReferralAgreementExternalCounselReview(agreementId, { reviewerName, notes, actor } = {}) {
+  if (!canUserRecordOwnerApproval(actor)) {
+    return { ok: false, error: 'You are not authorized to record external counsel review.' }
+  }
+  const agreement = getReferralPartnershipAgreementById(agreementId)
+  if (!agreement) return { ok: false, error: 'Agreement not found' }
+  const partnership = getReferralPartnershipById(agreement.partnershipId)
+  if (!partnership) return { ok: false, error: 'Partnership not found' }
+
+  const validationErr = validateExternalCounselReviewRecord({ reviewerName, agreement })
+  if (validationErr) return { ok: false, error: validationErr }
+
+  const now = new Date().toISOString()
+  const versionId = agreementVersionIdentifier(agreement)
+  updateReferralPartnershipAgreement(agreementId, {
+    externalCounselReviewedAt: now,
+    externalCounselReviewerName: String(reviewerName).trim(),
+    externalCounselReviewNotes: notes?.trim() || null,
+    updatedAt: now,
+    auditLogJson: appendAudit(agreement, 'external_counsel_reviewed', {
+      by: actor || 'crm',
+      agreementVersionIdentifier: versionId,
+      reviewerName: String(reviewerName).trim(),
+      notes: notes?.trim() || null,
+    }),
+  })
+  const updated = getReferralPartnershipAgreementById(agreementId)
+  logVenueActivity(
+    partnership.venueId,
+    'referral_agreement_external_counsel_reviewed',
+    `External counsel review recorded (v${updated.version})`,
+    `${updated.externalCounselReviewerName} reviewed ${versionId}. Recorded by ${actor || 'crm'}.`,
     { agreementId, agreementVersionIdentifier: versionId, recordedBy: actor }
   )
   return { ok: true, agreement: updated }
@@ -295,13 +333,14 @@ export async function createReferralOffer({
   })
   const html =
     contentHtml?.trim() ||
-    buildDraftAgreementHtml({
+    buildAgreementHtml({
       ...fields,
       terms,
       agreementVersionIdentifier: versionIdentifier,
+      documentMode: 'draft',
     })
 
-  const pdfBuffer = await createAgreementPdfBuffer(html)
+  const pdfBuffer = await renderAgreementPdfFromHtml(html, { includeDraftBanner: true })
   const now = new Date().toISOString()
   const auditLogJson = JSON.stringify([
     { at: now, event: 'offer_created', by: createdBy || 'crm', version, agreementVersionIdentifier: versionIdentifier },
@@ -332,6 +371,9 @@ export async function createReferralOffer({
     legalRecordedByUsername: null,
     legalRejectedAt: null,
     legalRejectionNotes: null,
+    externalCounselReviewedAt: null,
+    externalCounselReviewerName: null,
+    externalCounselReviewNotes: null,
     agreementVersionIdentifier: versionIdentifier,
     createdAt: now,
     updatedAt: now,
@@ -351,18 +393,19 @@ export async function createReferralOffer({
   return { partnership: getReferralPartnershipById(partnership.id), agreement, reusedDraft: false }
 }
 
-export function updateReferralOfferAgreement(agreementId, updates, actor = 'crm') {
+export async function updateReferralOfferAgreement(agreementId, updates, actor = 'crm') {
   const agreement = getReferralPartnershipAgreementById(agreementId)
   if (!agreement) return { error: 'Agreement not found' }
   const partnership = getReferralPartnershipById(agreement.partnershipId)
   if (!partnership) return { error: 'Partnership not found' }
   const venue = agreementVenueContext(agreement, partnership)
+  const contact = agreementContact(agreement)
 
   const mutableErr = validateAgreementMutable(agreement)
   if (mutableErr) return { error: mutableErr }
 
   if (updates.status) {
-    const err = validateAgreementStatusTransition(agreement, updates.status, { venue })
+    const err = validateAgreementStatusTransition(agreement, updates.status, { venue, contact })
     if (err) return { error: err }
   }
 
@@ -376,7 +419,28 @@ export function updateReferralOfferAgreement(agreementId, updates, actor = 'crm'
     })
   }
   updateReferralPartnershipAgreement(agreementId, patch)
-  const updated = getReferralPartnershipAgreementById(agreementId)
+  let updated = getReferralPartnershipAgreementById(agreementId)
+
+  const shouldSyncDoc =
+    updates.status ||
+    updates.contentHtml ||
+    updates.partnerSignedDate ||
+    updates.agencySignedDate ||
+    updates.regeneratePdf
+  if (shouldSyncDoc) {
+    const synced = await syncAgreementDocument(agreementId, {
+      statusOverride: updated.status,
+      editedBody: updates.contentHtml,
+    })
+    if (synced) {
+      updateReferralPartnershipAgreement(agreementId, {
+        contentHtml: synced.html,
+        generatedPdfBlob: synced.pdfBuffer,
+        updatedAt: new Date().toISOString(),
+      })
+      updated = getReferralPartnershipAgreementById(agreementId)
+    }
+  }
 
   if (updates.status) {
     logVenueActivity(
@@ -403,28 +467,31 @@ export async function regenerateOfferPdf(agreementId) {
   if (!agreement) return null
   const mutableErr = validateAgreementMutable(agreement)
   if (mutableErr) return { error: mutableErr }
-  const pdfBuffer = await createAgreementPdfBuffer(agreement.contentHtml)
+  const synced = await syncAgreementDocument(agreementId)
+  if (!synced) return { error: 'Agreement not found' }
   updateReferralPartnershipAgreement(agreementId, {
-    generatedPdfBlob: pdfBuffer,
+    contentHtml: synced.html,
+    generatedPdfBlob: synced.pdfBuffer,
     updatedAt: new Date().toISOString(),
-    auditLogJson: appendAudit(agreement, 'pdf_regenerated', {}),
+    auditLogJson: appendAudit(agreement, 'pdf_regenerated', { documentMode: synced.documentMode }),
   })
   return getReferralPartnershipAgreementById(agreementId)
 }
 
-export function uploadSignedAgreementPdf(agreementId, pdfBuffer, meta = {}, actor = 'crm') {
+export async function uploadSignedAgreementPdf(agreementId, pdfBuffer, meta = {}, actor = 'crm') {
   const agreement = getReferralPartnershipAgreementById(agreementId)
   if (!agreement) return { ok: false, error: 'Agreement not found' }
   const partnership = getReferralPartnershipById(agreement.partnershipId)
   if (!partnership) return { ok: false, error: 'Partnership not found' }
   const venue = agreementVenueContext(agreement, partnership)
+  const contact = agreementContact(agreement)
 
   const mutableErr = validateAgreementMutable(agreement)
   if (mutableErr) return { ok: false, error: mutableErr }
 
   const nextStatus = meta.status || agreement.status
   if (nextStatus === 'fully_executed' || nextStatus === 'sent') {
-    const err = validateAgreementStatusTransition(agreement, nextStatus, { venue })
+    const err = validateAgreementStatusTransition(agreement, nextStatus, { venue, contact })
     if (err) return { ok: false, error: err }
   }
 
@@ -442,7 +509,19 @@ export function uploadSignedAgreementPdf(agreementId, pdfBuffer, meta = {}, acto
   if (meta.status) patch.status = meta.status
 
   updateReferralPartnershipAgreement(agreementId, patch)
-  const updated = getReferralPartnershipAgreementById(agreementId)
+  let updated = getReferralPartnershipAgreementById(agreementId)
+
+  if (updated.status === 'fully_executed') {
+    const synced = await syncAgreementDocument(agreementId, { statusOverride: 'fully_executed' })
+    if (synced) {
+      updateReferralPartnershipAgreement(agreementId, {
+        contentHtml: synced.html,
+        generatedPdfBlob: synced.pdfBuffer,
+        updatedAt: new Date().toISOString(),
+      })
+      updated = getReferralPartnershipAgreementById(agreementId)
+    }
+  }
 
   logVenueActivity(
     partnership.venueId,
@@ -467,8 +546,9 @@ export function tryActivatePartnership(partnershipId, agreementId, actor = 'crm'
   const partnership = getReferralPartnershipById(partnershipId)
   if (!agreement || !partnership) return null
   const venue = agreementVenueContext(agreement, partnership)
+  const contact = agreementContact(agreement)
 
-  const err = validatePartnershipActivation(agreement, { venue })
+  const err = validatePartnershipActivation(agreement, { venue, contact })
   if (err) return { activated: false, reason: err }
 
   const now = new Date().toISOString()
@@ -493,14 +573,14 @@ export function resolveActiveAgreementForVenue(venueId) {
   const partnership = getReferralPartnershipByVenueId(venueId)
   if (!partnership || partnership.status !== 'active' || !partnership.activeAgreementId) return null
   const agreement = getReferralPartnershipAgreementById(partnership.activeAgreementId)
-  if (!agreement || agreement.status !== 'fully_executed' || !isAgreementLegallyApproved(agreement)) return null
+  if (!agreement || agreement.status !== 'fully_executed' || !isAgreementOwnerApproved(agreement)) return null
   return { partnership, agreement }
 }
 
 export function buildReferralSnapshotForCreate({ venueId, agreementId }) {
   if (agreementId) {
     const agreement = getReferralPartnershipAgreementById(agreementId)
-    if (agreement && agreement.status === 'fully_executed' && isAgreementLegallyApproved(agreement)) {
+    if (agreement && agreement.status === 'fully_executed' && isAgreementOwnerApproved(agreement)) {
       return {
         agreementId: agreement.id,
         partnershipId: agreement.partnershipId,

@@ -1,0 +1,878 @@
+<!--
+  AURORA SONNET — TESTIMONIAL SLIDESHOW.
+
+  Paste this ENTIRE block into the Hostinger Custom HTML / Embed Code element that
+  replaces the current reviews/testimonials display.
+
+  Contains NO section title, heading, header, footer or CTA.
+  Background is fully transparent so the existing Hostinger section VIDEO stays visible
+  and moving underneath.
+
+  Everything is namespaced under #as-testimonial-slider / .as-ts-* and cannot affect
+  the rest of the page. Playfair Display + Inter are loaded because Hostinger runs
+  embeds in their own iframe (the browser dedupes if the parent page already has them).
+
+  LAYOUT NOTE: Hostinger renders every embed inside a same-origin <iframe srcdoc>.
+  Media queries inside that iframe see the builder-block width, not the visitor's
+  screen. The script reads the PAGE viewport (>= 1024px = desktop) and widens the
+  iframe to the section so the slideshow can sit expansively over the video.
+-->
+<div id="as-testimonial-slider">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500&family=Playfair+Display:ital,wght@0,400;0,500;1,400&display=swap" rel="stylesheet">
+
+  <style>
+  #as-testimonial-slider {
+    --as-espresso: #382E27;
+    --as-taupe: #7A6B5F;
+    --as-blush: #F5EBE0;
+    --as-cream: #F7F1EA;
+    --as-dur: 720ms;
+    --as-ease: cubic-bezier(.22, .82, .2, 1);
+    --as-paper: #F5EBE0;
+
+    position: relative;
+    width: 100%;
+    max-width: 100%;
+    margin: 0 auto;
+    padding: 8px 12px 10px;
+    background: transparent;
+    color: var(--as-cream);
+    font-family: 'Inter', system-ui, -apple-system, sans-serif;
+    -webkit-font-smoothing: antialiased;
+    overflow: hidden;
+    isolation: isolate;
+  }
+  #as-testimonial-slider *,
+  #as-testimonial-slider *::before,
+  #as-testimonial-slider *::after { box-sizing: border-box; }
+  #as-testimonial-slider button {
+    font: inherit;
+    color: inherit;
+    background: none;
+    border: 0;
+    padding: 0;
+    cursor: pointer;
+    appearance: none;
+    -webkit-tap-highlight-color: transparent;
+  }
+  #as-testimonial-slider button:focus { outline: none; }
+  #as-testimonial-slider button:focus-visible,
+  #as-testimonial-slider:focus-visible {
+    outline: 1px solid var(--as-blush);
+    outline-offset: 4px;
+  }
+
+  #as-testimonial-slider .as-ts-stage {
+    position: relative;
+    width: 100%;
+    min-width: 0;
+  }
+  #as-testimonial-slider .as-ts-slide {
+    position: absolute;
+    inset: 0;
+    width: 100%;
+    opacity: 0;
+    transform: translate3d(28px, 0, 0);
+    pointer-events: none;
+    visibility: hidden;
+    transition:
+      opacity var(--as-dur) var(--as-ease),
+      transform var(--as-dur) var(--as-ease),
+      visibility 0s linear var(--as-dur);
+  }
+  #as-testimonial-slider .as-ts-slide.as-is-leave {
+    transform: translate3d(-22px, 0, 0);
+  }
+  #as-testimonial-slider .as-ts-slide.as-is-active {
+    position: relative;
+    inset: auto;
+    opacity: 1;
+    transform: none;
+    pointer-events: auto;
+    visibility: visible;
+    transition:
+      opacity var(--as-dur) var(--as-ease),
+      transform var(--as-dur) var(--as-ease),
+      visibility 0s;
+  }
+
+  #as-testimonial-slider .as-ts-frame {
+    display: flex;
+    flex-direction: column;
+    align-items: stretch;
+    gap: 28px;
+    width: 100%;
+    min-width: 0;
+  }
+  #as-testimonial-slider .as-ts-photos {
+    position: relative;
+    width: 100%;
+    max-width: 100%;
+    height: 300px;
+    flex: 0 0 auto;
+  }
+  #as-testimonial-slider .as-ts-print {
+    position: absolute;
+    margin: 0;
+    background: var(--as-paper);
+    padding: 7px 7px 18px;
+    box-shadow:
+      0 1px 0 rgba(245, 235, 224, .35),
+      0 14px 34px rgba(56, 46, 39, .28);
+    transform: rotate(var(--as-rot, 0deg)) translate3d(var(--as-px, 0px), var(--as-py, 10px), 0);
+    transform-origin: 50% 50%;
+    transition: transform calc(var(--as-dur) + 80ms) var(--as-ease), opacity var(--as-dur) var(--as-ease);
+    will-change: transform;
+  }
+  #as-testimonial-slider .as-ts-slide.as-is-active .as-ts-print {
+    transform: rotate(var(--as-rot, 0deg)) translate3d(0, 0, 0);
+  }
+  #as-testimonial-slider .as-ts-print img {
+    display: block;
+    width: 100%;
+    height: 100%;
+    object-fit: cover;
+    background: #d8cfc4;
+  }
+  #as-testimonial-slider .as-ts-slide[data-as-id="verlaine"] .as-ts-print-a img { object-position: 50% 22%; }
+  #as-testimonial-slider .as-ts-slide[data-as-id="verlaine"] .as-ts-print-b img { object-position: 50% 18%; }
+  #as-testimonial-slider .as-ts-slide[data-as-id="miguel"] .as-ts-print-a img { object-position: 50% 35%; }
+  #as-testimonial-slider .as-ts-slide[data-as-id="miguel"] .as-ts-print-b img { object-position: 50% 40%; }
+  #as-testimonial-slider .as-ts-copy {
+    position: relative;
+    min-width: 0;
+    max-width: 40rem;
+    margin: 0 auto;
+    padding: 6px 4px 0;
+    text-align: center;
+  }
+  #as-testimonial-slider .as-ts-copy::before {
+    content: '';
+    position: absolute;
+    inset: -10% -8% -6%;
+    background: radial-gradient(ellipse at 50% 38%, rgba(56, 46, 39, .42), rgba(56, 46, 39, 0) 74%);
+    pointer-events: none;
+    z-index: -1;
+  }
+  #as-testimonial-slider .as-ts-mark {
+    display: block;
+    font-family: 'Playfair Display', Georgia, serif;
+    font-size: 3.4rem;
+    line-height: .7;
+    color: var(--as-blush);
+    opacity: .55;
+    margin-bottom: .15em;
+    pointer-events: none;
+  }
+  #as-testimonial-slider .as-ts-quote {
+    margin: 0;
+    font-family: 'Playfair Display', Georgia, serif;
+    font-size: clamp(1.12rem, 4.4vw, 1.38rem);
+    font-weight: 400;
+    line-height: 1.48;
+    letter-spacing: .005em;
+    color: var(--as-cream);
+    text-wrap: pretty;
+  }
+  #as-testimonial-slider .as-ts-quote p { margin: 0 0 .85em; }
+  #as-testimonial-slider .as-ts-quote p:last-child { margin-bottom: 0; }
+  #as-testimonial-slider .as-ts-full { display: none; }
+  #as-testimonial-slider .as-ts-slide.as-is-open .as-ts-excerpt { display: none; }
+  #as-testimonial-slider .as-ts-slide.as-is-open .as-ts-full { display: block; }
+
+  #as-testimonial-slider .as-ts-more {
+    display: inline-flex;
+    align-items: center;
+    gap: 8px;
+    margin-top: 18px;
+    font-size: .82rem;
+    letter-spacing: .04em;
+    color: var(--as-blush);
+    opacity: .88;
+    transition: opacity 220ms ease;
+  }
+  #as-testimonial-slider .as-ts-more:hover { opacity: 1; }
+  #as-testimonial-slider .as-ts-more[hidden] { display: none; }
+
+  #as-testimonial-slider .as-ts-who {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 8px;
+    margin-top: 22px;
+  }
+  #as-testimonial-slider .as-ts-stars {
+    font-size: .72rem;
+    letter-spacing: .38em;
+    color: var(--as-blush);
+    line-height: 1;
+    padding-left: .38em;
+  }
+  #as-testimonial-slider .as-ts-by {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 10px;
+  }
+  #as-testimonial-slider .as-ts-avatar {
+    width: 28px;
+    height: 28px;
+    border-radius: 50%;
+    object-fit: cover;
+    box-shadow: 0 0 0 1px rgba(245, 235, 224, .35);
+  }
+  #as-testimonial-slider .as-ts-name {
+    font-size: .78rem;
+    letter-spacing: .2em;
+    text-transform: uppercase;
+    color: var(--as-blush);
+  }
+
+  #as-testimonial-slider .as-ts-arrow {
+    position: absolute;
+    top: 42%;
+    z-index: 5;
+    width: 44px;
+    height: 44px;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    font-family: 'Playfair Display', Georgia, serif;
+    font-size: 1.7rem;
+    line-height: 1;
+    color: var(--as-blush);
+    opacity: .55;
+    transition: opacity 200ms ease;
+  }
+  #as-testimonial-slider .as-ts-prev { left: 0; }
+  #as-testimonial-slider .as-ts-next { right: 0; }
+  #as-testimonial-slider .as-ts-arrow:hover { opacity: 1; }
+  #as-testimonial-slider .as-ts-nav {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    width: 100%;
+    margin: 22px auto 4px;
+    padding: 0 48px;
+  }
+  #as-testimonial-slider .as-ts-meta {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 18px;
+  }
+  #as-testimonial-slider .as-ts-count {
+    font-size: .68rem;
+    letter-spacing: .22em;
+    color: var(--as-blush);
+    opacity: .78;
+    font-variant-numeric: tabular-nums;
+    min-width: 4.2em;
+    text-align: center;
+  }
+  #as-testimonial-slider .as-ts-dots {
+    display: flex;
+    align-items: center;
+    gap: 9px;
+  }
+  #as-testimonial-slider .as-ts-dot {
+    width: 6px;
+    height: 6px;
+    border-radius: 50%;
+    background: var(--as-blush);
+    opacity: .32;
+    transition: opacity 250ms ease, transform 250ms ease;
+  }
+  #as-testimonial-slider .as-ts-dot[aria-current="true"] {
+    opacity: 1;
+    transform: scale(1.15);
+  }
+
+  /* Verlaine — mobile photo cluster */
+  #as-testimonial-slider .as-ts-slide[data-as-id="verlaine"] .as-ts-print-a {
+    width: 54%; height: 86%; top: 2%; left: 2%; --as-rot: -3.4deg; z-index: 2;
+  }
+  #as-testimonial-slider .as-ts-slide[data-as-id="verlaine"] .as-ts-print-b {
+    width: 48%; height: 78%; top: 18%; right: 1%; --as-rot: 2.8deg; z-index: 3;
+  }
+  #as-testimonial-slider .as-ts-slide[data-as-id="verlaine"] .as-ts-print-c,
+  #as-testimonial-slider .as-ts-slide[data-as-id="verlaine"] .as-ts-print-d { display: none; }
+
+  /* Miguel — mobile photo cluster, different placement */
+  #as-testimonial-slider .as-ts-slide[data-as-id="miguel"] .as-ts-photos { height: 290px; }
+  #as-testimonial-slider .as-ts-slide[data-as-id="miguel"] .as-ts-print-a {
+    width: 52%; height: 78%; top: 16%; left: 1%; --as-rot: 2.4deg; z-index: 3;
+  }
+  #as-testimonial-slider .as-ts-slide[data-as-id="miguel"] .as-ts-print-b {
+    width: 50%; height: 74%; top: 0; right: 1%; --as-rot: -2.8deg; z-index: 2;
+  }
+  #as-testimonial-slider .as-ts-slide[data-as-id="miguel"] .as-ts-print-c { display: none; }
+
+  #as-testimonial-slider.as-ts-wide {
+    padding: 8px 56px 8px;
+    overflow: visible;
+  }
+  #as-testimonial-slider.as-ts-wide .as-ts-frame {
+    display: grid;
+    grid-template-columns: minmax(340px, 1.08fr) minmax(340px, 1fr);
+    align-items: center;
+    gap: clamp(20px, 4vw, 64px);
+    min-height: 560px;
+  }
+  #as-testimonial-slider.as-ts-wide .as-ts-slide[data-as-layout="photos-right"] .as-ts-frame {
+    grid-template-columns: minmax(340px, 1fr) minmax(340px, 1.08fr);
+  }
+  #as-testimonial-slider.as-ts-wide .as-ts-slide[data-as-layout="photos-right"] .as-ts-photos { order: 2; }
+  #as-testimonial-slider.as-ts-wide .as-ts-slide[data-as-layout="type"] .as-ts-frame {
+    display: block;
+    min-height: 520px;
+  }
+  #as-testimonial-slider.as-ts-wide .as-ts-photos {
+    height: 560px;
+    max-width: none;
+  }
+  #as-testimonial-slider.as-ts-wide .as-ts-copy {
+    margin: 0;
+    max-width: 36rem;
+    text-align: center;
+    padding: 8px 4px 0;
+  }
+  #as-testimonial-slider.as-ts-wide .as-ts-slide[data-as-layout="type"] .as-ts-copy {
+    max-width: 46rem;
+    margin: 0 auto;
+    padding: 56px 24px 0;
+  }
+  #as-testimonial-slider.as-ts-wide .as-ts-copy::before {
+    inset: -16% -18% -12%;
+    background: radial-gradient(ellipse at 50% 42%, rgba(56, 46, 39, .34), rgba(56, 46, 39, 0) 72%);
+  }
+  #as-testimonial-slider.as-ts-wide .as-ts-mark { font-size: 5rem; }
+  #as-testimonial-slider.as-ts-wide .as-ts-quote {
+    font-size: clamp(1.32rem, 1.85vw, 1.82rem);
+    line-height: 1.48;
+  }
+  #as-testimonial-slider.as-ts-wide .as-ts-slide[data-as-layout="type"] .as-ts-quote {
+    font-size: clamp(1.4rem, 2vw, 2rem);
+    line-height: 1.46;
+  }
+  #as-testimonial-slider.as-ts-wide .as-ts-nav { margin-top: 6px; }
+  #as-testimonial-slider.as-ts-wide .as-ts-arrow { top: 46%; }
+
+  #as-testimonial-slider.as-ts-wide .as-ts-slide[data-as-id="verlaine"] .as-ts-print-a {
+    width: 64%; height: 68%; top: 0; left: 0; right: auto; bottom: auto; --as-rot: -3.4deg; z-index: 2;
+  }
+  #as-testimonial-slider.as-ts-wide .as-ts-slide[data-as-id="verlaine"] .as-ts-print-b {
+    width: 46%; height: 52%; top: auto; left: auto; bottom: 2%; right: 0; --as-rot: 2.6deg; z-index: 3;
+  }
+  #as-testimonial-slider.as-ts-wide .as-ts-slide[data-as-id="verlaine"] .as-ts-print-c {
+    display: block;
+    width: 30%; height: 34%; top: auto; right: auto; bottom: 4%; left: 6%; --as-rot: 1.5deg; z-index: 4;
+  }
+  #as-testimonial-slider.as-ts-wide .as-ts-slide[data-as-id="verlaine"] .as-ts-print-d {
+    display: block;
+    width: 26%; height: 30%; top: 4%; left: auto; right: 6%; bottom: auto; --as-rot: -2deg; z-index: 1;
+  }
+
+  #as-testimonial-slider.as-ts-wide .as-ts-slide[data-as-id="miguel"] .as-ts-photos { height: 540px; }
+  #as-testimonial-slider.as-ts-wide .as-ts-slide[data-as-id="miguel"] .as-ts-print-a {
+    width: 58%; height: 58%; top: 4%; left: auto; right: 0; bottom: auto; --as-rot: 2.1deg; z-index: 3;
+  }
+  #as-testimonial-slider.as-ts-wide .as-ts-slide[data-as-id="miguel"] .as-ts-print-b {
+    width: 48%; height: 46%; top: auto; right: auto; bottom: 0; left: 0; --as-rot: -2.8deg; z-index: 2;
+  }
+  #as-testimonial-slider.as-ts-wide .as-ts-slide[data-as-id="miguel"] .as-ts-print-c {
+    display: block;
+    width: 36%; height: 40%; top: 0; left: 8%; right: auto; bottom: auto; --as-rot: 1.3deg; z-index: 1;
+  }
+
+  @media (min-width: 1px) {
+    #as-testimonial-slider.as-ts-wide .as-ts-print { padding: 9px 9px 22px; }
+  }
+
+  @media (prefers-reduced-motion: reduce) {
+    #as-testimonial-slider {
+      --as-dur: 420ms;
+      --as-ease: ease;
+    }
+    #as-testimonial-slider .as-ts-slide,
+    #as-testimonial-slider .as-ts-slide.as-is-leave,
+    #as-testimonial-slider .as-ts-slide.as-is-active,
+    #as-testimonial-slider .as-ts-print,
+    #as-testimonial-slider .as-ts-slide.as-is-active .as-ts-print {
+      transform: none;
+    }
+  }
+  </style>
+
+  <div class="as-ts-stage" aria-live="polite">
+
+    <article class="as-ts-slide as-is-active" data-as-id="verlaine" data-as-layout="photos-left" aria-hidden="false">
+      <div class="as-ts-frame">
+        <div class="as-ts-photos" aria-hidden="true">
+          <figure class="as-ts-print as-ts-print-a">
+            <img src="https://assets.zyrosite.com/x1V2PwVnmXbNAen9/img_5228-nAvYnmOcVOCN9BlT.jpg" alt="" width="800" height="1200">
+          </figure>
+          <figure class="as-ts-print as-ts-print-b">
+            <img src="https://assets.zyrosite.com/x1V2PwVnmXbNAen9/screenshot-2026-07-08-at-18.34.35-6O3Cv4VuZoHCfrHf.png" alt="" width="800" height="1200">
+          </figure>
+          <figure class="as-ts-print as-ts-print-c">
+            <img src="https://assets.zyrosite.com/x1V2PwVnmXbNAen9/screenshot-2026-07-08-at-18.41.06-FCeKw7oZvyh5ZxIG.png" alt="" width="800" height="1200">
+          </figure>
+          <figure class="as-ts-print as-ts-print-d">
+            <img src="https://assets.zyrosite.com/x1V2PwVnmXbNAen9/screenshot-2026-07-08-at-18.41.56-2Xudxvzhkz0Hc1lq.png" alt="" width="800" height="1200">
+          </figure>
+        </div>
+        <div class="as-ts-copy">
+          <span class="as-ts-mark" aria-hidden="true">“</span>
+          <blockquote class="as-ts-quote">
+            <div class="as-ts-excerpt">
+              <p>From the very beginning, she took the time to really get to know us, understand what we wanted, and guide us in choosing the perfect song. When she sang ‘You Deserve the Glory’, it was such a powerful and emotional moment it truly touched our hearts and made the ceremony feel even more meaningful.</p>
+            </div>
+            <div class="as-ts-full">
+              <p>We feel incredibly lucky to have an Aurora Sonnet singer at our wedding ceremony on May 30, 2026.</p>
+              <p>From the very beginning, she took the time to really get to know us, understand what we wanted, and guide us in choosing the perfect song. When she sang ‘You Deserve the Glory’, it was such a powerful and emotional moment it truly touched our hearts and made the ceremony feel even more meaningful.</p>
+              <p>Liza was not only professional and patient, but also so kind and genuinely caring throughout the entire process. She paid attention to every detail, even complementing our yellow and white theme beautifully. Her warm, friendly presence and her stunning voice created an atmosphere we will never forget. So many of our guests told us how moved they were. We can’t recommend her enough she made our day feel truly special.</p>
+            </div>
+          </blockquote>
+          <button class="as-ts-more" type="button" aria-expanded="false">Read full review →</button>
+          <footer class="as-ts-who">
+            <div class="as-ts-stars" aria-label="5 stars">★★★★★</div>
+            <div class="as-ts-by"><span class="as-ts-name">Verlaine B.</span></div>
+          </footer>
+        </div>
+      </div>
+    </article>
+
+    <article class="as-ts-slide" data-as-id="cielo" data-as-layout="type" aria-hidden="true">
+      <div class="as-ts-frame">
+        <div class="as-ts-copy">
+          <span class="as-ts-mark" aria-hidden="true">“</span>
+          <blockquote class="as-ts-quote">
+            <div class="as-ts-excerpt">
+              <p>I can't say enough good things about this agency. We hired an opera singer through Aurora Sonnet for our wedding and it was such a beautiful experience. Lisa really guided us so well through the whole process.</p>
+            </div>
+            <div class="as-ts-full">
+              <p>I can't say enough good things about this agency. We hired an opera singer through Aurora Sonnet for our wedding and it was such a beautiful experience. Lisa really guided us so well through the whole process. The singers voice was angelic and emotional, it really created such a special atmosphere. You can tell this is what they focus on. If you're looking for a wedding singer with a truly beautiful voice, this is the place to go!</p>
+            </div>
+          </blockquote>
+          <button class="as-ts-more" type="button" aria-expanded="false">Read full review →</button>
+          <footer class="as-ts-who">
+            <div class="as-ts-stars" aria-label="5 stars">★★★★★</div>
+            <div class="as-ts-by">
+              <img class="as-ts-avatar" src="https://images.unsplash.com/photo-1534528741775-53994a69daeb?auto=format&amp;fit=crop&amp;w=96&amp;h=96" alt="" width="96" height="96">
+              <span class="as-ts-name">Cielo T.</span>
+            </div>
+          </footer>
+        </div>
+      </div>
+    </article>
+
+    <article class="as-ts-slide" data-as-id="miguel" data-as-layout="photos-right" aria-hidden="true">
+      <div class="as-ts-frame">
+        <div class="as-ts-photos" aria-hidden="true">
+          <figure class="as-ts-print as-ts-print-a">
+            <img src="https://assets.zyrosite.com/x1V2PwVnmXbNAen9/590e9201-f818-4e90-b288-f248b2698ed8-fZlOIESbY1yWtiPN.jpg" alt="" width="800" height="1200">
+          </figure>
+          <figure class="as-ts-print as-ts-print-b">
+            <img src="https://assets.zyrosite.com/x1V2PwVnmXbNAen9/copy-of-51f46375-68dc-4b80-8e73-e9f7342dfa67-zMzQg1QLGEildAky.jpeg" alt="" width="800" height="1200">
+          </figure>
+          <figure class="as-ts-print as-ts-print-c">
+            <img src="https://assets.zyrosite.com/x1V2PwVnmXbNAen9/copy_512e7d51-eb9a-4a0b-9add-56111b2a30cf-0QrOGMpuXsPfQUSJ.JPEG" alt="" width="800" height="1200">
+          </figure>
+        </div>
+        <div class="as-ts-copy">
+          <span class="as-ts-mark" aria-hidden="true">“</span>
+          <blockquote class="as-ts-quote">
+            <div class="as-ts-excerpt">
+              <p>We were so lucky to have Lisa sing at our wedding. Her vocal performance was absolutely beautiful and made the moment even more magical.</p>
+            </div>
+            <div class="as-ts-full">
+              <p>We were so lucky to have Lisa sing at our wedding. Her vocal performance was absolutely beautiful and made the moment even more magical. She was very happy to learn specific song we requested and delivered them perfectly. We received so many comments from our wedding guests on how they loved Lisa’s voice and how it moved them. I highly recommend!</p>
+            </div>
+          </blockquote>
+          <button class="as-ts-more" type="button" aria-expanded="false">Read full review →</button>
+          <footer class="as-ts-who">
+            <div class="as-ts-stars" aria-label="5 stars">★★★★★</div>
+            <div class="as-ts-by"><span class="as-ts-name">Miguel D.</span></div>
+          </footer>
+        </div>
+      </div>
+    </article>
+
+    <article class="as-ts-slide" data-as-id="nadia" data-as-layout="type" aria-hidden="true">
+      <div class="as-ts-frame">
+        <div class="as-ts-copy">
+          <span class="as-ts-mark" aria-hidden="true">“</span>
+          <blockquote class="as-ts-quote">
+            <div class="as-ts-excerpt">
+              <p>Eli &amp; Liv did a phenomenal performance at our wedding. Liv’s voice is absolutely beautiful! We highly recommend them 🤍</p>
+            </div>
+          </blockquote>
+          <footer class="as-ts-who">
+            <div class="as-ts-stars" aria-label="5 stars">★★★★★</div>
+            <div class="as-ts-by">
+              <img class="as-ts-avatar" src="https://assets.zyrosite.com/x1V2PwVnmXbNAen9/img_0340-UZISPnsxW6HnRWdd.jpg" alt="" width="96" height="96">
+              <span class="as-ts-name">Nadia H.</span>
+            </div>
+          </footer>
+        </div>
+      </div>
+    </article>
+
+  </div>
+
+  <button class="as-ts-arrow as-ts-prev" type="button" aria-label="Previous review">‹</button>
+  <button class="as-ts-arrow as-ts-next" type="button" aria-label="Next review">›</button>
+  <div class="as-ts-nav">
+    <div class="as-ts-meta">
+      <div class="as-ts-count" aria-live="polite"><span class="as-ts-num">01</span> / 04</div>
+      <div class="as-ts-dots" role="tablist" aria-label="Choose a review">
+        <button class="as-ts-dot" type="button" role="tab" aria-label="Verlaine B." aria-current="true"></button>
+        <button class="as-ts-dot" type="button" role="tab" aria-label="Cielo T."></button>
+        <button class="as-ts-dot" type="button" role="tab" aria-label="Miguel D."></button>
+        <button class="as-ts-dot" type="button" role="tab" aria-label="Nadia H."></button>
+      </div>
+    </div>
+  </div>
+
+  <script class="as-ts-init">
+  (function () {
+    var root = document.getElementById('as-testimonial-slider');
+    if (!root || root.getAttribute('data-as-ready')) { return; }
+    root.setAttribute('data-as-ready', '1');
+    root.setAttribute('tabindex', '0');
+    root.setAttribute('role', 'region');
+    root.setAttribute('aria-roledescription', 'carousel');
+    root.setAttribute('aria-label', 'Couple reviews');
+
+    var INTERVAL = 8000;
+    var DESKTOP_QUERY = '(min-width: 1024px)';
+    var SPREAD_RATIO = .92;
+    var SPREAD_MAX = 1240;
+    var names = ['Verlaine B.', 'Cielo T.', 'Miguel D.', 'Nadia H.'];
+
+    var slides = Array.prototype.slice.call(root.querySelectorAll('.as-ts-slide'));
+    var dots = Array.prototype.slice.call(root.querySelectorAll('.as-ts-dot'));
+    var countEl = root.querySelector('.as-ts-num');
+    var prevBtn = root.querySelector('.as-ts-prev');
+    var nextBtn = root.querySelector('.as-ts-next');
+    var calm = window.matchMedia('(prefers-reduced-motion: reduce)');
+    var hoverFine = window.matchMedia('(hover: hover) and (pointer: fine)');
+
+    var activeSlide = 0;
+    var playTimer = null;
+    var leaveTimer = null;
+    var hovered = false;
+    var hidden = false;
+    var expanded = false;
+    var isWide = false;
+
+    function canPlay() { return !hovered && !hidden && !expanded && !document.hidden; }
+
+    function disarm() {
+      if (playTimer !== null) {
+        window.clearTimeout(playTimer);
+        playTimer = null;
+      }
+    }
+
+    function arm() {
+      disarm();
+      if (!canPlay()) { return; }
+      playTimer = window.setTimeout(function () {
+        playTimer = null;
+        go(activeSlide + 1, 1);
+      }, INTERVAL);
+    }
+
+    function pad(n) { return (n < 10 ? '0' : '') + n; }
+
+    function closeOpen() {
+      slides.forEach(function (slide) {
+        slide.classList.remove('as-is-open');
+        var more = slide.querySelector('.as-ts-more');
+        if (more) { more.setAttribute('aria-expanded', 'false'); more.textContent = 'Read full review →'; }
+      });
+      expanded = false;
+    }
+
+    function paint() {
+      slides.forEach(function (slide, i) {
+        var on = i === activeSlide;
+        slide.classList.toggle('as-is-active', on);
+        slide.setAttribute('aria-hidden', on ? 'false' : 'true');
+        if ('inert' in slide) { slide.inert = !on; }
+        Array.prototype.forEach.call(slide.querySelectorAll('button'), function (btn) {
+          if (on) { btn.removeAttribute('tabindex'); }
+          else { btn.setAttribute('tabindex', '-1'); }
+        });
+        if (!on) { slide.classList.remove('as-is-open'); }
+      });
+      dots.forEach(function (dot, i) {
+        if (i === activeSlide) { dot.setAttribute('aria-current', 'true'); }
+        else { dot.removeAttribute('aria-current'); }
+      });
+      if (countEl) { countEl.textContent = pad(activeSlide + 1); }
+      root.setAttribute('aria-label', 'Couple reviews, ' + names[activeSlide]);
+    }
+
+    function go(index, dir) {
+      var total = slides.length;
+      var next = ((index % total) + total) % total;
+      if (next === activeSlide) { arm(); return; }
+      var current = slides[activeSlide];
+      if (current) {
+        current.classList.toggle('as-is-leave', (dir || 1) > 0);
+      }
+      closeOpen();
+      activeSlide = next;
+      paint();
+      window.setTimeout(function () {
+        slides.forEach(function (slide) { slide.classList.remove('as-is-leave'); });
+      }, calm.matches ? 80 : 760);
+      settle();
+      arm();
+    }
+
+    function step(dir) {
+      go(activeSlide + dir, dir);
+    }
+
+    prevBtn.addEventListener('click', function () { step(-1); });
+    nextBtn.addEventListener('click', function () { step(1); });
+    dots.forEach(function (dot, i) {
+      dot.addEventListener('click', function () {
+        go(i, i > activeSlide ? 1 : -1);
+      });
+    });
+
+    root.addEventListener('keydown', function (event) {
+      if (event.key === 'ArrowLeft') { event.preventDefault(); step(-1); }
+      if (event.key === 'ArrowRight') { event.preventDefault(); step(1); }
+    });
+
+    slides.forEach(function (slide) {
+      var more = slide.querySelector('.as-ts-more');
+      if (!more) { return; }
+      more.addEventListener('click', function () {
+        var open = !slide.classList.contains('as-is-open');
+        closeOpen();
+        if (open) {
+          slide.classList.add('as-is-open');
+          more.setAttribute('aria-expanded', 'true');
+          more.textContent = 'Show less';
+          expanded = true;
+          disarm();
+        } else {
+          arm();
+        }
+        settle();
+      });
+    });
+
+    function onHover(on) {
+      if (!hoverFine.matches) { return; }
+      hovered = on;
+      if (on) { disarm(); } else { arm(); }
+    }
+    root.addEventListener('mouseenter', function () { onHover(true); });
+    root.addEventListener('mouseleave', function () { onHover(false); });
+
+    function onVisibility() {
+      hidden = document.hidden;
+      if (hidden) { disarm(); } else { arm(); }
+    }
+    document.addEventListener('visibilitychange', onVisibility);
+
+    var touchX = 0, touchY = 0, touching = false;
+    root.addEventListener('touchstart', function (event) {
+      if (!event.changedTouches || !event.changedTouches[0]) { return; }
+      touching = true;
+      touchX = event.changedTouches[0].clientX;
+      touchY = event.changedTouches[0].clientY;
+    }, { passive: true });
+    root.addEventListener('touchend', function (event) {
+      if (!touching || !event.changedTouches || !event.changedTouches[0]) { return; }
+      touching = false;
+      var dx = event.changedTouches[0].clientX - touchX;
+      var dy = event.changedTouches[0].clientY - touchY;
+      if (Math.abs(dx) < 48 || Math.abs(dx) < Math.abs(dy)) { return; }
+      step(dx < 0 ? 1 : -1);
+    }, { passive: true });
+
+    /* ---------------- layout: page viewport decides, iframe is widened ---------------- */
+    var pageWindow = window;
+    try {
+      while (pageWindow.parent && pageWindow.parent !== pageWindow) {
+        void pageWindow.parent.document;
+        pageWindow = pageWindow.parent;
+      }
+    } catch (err) { /* cross-origin: stop here */ }
+
+    var framed = false, frame = null;
+    try { frame = window.frameElement; framed = frame !== null; }
+    catch (err) { framed = window.self !== window.top; }
+
+    function isDesktop() {
+      try { return pageWindow.matchMedia(DESKTOP_QUERY).matches; } catch (err) { /* fall through */ }
+      return window.matchMedia(DESKTOP_QUERY).matches;
+    }
+
+    var box = framed && frame ? frame : root;
+    var boxDoc = box.ownerDocument;
+    var appliedShift = 0;
+    var spreadApplied = false;
+
+    function contentBox(el) {
+      var rect = el.getBoundingClientRect();
+      var css = boxDoc.defaultView.getComputedStyle(el);
+      var padL = parseFloat(css.paddingLeft) || 0;
+      var padR = parseFloat(css.paddingRight) || 0;
+      return { left: rect.left + padL, width: rect.width - padL - padR };
+    }
+
+    function sectionOf(el) {
+      var node = el.parentElement;
+      var need = Math.min(900, (boxDoc.documentElement.clientWidth || 1024) * .8);
+      while (node && node !== boxDoc.body && node !== boxDoc.documentElement) {
+        if (contentBox(node).width >= need) { return node; }
+        node = node.parentElement;
+      }
+      return boxDoc.documentElement;
+    }
+
+    function glass(node) {
+      var cur = node;
+      var hops = 0;
+      while (cur && hops < 6 && cur !== boxDoc.body && cur !== boxDoc.documentElement) {
+        try {
+          var cs = boxDoc.defaultView.getComputedStyle(cur);
+          var bg = (cs.backgroundColor || '').replace(/\s/g, '');
+          var hasVideo = cur.querySelector && cur.querySelector('video');
+          if (hasVideo) { break; }
+          if (!bg || bg === 'transparent' || bg === 'rgba(0,0,0,0)') {
+            cur = cur.parentElement;
+            hops += 1;
+            continue;
+          }
+          cur.style.background = 'transparent';
+          cur.style.backgroundColor = 'transparent';
+        } catch (err) { /* ignore */ }
+        cur = cur.parentElement;
+        hops += 1;
+      }
+    }
+
+    function spread() {
+      if (!isWide) {
+        if (!spreadApplied) { return false; }
+        box.style.width = framed ? '100%' : '';
+        box.style.maxWidth = framed ? 'none' : '';
+        box.style.position = '';
+        box.style.left = '';
+        box.style.display = '';
+        appliedShift = 0;
+        spreadApplied = false;
+        return true;
+      }
+      var section = contentBox(sectionOf(box));
+      var width = Math.round(Math.min(section.width * SPREAD_RATIO, SPREAD_MAX));
+      if (width < 320) { return false; }
+      var staticLeft = box.getBoundingClientRect().left - appliedShift;
+      var shift = Math.round(section.left + (section.width - width) / 2 - staticLeft);
+      if (spreadApplied && Math.abs(shift - appliedShift) < 1 && box.style.width === width + 'px') { return false; }
+      box.style.display = 'block';
+      box.style.position = 'relative';
+      box.style.maxWidth = 'none';
+      box.style.width = width + 'px';
+      box.style.left = shift + 'px';
+      appliedShift = shift;
+      spreadApplied = true;
+      return true;
+    }
+
+    function fitFrame() {
+      if (!framed) { return; }
+      var height = Math.ceil(root.getBoundingClientRect().height);
+      try {
+        if (frame) {
+          if (!spreadApplied) {
+            frame.style.width = '100%';
+            frame.style.maxWidth = 'none';
+          }
+          frame.style.height = height + 'px';
+          frame.style.minHeight = height + 'px';
+          frame.style.background = 'transparent';
+          frame.style.backgroundColor = 'transparent';
+          frame.setAttribute('allowtransparency', 'true');
+        }
+      } catch (err) { /* cross-origin */ }
+      try {
+        window.parent.postMessage({ type: 'as-testimonial-slider:height', height: height }, '*');
+      } catch (err) { /* ignore */ }
+    }
+
+    function settle() {
+      fitFrame();
+      window.setTimeout(fitFrame, 140);
+      window.setTimeout(fitFrame, 760);
+    }
+
+    if (framed && document.body && root.parentNode === document.body) {
+      document.documentElement.style.margin = '0';
+      document.body.style.margin = '0';
+      document.documentElement.style.background = 'transparent';
+      document.body.style.background = 'transparent';
+    }
+    if (frame) {
+      try {
+        frame.style.background = 'transparent';
+        frame.style.backgroundColor = 'transparent';
+        glass(frame);
+      } catch (err) { /* ignore */ }
+    }
+
+    function measure() {
+      var next = isDesktop();
+      if (next === isWide) { return; }
+      isWide = next;
+      root.classList.toggle('as-ts-wide', isWide);
+      spread();
+      settle();
+    }
+
+    function relayout() {
+      var next = isDesktop();
+      if (next !== isWide) {
+        isWide = next;
+        root.classList.toggle('as-ts-wide', isWide);
+      }
+      spread();
+      fitFrame();
+    }
+
+    if (typeof window.ResizeObserver === 'function') {
+      new window.ResizeObserver(relayout).observe(root);
+    }
+    window.addEventListener('resize', relayout);
+    if (pageWindow !== window) {
+      try {
+        pageWindow.addEventListener('resize', relayout);
+        pageWindow.document.addEventListener('visibilitychange', onVisibility);
+      } catch (err) { /* ignore */ }
+    }
+    if (document.readyState !== 'complete') { window.addEventListener('load', relayout); }
+
+    paint();
+    measure();
+    relayout();
+    settle();
+    arm();
+  })();
+  </script>
+
+  <img alt="" aria-hidden="true" src="data:," style="display:none"
+    onerror="(function(img){img.removeAttribute('onerror');var s=document.querySelector('#as-testimonial-slider script.as-ts-init');if(!s){return;}var live=document.createElement('script');live.appendChild(document.createTextNode(s.textContent));s.parentNode.appendChild(live);})(this)">
+</div>

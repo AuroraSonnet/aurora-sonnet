@@ -1,0 +1,1144 @@
+<!--
+  AURORA SONNET — "PARTNER WITH US" (choice → Refer a Couple / Become a Partner + e-sign agreement).
+
+  Paste this ENTIRE block into one Hostinger Custom HTML / Embed Code element.
+
+  • Refer a Couple   → POST APP_URL/api/partner-referrals  (referralProgram "public_10", 10% public terms)
+  • Become a Partner → POST APP_URL/api/referral-partners/apply  (e-signed agreement, active immediately,
+                       returns the partner's unique referral link)
+
+  Everything is namespaced under #as-partner / .asp-* (and .asp-m-* for the agreement modal, which is
+  placed on the page itself so it can cover the whole screen). Fonts are loaded here because Hostinger
+  runs embeds in their own iframe.
+
+  WHAT TO EDIT (CONFIG block at the top of the <script>):
+    • APP_URL             Aurora Sonnet app / API address
+    • REFERRAL_TERMS_URL  page opened by the "Referral Terms" link
+    • REFER_THANK_YOU_URL page shown after a successful "Refer a Couple" ('' = show the in-embed thank-you)
+    • CONTACT_EMAIL       shown in error messages
+
+  The agreement text below must stay identical to server/publicPartnerAgreementPdf.js (the signed PDF).
+-->
+<div id="as-partner" class="asp-is-choice">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500&family=Playfair+Display:wght@400&display=swap" rel="stylesheet">
+
+  <style>
+  #as-partner {
+    --asp-espresso: #382E27;
+    --asp-espresso-deep: #2C241E;
+    --asp-taupe: #7A685F;
+    --asp-cream: #F5EBE0;
+    --asp-paper: #FCFAF7;
+    --asp-blush: #F5E6E0;
+    --asp-blush-soft: #F8EFEA;
+    --asp-rose: #C4A49B;
+    --asp-line: rgba(56, 46, 39, .12);
+    --asp-line-strong: rgba(56, 46, 39, .24);
+    --asp-ease: cubic-bezier(.22, .82, .2, 1);
+
+    box-sizing: border-box;
+    display: block;
+    width: 100%;
+    max-width: 100%;
+    margin: 0;
+    padding: clamp(40px, 7vw, 88px) 20px;
+    background: transparent;
+    color: var(--asp-espresso);
+    font-family: 'Inter', system-ui, -apple-system, 'Segoe UI', sans-serif;
+    font-weight: 300;
+    font-size: 16px;
+    line-height: 1.6;
+    text-align: left;
+    -webkit-font-smoothing: antialiased;
+    -webkit-text-size-adjust: 100%;
+  }
+  #as-partner *, #as-partner *::before, #as-partner *::after { box-sizing: border-box; }
+  #as-partner h2, #as-partner h3, #as-partner p { margin: 0; padding: 0; }
+  #as-partner [hidden] { display: none !important; }
+  #as-partner button {
+    font: inherit; color: inherit; background: none; border: 0; border-radius: 0; padding: 0; margin: 0;
+    cursor: pointer; -webkit-appearance: none; appearance: none; -webkit-tap-highlight-color: transparent;
+    touch-action: manipulation; text-align: center;
+  }
+  #as-partner a { color: inherit; }
+  #as-partner :focus { outline: none; }
+  #as-partner :focus-visible { outline: 1px solid var(--asp-espresso); outline-offset: 3px; }
+
+  /* views */
+  #as-partner .asp-view { display: none; }
+  #as-partner .asp-view.asp-is-on { display: block; animation: asp-in 420ms var(--asp-ease) both; }
+  @keyframes asp-in { from { opacity: 0; transform: translateY(8px); } to { opacity: 1; transform: none; } }
+
+  /* shared type */
+  #as-partner .asp-serif { font-family: 'Playfair Display', Georgia, serif; font-weight: 400; letter-spacing: -.005em; }
+  #as-partner .asp-rule { display: block; width: 40px; height: 1px; background: var(--asp-rose); margin: 20px auto 22px; }
+
+  /* buttons */
+  #as-partner .asp-btn {
+    display: inline-flex; align-items: center; justify-content: center; gap: 12px;
+    min-height: 52px; padding: 14px 30px;
+    border: 1px solid var(--asp-espresso); background: var(--asp-espresso); color: var(--asp-paper);
+    font-size: .84rem; font-weight: 400; letter-spacing: .04em; line-height: 1.2;
+    transition: background 280ms ease, color 280ms ease, opacity 280ms ease;
+  }
+  #as-partner .asp-btn:hover { background: var(--asp-espresso-deep); }
+  #as-partner .asp-btn[disabled] { opacity: .55; cursor: default; }
+  #as-partner .asp-btn-wide { width: 100%; }
+  #as-partner .asp-btn-ghost { background: #fff; color: var(--asp-espresso); }
+  #as-partner .asp-btn-ghost:hover { background: var(--asp-blush); }
+  #as-partner .asp-arrow { display: inline-block; font-size: 1rem; line-height: 1; transition: transform 280ms var(--asp-ease); }
+  #as-partner .asp-btn:hover .asp-arrow { transform: translateX(3px); }
+  #as-partner .asp-btn[disabled] .asp-arrow { transform: none; }
+  #as-partner .asp-textbtn {
+    font-size: .8rem; letter-spacing: .04em; color: var(--asp-taupe);
+    text-decoration: underline; text-underline-offset: 4px; text-decoration-color: var(--asp-rose);
+    min-height: 44px; padding: 0 4px;
+  }
+  #as-partner .asp-textbtn:hover { color: var(--asp-espresso); }
+
+  /* ---------- choice ---------- */
+  #as-partner .asp-head { max-width: 780px; margin: 0 auto clamp(40px, 5vw, 64px); text-align: center; }
+  #as-partner .asp-title { font-size: clamp(2rem, 4.2vw, 2.75rem); line-height: 1.15; }
+  #as-partner [data-asp-view="choice"] .asp-title { font-size: clamp(2.75rem, 5.4vw, 4.25rem); line-height: 1.08; }
+  #as-partner .asp-sub { margin-top: 14px; font-size: 1rem; color: var(--asp-taupe); }
+  #as-partner [data-asp-view="choice"] .asp-sub { margin-top: 18px; font-size: 1.05rem; }
+  #as-partner .asp-choices {
+    display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); align-items: stretch;
+    gap: 28px; max-width: 1040px; margin: 0 auto;
+  }
+  #as-partner .asp-choice {
+    display: flex; flex-direction: column; align-items: center; text-align: center;
+    padding: clamp(40px, 5vw, 60px) clamp(28px, 4vw, 48px);
+    background: var(--asp-paper); border: 1px solid var(--asp-line);
+  }
+  #as-partner .asp-choice-title { font-size: clamp(1.55rem, 2.6vw, 1.9rem); line-height: 1.2; }
+  #as-partner .asp-choice-text { flex: 1; margin-bottom: 32px; font-size: .98rem; line-height: 1.7; color: var(--asp-taupe); }
+
+  /* ---------- form panel ---------- */
+  #as-partner .asp-panel {
+    max-width: 600px; margin: 0 auto; background: var(--asp-paper); border: 1px solid var(--asp-line);
+    padding: clamp(24px, 5vw, 48px) clamp(22px, 5vw, 52px) clamp(32px, 5vw, 52px);
+  }
+  #as-partner .asp-back {
+    display: inline-flex; align-items: center; gap: 8px; min-height: 44px; margin: 0 0 14px -4px; padding: 0 4px;
+    font-size: .76rem; letter-spacing: .08em; text-transform: uppercase; color: var(--asp-taupe);
+    transition: color 240ms ease;
+  }
+  #as-partner .asp-back:hover { color: var(--asp-espresso); }
+  #as-partner .asp-form-title { font-size: clamp(1.9rem, 3.6vw, 2.4rem); line-height: 1.15; }
+  #as-partner .asp-intro { margin-top: 12px; font-size: .98rem; line-height: 1.7; color: var(--asp-taupe); }
+  #as-partner .asp-section { margin-top: 36px; }
+  #as-partner .asp-section + .asp-section { padding-top: 32px; border-top: 1px solid var(--asp-line); }
+  #as-partner .asp-cap { margin: 0 0 20px; font-size: .7rem; font-weight: 500; letter-spacing: .16em; text-transform: uppercase; }
+  #as-partner .asp-field { display: block; margin: 0 0 20px; }
+  #as-partner .asp-label {
+    display: block; margin: 0 0 8px; font-size: .68rem; font-weight: 400; letter-spacing: .12em; text-transform: uppercase;
+  }
+  #as-partner .asp-opt { letter-spacing: .12em; color: var(--asp-taupe); }
+  #as-partner .asp-input {
+    display: block; width: 100%; height: 50px; margin: 0; padding: 0 14px;
+    border: 1px solid var(--asp-line-strong); border-radius: 0; background: #fff;
+    font: inherit; font-size: 16px; font-weight: 300; color: var(--asp-espresso);
+    -webkit-appearance: none; appearance: none; transition: border-color 240ms ease, background 240ms ease;
+  }
+  #as-partner .asp-input::placeholder { color: rgba(122, 104, 95, .62); opacity: 1; }
+  #as-partner .asp-input:focus { border-color: var(--asp-espresso); }
+  #as-partner .asp-input[aria-invalid="true"] { border-color: var(--asp-espresso); background: var(--asp-blush); }
+  #as-partner select.asp-input {
+    padding-right: 42px; cursor: pointer;
+    background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='8' viewBox='0 0 12 8'%3E%3Cpath d='M1 1.5l5 5 5-5' fill='none' stroke='%23382E27' stroke-width='1.2'/%3E%3C/svg%3E");
+    background-repeat: no-repeat; background-position: right 16px center;
+  }
+  #as-partner select.asp-input.asp-is-empty { color: rgba(122, 104, 95, .75); }
+  #as-partner .asp-err { display: none; margin: 7px 0 0; font-size: .76rem; line-height: 1.4; color: var(--asp-espresso); }
+  #as-partner .asp-err.asp-is-on { display: block; }
+
+  /* checkbox */
+  #as-partner .asp-check { position: relative; display: flex; align-items: flex-start; gap: 12px; margin: 4px 0 0; padding: 8px 0; cursor: pointer; font-size: .92rem; line-height: 1.5; }
+  #as-partner .asp-check input { position: absolute; left: 0; top: 10px; width: 20px; height: 20px; margin: 0; opacity: 0; cursor: pointer; }
+  #as-partner .asp-box {
+    flex: none; display: inline-flex; align-items: center; justify-content: center; width: 20px; height: 20px; margin-top: 1px;
+    border: 1px solid var(--asp-line-strong); background: #fff; transition: background 200ms ease, border-color 200ms ease;
+  }
+  #as-partner .asp-box svg { width: 12px; height: 12px; opacity: 0; transition: opacity 160ms ease; }
+  #as-partner .asp-check input:checked + .asp-box { background: var(--asp-espresso); border-color: var(--asp-espresso); }
+  #as-partner .asp-check input:checked + .asp-box svg { opacity: 1; }
+  #as-partner .asp-check input:focus-visible + .asp-box { outline: 1px solid var(--asp-espresso); outline-offset: 3px; }
+  #as-partner .asp-check input[aria-invalid="true"] + .asp-box { border-color: var(--asp-espresso); background: var(--asp-blush); }
+  #as-partner .asp-check a { text-decoration: underline; text-underline-offset: 3px; text-decoration-color: var(--asp-rose); }
+  #as-partner .asp-check a:hover { text-decoration-color: var(--asp-espresso); }
+
+  /* agreement card */
+  #as-partner .asp-agree { margin: 12px 0 0; padding: 24px; background: var(--asp-blush-soft); border: 1px solid var(--asp-line); transition: border-color 240ms ease; }
+  #as-partner .asp-agree[data-invalid="true"] { border-color: var(--asp-espresso); }
+  #as-partner .asp-agree-row { display: flex; align-items: flex-start; gap: 16px; }
+  #as-partner .asp-agree-icon { flex: none; width: 26px; height: 32px; margin-top: 2px; color: var(--asp-espresso); }
+  #as-partner .asp-agree-title { font-size: 1.15rem; line-height: 1.3; }
+  #as-partner .asp-agree-text { margin-top: 6px; font-size: .88rem; line-height: 1.6; color: var(--asp-taupe); }
+  #as-partner .asp-agree-status { display: none; align-items: center; gap: 10px; margin-top: 18px; padding-top: 16px; border-top: 1px solid var(--asp-line); font-size: .88rem; line-height: 1.5; }
+  #as-partner .asp-agree.asp-is-signed .asp-agree-status { display: flex; }
+  #as-partner .asp-agree-tick { flex: none; display: inline-flex; align-items: center; justify-content: center; width: 22px; height: 22px; border-radius: 50%; background: var(--asp-espresso); color: var(--asp-paper); }
+  #as-partner .asp-agree-tick svg { width: 11px; height: 11px; }
+  #as-partner .asp-agree .asp-btn { margin-top: 20px; }
+  #as-partner .asp-agree-note { margin-top: 12px; font-size: .8rem; line-height: 1.5; color: var(--asp-espresso); }
+
+  /* submit + messages */
+  #as-partner .asp-submit { margin-top: 32px; }
+  #as-partner .asp-note { margin: 14px 0 0; font-size: .86rem; line-height: 1.55; text-align: center; color: var(--asp-espresso); }
+
+  /* success */
+  #as-partner .asp-done { text-align: center; padding: clamp(8px, 2vw, 20px) 0 4px; }
+  #as-partner .asp-done-mark {
+    display: flex; align-items: center; justify-content: center; width: 54px; height: 54px; margin: 0 auto 26px;
+    border: 1px solid var(--asp-rose); border-radius: 50%; color: var(--asp-espresso);
+  }
+  #as-partner .asp-done-mark svg { width: 20px; height: 20px; }
+  #as-partner .asp-done-title { font-size: clamp(1.8rem, 3.4vw, 2.3rem); line-height: 1.2; }
+  #as-partner .asp-done-text { max-width: 440px; margin: 16px auto 0; font-size: .98rem; line-height: 1.7; color: var(--asp-taupe); }
+  #as-partner .asp-done-text strong { font-weight: 400; color: var(--asp-espresso); }
+  #as-partner .asp-linkcap { margin: 34px 0 10px; font-size: .68rem; font-weight: 500; letter-spacing: .16em; text-transform: uppercase; }
+  #as-partner .asp-link { display: flex; max-width: 480px; margin: 0 auto; border: 1px solid var(--asp-line-strong); background: #fff; text-align: left; }
+  #as-partner .asp-link input {
+    flex: 1; min-width: 0; height: 52px; margin: 0; padding: 0 14px; border: 0; border-radius: 0; background: transparent;
+    font: inherit; font-size: 15px; color: var(--asp-espresso); text-overflow: ellipsis; -webkit-appearance: none; appearance: none;
+  }
+  #as-partner .asp-link button {
+    flex: none; min-width: 92px; padding: 0 18px; border-left: 1px solid var(--asp-line-strong);
+    font-size: .72rem; font-weight: 400; letter-spacing: .12em; text-transform: uppercase; transition: background 240ms ease;
+  }
+  #as-partner .asp-link button:hover { background: var(--asp-blush); }
+  #as-partner .asp-done-small { max-width: 440px; margin: 14px auto 0; font-size: .84rem; line-height: 1.6; color: var(--asp-taupe); }
+  #as-partner .asp-done-actions { margin-top: 28px; }
+
+  @media (max-width: 720px) {
+    #as-partner { padding: 44px 18px; }
+    #as-partner.asp-is-choice { padding-left: 18px; padding-right: 18px; }
+    #as-partner [data-asp-view="choice"] .asp-title { font-size: 2rem; line-height: 1.15; }
+    #as-partner [data-asp-view="choice"] .asp-sub { margin-top: 14px; font-size: 1rem; }
+    #as-partner .asp-choices { grid-template-columns: 1fr; gap: 16px; max-width: none; }
+    #as-partner .asp-choice { padding: 40px 24px 32px; }
+    #as-partner .asp-choice-text { margin-bottom: 28px; }
+    #as-partner .asp-choice .asp-btn { width: 100%; }
+    #as-partner .asp-br { display: none; }
+  }
+  @media (max-width: 420px) {
+    #as-partner { padding: 36px 18px; }
+    #as-partner.asp-is-choice { padding-left: 18px; padding-right: 18px; }
+    #as-partner .asp-panel { padding: 20px 18px 30px; }
+    #as-partner .asp-agree { padding: 20px 18px; }
+    #as-partner .asp-link button { min-width: 78px; padding: 0 14px; }
+  }
+  @media (prefers-reduced-motion: reduce) {
+    #as-partner .asp-view.asp-is-on { animation: none; }
+    #as-partner * { transition: none !important; }
+  }
+  </style>
+
+  <!-- ============ SCREEN 1 — PARTNER WITH US ============ -->
+  <section class="asp-view asp-is-on" data-asp-view="choice" aria-labelledby="asp-choice-title">
+    <div class="asp-head">
+      <h2 class="asp-title asp-serif" id="asp-choice-title">Partner With Us</h2>
+      <p class="asp-sub">How would you like to continue?</p>
+    </div>
+    <div class="asp-choices">
+      <div class="asp-choice">
+        <h3 class="asp-choice-title asp-serif">Refer a Couple</h3>
+        <span class="asp-rule" aria-hidden="true"></span>
+        <p class="asp-choice-text">I have a client I’d like<br class="asp-br"> to refer to Aurora Sonnet.</p>
+        <button type="button" class="asp-btn" data-asp-go="refer" aria-label="Continue to Refer a Couple">Continue <span class="asp-arrow" aria-hidden="true">&rarr;</span></button>
+      </div>
+      <div class="asp-choice">
+        <h3 class="asp-choice-title asp-serif">Become a Partner</h3>
+        <span class="asp-rule" aria-hidden="true"></span>
+        <p class="asp-choice-text">I’d like to refer clients<br class="asp-br"> to Aurora Sonnet on an<br class="asp-br"> ongoing basis.</p>
+        <button type="button" class="asp-btn" data-asp-go="partner" aria-label="Continue to Become a Partner">Continue <span class="asp-arrow" aria-hidden="true">&rarr;</span></button>
+      </div>
+    </div>
+  </section>
+
+  <!-- ============ PATH 1 — REFER A COUPLE ============ -->
+  <section class="asp-view" data-asp-view="refer" aria-labelledby="asp-refer-title">
+    <div class="asp-panel">
+      <div data-asp-part="form">
+        <button type="button" class="asp-back" data-asp-go="choice"><span aria-hidden="true">&larr;</span> Back</button>
+        <h2 class="asp-form-title asp-serif" id="asp-refer-title">Refer a Couple</h2>
+        <p class="asp-intro">Introduce a couple to Aurora Sonnet.<br>We’ll take care of the rest.</p>
+
+        <form class="asp-form" data-asp-form="refer" novalidate>
+          <div class="asp-section">
+            <p class="asp-cap">Your Details</p>
+            <label class="asp-field"><span class="asp-label">Your Name *</span>
+              <input class="asp-input" name="partnerName" type="text" autocomplete="name" placeholder="First and last name" maxlength="120">
+              <span class="asp-err" aria-live="polite"></span></label>
+            <label class="asp-field"><span class="asp-label">Business / Company *</span>
+              <input class="asp-input" name="companyName" type="text" autocomplete="organization" placeholder="Your business name" maxlength="160">
+              <span class="asp-err" aria-live="polite"></span></label>
+            <label class="asp-field"><span class="asp-label">Email *</span>
+              <input class="asp-input" name="partnerEmail" type="email" autocomplete="email" inputmode="email" placeholder="you@company.com" maxlength="200">
+              <span class="asp-err" aria-live="polite"></span></label>
+          </div>
+          <div class="asp-section">
+            <p class="asp-cap">Couple’s Details</p>
+            <label class="asp-field"><span class="asp-label">Couple’s Name(s) *</span>
+              <input class="asp-input" name="clientName" type="text" autocomplete="off" placeholder="First and last name(s)" maxlength="160">
+              <span class="asp-err" aria-live="polite"></span></label>
+            <label class="asp-field"><span class="asp-label">Couple’s Email *</span>
+              <input class="asp-input" name="clientEmail" type="email" autocomplete="off" inputmode="email" placeholder="their@email.com" maxlength="200">
+              <span class="asp-err" aria-live="polite"></span></label>
+            <label class="asp-field"><span class="asp-label">Couple’s Phone <span class="asp-opt">(Optional)</span></span>
+              <input class="asp-input" name="clientPhone" type="tel" autocomplete="off" inputmode="tel" placeholder="(123) 456-7890" maxlength="40">
+              <span class="asp-err" aria-live="polite"></span></label>
+
+            <label class="asp-check">
+              <input type="checkbox" name="termsAccepted" value="1">
+              <span class="asp-box" aria-hidden="true"><svg viewBox="0 0 12 12"><path d="M2 6.2l2.6 2.6L10 3.4" fill="none" stroke="#FCFAF7" stroke-width="1.6"/></svg></span>
+              <span>I agree to the <a href="#" data-asp-terms target="_blank" rel="noopener noreferrer">Referral Terms</a> *</span>
+            </label>
+            <p class="asp-err" data-asp-err="termsAccepted" aria-live="polite"></p>
+          </div>
+
+          <button type="submit" class="asp-btn asp-btn-wide asp-submit" data-asp-submit>Submit Referral <span class="asp-arrow" aria-hidden="true">&rarr;</span></button>
+          <p class="asp-note" data-asp-note role="alert" hidden></p>
+        </form>
+      </div>
+
+      <div class="asp-done" data-asp-part="done" hidden tabindex="-1">
+        <div class="asp-done-mark" aria-hidden="true"><svg viewBox="0 0 20 20"><path d="M4 10.5l4 4L16.5 6" fill="none" stroke="currentColor" stroke-width="1.3"/></svg></div>
+        <h2 class="asp-done-title asp-serif">Thank you</h2>
+        <p class="asp-done-text">Your referral has been received. We’ll reach out to <strong data-asp-fill="clientName"></strong> personally, and a confirmation is on its way to <strong data-asp-fill="partnerEmail"></strong>.</p>
+        <div class="asp-done-actions"><button type="button" class="asp-textbtn" data-asp-again="refer">Refer another couple</button></div>
+      </div>
+    </div>
+  </section>
+
+  <!-- ============ PATH 2 — BECOME A PARTNER ============ -->
+  <section class="asp-view" data-asp-view="partner" aria-labelledby="asp-partner-title">
+    <div class="asp-panel">
+      <div data-asp-part="form">
+        <button type="button" class="asp-back" data-asp-go="choice"><span aria-hidden="true">&larr;</span> Back</button>
+        <h2 class="asp-form-title asp-serif" id="asp-partner-title">Become a Partner</h2>
+        <p class="asp-intro">Join our referral partner program and earn commission by referring couples to Aurora Sonnet.</p>
+
+        <form class="asp-form" data-asp-form="partner" novalidate>
+          <div class="asp-section">
+            <label class="asp-field"><span class="asp-label">Full Name *</span>
+              <input class="asp-input" name="fullName" type="text" autocomplete="name" placeholder="First and last name" maxlength="120">
+              <span class="asp-err" aria-live="polite"></span></label>
+            <label class="asp-field"><span class="asp-label">Email *</span>
+              <input class="asp-input" name="email" type="email" autocomplete="email" inputmode="email" placeholder="you@company.com" maxlength="200">
+              <span class="asp-err" aria-live="polite"></span></label>
+            <label class="asp-field"><span class="asp-label">Phone Number <span class="asp-opt">(Optional)</span></span>
+              <input class="asp-input" name="phone" type="tel" autocomplete="tel" inputmode="tel" placeholder="(123) 456-7890" maxlength="40">
+              <span class="asp-err" aria-live="polite"></span></label>
+            <label class="asp-field"><span class="asp-label">Business / Company Name *</span>
+              <input class="asp-input" name="companyName" type="text" autocomplete="organization" placeholder="Your business name" maxlength="160">
+              <span class="asp-err" aria-live="polite"></span></label>
+            <label class="asp-field"><span class="asp-label">Type of Business *</span>
+              <select class="asp-input asp-is-empty" name="businessType">
+                <option value="">Select an option</option>
+                <option>Wedding Planner</option>
+                <option>Wedding Venue</option>
+                <option>Photographer / Videographer</option>
+                <option>Florist</option>
+                <option>Caterer</option>
+                <option>Event Designer</option>
+                <option>Other Wedding Vendor</option>
+                <option>Other</option>
+              </select>
+              <span class="asp-err" aria-live="polite"></span></label>
+
+            <div class="asp-agree" data-asp-agree>
+              <div class="asp-agree-row">
+                <svg class="asp-agree-icon" viewBox="0 0 26 32" aria-hidden="true"><path d="M1.5 1.5h15l8 8v21h-23z M16.5 1.5v8h8 M6 15h14 M6 19.5h14 M6 24h9" fill="none" stroke="currentColor" stroke-width="1"/></svg>
+                <div>
+                  <h3 class="asp-agree-title asp-serif">Partner Referral Agreement</h3>
+                  <p class="asp-agree-text">Review and e-sign our Partner Referral Agreement to join the program.</p>
+                </div>
+              </div>
+              <div class="asp-agree-status" aria-live="polite">
+                <span class="asp-agree-tick" aria-hidden="true"><svg viewBox="0 0 12 12"><path d="M2 6.2l2.6 2.6L10 3.4" fill="none" stroke="currentColor" stroke-width="1.6"/></svg></span>
+                <span data-asp-signed-text></span>
+              </div>
+              <p class="asp-agree-note" data-asp-agree-note hidden></p>
+              <button type="button" class="asp-btn asp-btn-ghost asp-btn-wide" data-asp-sign>Review &amp; E-Sign Partner Agreement</button>
+            </div>
+          </div>
+
+          <button type="submit" class="asp-btn asp-btn-wide asp-submit" data-asp-submit>Submit Application <span class="asp-arrow" aria-hidden="true">&rarr;</span></button>
+          <p class="asp-note" data-asp-note role="alert" hidden></p>
+        </form>
+      </div>
+
+      <div class="asp-done" data-asp-part="done" hidden tabindex="-1">
+        <div class="asp-done-mark" aria-hidden="true"><svg viewBox="0 0 20 20"><path d="M4 10.5l4 4L16.5 6" fill="none" stroke="currentColor" stroke-width="1.3"/></svg></div>
+        <div data-asp-done="new">
+          <h2 class="asp-done-title asp-serif">Welcome to Aurora Sonnet</h2>
+          <p class="asp-done-text">Your Partner Referral Agreement is signed and your partnership is now active.</p>
+          <p class="asp-linkcap">Your Partner Link</p>
+          <div class="asp-link">
+            <input type="text" readonly data-asp-link aria-label="Your partner link">
+            <button type="button" data-asp-copy>Copy</button>
+          </div>
+          <p class="asp-done-small">Share this link with couples. When they reach out to Aurora Sonnet through it, the referral is credited to you automatically. We’ve also emailed it to <span data-asp-fill="email"></span>.</p>
+        </div>
+        <div data-asp-done="existing" hidden>
+          <h2 class="asp-done-title asp-serif">You’re already a partner</h2>
+          <p class="asp-done-text">An active partnership already exists for <strong data-asp-fill="email"></strong>. We’ve sent your partner link to that address.</p>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <script>
+  (function () {
+    'use strict';
+
+    /* ============================== CONFIG ============================== */
+    var APP_URL = 'https://aurora-sonnet-1.onrender.com';
+    var REFERRAL_TERMS_URL = 'https://aurorasonnet.com/partner-referral-terms';
+    var REFER_THANK_YOU_URL = 'https://aurorasonnet.com/thank-you-partner-referral';
+    var CONTACT_EMAIL = 'contact@aurorasonnet.com';
+    /* ==================================================================== */
+
+    var root = document.getElementById('as-partner');
+    if (!root || root.getAttribute('data-asp-ready')) { return; }
+    root.setAttribute('data-asp-ready', '1');
+
+    var EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]{2,}$/;
+    var REQUEST_TIMEOUT_MS = 60000;
+
+    /* Must match server/publicPartnerAgreementPdf.js word for word. */
+    var AGREEMENT = [
+      ['p', 'This Partner Referral Agreement ("Agreement") is between Aurora Sonnet LLC ("Aurora Sonnet") and the undersigned referral partner ("Partner").'],
+      ['h', '1. Purpose'],
+      ['p', 'Partner may refer prospective clients to Aurora Sonnet for live music and performance services in exchange for the referral fees described below. Aurora Sonnet communicates and contracts directly with referred clients.'],
+      ['h', '2. Referrals & Attribution'],
+      ['p', "Referrals must be submitted through Aurora Sonnet's referral system or another approved method. Referrals are attributed to Partner for 12 months from submission. A referral is eligible only if the client has not already contacted or been referred to Aurora Sonnet. In the case of duplicate referrals, the first valid referral received will receive attribution."],
+      ['h', '3. Referral Fees'],
+      ['p', 'Aurora Sonnet will pay Partner 10% of the amount received for artist and performance services from an eligible referral, excluding taxes, travel, lodging, rentals, gratuities, payment processing fees, refunds, and other third-party expenses. Referral fees are paid within 30 days after the event takes place and the client has paid in full. No fee is earned on cancelled or fully refunded bookings. A W-9 may be required before payment.'],
+      ['h', '4. Independent Relationship'],
+      ['p', "This Agreement is non-exclusive and there is no minimum referral requirement. Nothing in this Agreement creates an employment, agency, joint venture, or legal partnership between the parties. Partner may not enter into agreements or make commitments on Aurora Sonnet's behalf."],
+      ['h', '5. Brand & Marketing'],
+      ['p', "Partner may recommend Aurora Sonnet and use marketing materials provided or approved by Aurora Sonnet. Aurora Sonnet's name, logo, images, or other materials may not be materially altered without approval."],
+      ['h', '6. Client Information'],
+      ['p', "Partner confirms that it has permission or another lawful basis to share referred clients' contact information with Aurora Sonnet. Both parties will reasonably protect non-public client and business information received through the referral relationship."],
+      ['h', '7. No Guarantee'],
+      ['p', 'Aurora Sonnet does not guarantee that a referred client will book, that a particular artist will be available, or that Partner will earn any minimum amount of referral fees.'],
+      ['h', '8. Term & Termination'],
+      ['p', 'Either party may terminate this Agreement by written notice. Eligible referrals submitted before termination remain attributed to Partner for their original 12-month attribution period.'],
+      ['h', '9. General'],
+      ['p', 'This Agreement is governed by New York law and constitutes the entire agreement between Aurora Sonnet and Partner regarding the referral relationship. Changes must be agreed to in writing.'],
+      ['h', '10. Electronic Signature'],
+      ['p', 'By electronically signing below, Partner agrees to this Agreement. Electronic signatures have the same effect as handwritten signatures.']
+    ];
+
+    /* ---------- page / frame context (Hostinger runs embeds in a same-origin iframe) ---------- */
+    var pageWindow = window;
+    try {
+      while (pageWindow.parent && pageWindow.parent !== pageWindow) {
+        void pageWindow.parent.document;
+        pageWindow = pageWindow.parent;
+      }
+    } catch (err) { /* cross-origin parent: stay inside the embed */ }
+    var pageDoc = document;
+    try { pageDoc = pageWindow.document; void pageDoc.body; } catch (err) { pageWindow = window; pageDoc = document; }
+    var frame = null;
+    try { frame = window.frameElement; } catch (err) { frame = null; }
+
+    if (frame && document.body && root.parentNode === document.body) {
+      document.documentElement.style.margin = '0';
+      document.body.style.margin = '0';
+      document.body.style.background = 'transparent';
+    }
+
+    function fitFrame() {
+      if (!frame) { return; }
+      var height = Math.ceil(root.getBoundingClientRect().height);
+      try {
+        frame.style.height = height + 'px';
+        frame.style.minHeight = height + 'px';
+      } catch (err) { /* ignore */ }
+      try { window.parent.postMessage({ type: 'as-partner:height', height: height }, '*'); } catch (err) { /* ignore */ }
+    }
+    if (typeof window.ResizeObserver === 'function') { new window.ResizeObserver(fitFrame).observe(root); }
+    window.addEventListener('resize', fitFrame);
+    window.addEventListener('load', fitFrame);
+    fitFrame();
+    setTimeout(fitFrame, 300);
+
+    function revealTop() {
+      try {
+        var top = root.getBoundingClientRect().top;
+        if (frame && frame.ownerDocument === pageDoc) { top += frame.getBoundingClientRect().top; }
+        if (top < 0) {
+          var y = (pageWindow.pageYOffset || 0) + top - 90;
+          pageWindow.scrollTo({ top: Math.max(0, y), behavior: 'smooth' });
+        }
+      } catch (err) { /* ignore */ }
+    }
+
+    /* ---------- helpers ---------- */
+    function $(sel, ctx) { return (ctx || root).querySelector(sel); }
+    function $all(sel, ctx) { return Array.prototype.slice.call((ctx || root).querySelectorAll(sel)); }
+    function val(form, name) { var el = form.elements[name]; return el ? String(el.value || '').trim() : ''; }
+    function todayLong() {
+      try { return new Date().toLocaleDateString('en-US', { year: 'numeric', month: 'long', day: 'numeric', timeZone: 'America/New_York' }); }
+      catch (err) { return new Date().toDateString(); }
+    }
+
+    function errEl(input) {
+      if (input.type === 'checkbox') { return root.querySelector('[data-asp-err="' + input.name + '"]'); }
+      return input.parentNode.querySelector('.asp-err');
+    }
+    function setError(input, message) {
+      var el = errEl(input);
+      if (el) { el.textContent = message || ''; el.classList.toggle('asp-is-on', !!message); }
+      input.setAttribute('aria-invalid', message ? 'true' : 'false');
+    }
+    function clearErrors(form) {
+      $all('input, select', form).forEach(function (input) { if (input.name) { setError(input, ''); } });
+    }
+
+    function validate(form, rules) {
+      var firstBad = null;
+      rules.forEach(function (rule) {
+        var input = form.elements[rule[0]];
+        var kind = rule[1];
+        var message = '';
+        if (kind === 'check') {
+          if (!input.checked) { message = rule[2]; }
+        } else {
+          var v = String(input.value || '').trim();
+          if (!v) { message = rule[2]; }
+          else if (kind === 'email' && !EMAIL_RE.test(v)) { message = 'Please enter a valid email address.'; }
+        }
+        setError(input, message);
+        if (message && !firstBad) { firstBad = input; }
+      });
+      if (firstBad) { try { firstBad.focus({ preventScroll: false }); } catch (err) { firstBad.focus(); } }
+      return !firstBad;
+    }
+
+    function postJson(path, body) {
+      var controller = typeof AbortController === 'function' ? new AbortController() : null;
+      var timer = controller ? setTimeout(function () { controller.abort(); }, REQUEST_TIMEOUT_MS) : null;
+      return fetch(APP_URL + path, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', Accept: 'application/json' },
+        body: JSON.stringify(body),
+        signal: controller ? controller.signal : undefined
+      }).then(function (res) {
+        return res.json().catch(function () { return {}; }).then(function (data) {
+          if (timer) { clearTimeout(timer); }
+          return { ok: res.ok, status: res.status, data: data || {} };
+        });
+      }, function () {
+        if (timer) { clearTimeout(timer); }
+        return { ok: false, status: 0, data: {} };
+      });
+    }
+
+    function friendlyError(result, conflictMessage) {
+      if (result.status === 0) { return 'We couldn’t reach Aurora Sonnet just now. Please check your connection and try again.'; }
+      if (result.status === 409 && conflictMessage) { return conflictMessage; }
+      if (result.status === 502 || result.status === 503) { return 'Our system is waking up. Please wait 30–60 seconds and try again — your details are saved.'; }
+      if (result.status === 429) { return 'Too many attempts in a short time. Please wait a minute and try again.'; }
+      if (result.status === 400 && result.data && typeof result.data.error === 'string' && result.data.error.length < 160) {
+        return result.data.error;
+      }
+      return 'Something went wrong while sending. Please try again, or email ' + CONTACT_EMAIL + '.';
+    }
+
+    function setBusy(form, busy, label) {
+      var btn = $('[data-asp-submit]', form);
+      if (!btn.getAttribute('data-label')) { btn.setAttribute('data-label', btn.innerHTML); }
+      btn.disabled = busy;
+      btn.setAttribute('aria-busy', busy ? 'true' : 'false');
+      btn.innerHTML = busy ? label : btn.getAttribute('data-label');
+    }
+    function showNote(form, message) {
+      var note = $('[data-asp-note]', form);
+      note.textContent = message || '';
+      note.hidden = !message;
+    }
+
+    /* ---------- views ---------- */
+    var current = 'choice';
+    function show(name) {
+      if (name === current) { return; }
+      $all('[data-asp-view]').forEach(function (view) {
+        view.classList.toggle('asp-is-on', view.getAttribute('data-asp-view') === name);
+      });
+      current = name;
+      layout();
+      setTimeout(fitFrame, 450);
+      revealTop();
+      var view = $('[data-asp-view="' + name + '"]');
+      var focusTarget = name === 'choice' ? $('#asp-choice-title') : $('.asp-form-title', view);
+      if (focusTarget) {
+        focusTarget.setAttribute('tabindex', '-1');
+        try { focusTarget.focus({ preventScroll: true }); } catch (err) { /* ignore */ }
+      }
+    }
+    /* Choice screen (and every screen on mobile) spans the full page width (Hostinger columns are often narrower than the page). */
+    var spreadShift = 0, frameStyleBefore = null;
+    function loosenClip(node) {
+      var cur = node.parentElement, top = node.ownerDocument.documentElement;
+      while (cur && cur !== top) {
+        try {
+          cur.style.overflow = 'visible';
+          cur.style.overflowX = 'visible';
+          cur.style.overflowY = 'visible';
+        } catch (err) { /* ignore */ }
+        cur = cur.parentElement;
+      }
+    }
+    function spreadFrame(on) {
+      if (!frame) { return; }
+      var s = frame.style;
+      try {
+        if (!on) {
+          if (frameStyleBefore) {
+            Object.keys(frameStyleBefore).forEach(function (k) { s[k] = frameStyleBefore[k]; });
+            frameStyleBefore = null;
+            spreadShift = 0;
+          }
+          return;
+        }
+        var vw = Math.round(frame.ownerDocument.documentElement.clientWidth || 0);
+        if (vw < 280) { return; }
+        if (!frameStyleBefore) {
+          frameStyleBefore = { width: s.width, maxWidth: s.maxWidth, marginLeft: s.marginLeft, marginRight: s.marginRight, left: s.left, position: s.position, display: s.display };
+          loosenClip(frame);
+        }
+        s.display = 'block';
+        s.position = 'relative';
+        s.maxWidth = 'none';
+        s.marginLeft = '0';
+        s.marginRight = '0';
+        var staticLeft = frame.getBoundingClientRect().left - spreadShift;
+        spreadShift = Math.round(-staticLeft);
+        s.width = vw + 'px';
+        s.left = spreadShift + 'px';
+      } catch (err) { /* ignore */ }
+    }
+    function layout() {
+      root.classList.toggle('asp-is-choice', current === 'choice');
+      var pageW = 0;
+      try { pageW = frame ? frame.ownerDocument.documentElement.clientWidth : 0; } catch (err) { /* ignore */ }
+      spreadFrame(current === 'choice' || (pageW > 0 && pageW <= 720));
+      fitFrame();
+    }
+    try { pageWindow.addEventListener('resize', layout); } catch (err) { window.addEventListener('resize', layout); }
+    layout();
+
+    $all('[data-asp-go]').forEach(function (btn) {
+      btn.addEventListener('click', function () { show(btn.getAttribute('data-asp-go')); });
+    });
+
+    function showDone(viewName) {
+      var view = $('[data-asp-view="' + viewName + '"]');
+      $('[data-asp-part="form"]', view).hidden = true;
+      var done = $('[data-asp-part="done"]', view);
+      done.hidden = false;
+      fitFrame();
+      revealTop();
+      try { done.focus({ preventScroll: true }); } catch (err) { /* ignore */ }
+    }
+    function resetView(viewName) {
+      var view = $('[data-asp-view="' + viewName + '"]');
+      var form = $('form', view);
+      form.reset();
+      clearErrors(form);
+      showNote(form, '');
+      $('[data-asp-part="done"]', view).hidden = true;
+      $('[data-asp-part="form"]', view).hidden = false;
+      fitFrame();
+    }
+
+    $all('.asp-form input, .asp-form select').forEach(function (input) {
+      var evt = input.type === 'checkbox' || input.tagName === 'SELECT' ? 'change' : 'input';
+      input.addEventListener(evt, function () { if (input.getAttribute('aria-invalid') === 'true') { setError(input, ''); } });
+    });
+
+    /* ============================ PATH 1 — REFER A COUPLE ============================ */
+    var referForm = $('[data-asp-form="refer"]');
+    var referBusy = false;
+    $('[data-asp-terms]', referForm).setAttribute('href', REFERRAL_TERMS_URL);
+
+    referForm.addEventListener('submit', function (event) {
+      event.preventDefault();
+      if (referBusy) { return; }
+      showNote(referForm, '');
+      var ok = validate(referForm, [
+        ['partnerName', 'text', 'Please enter your name.'],
+        ['companyName', 'text', 'Please enter your business or company.'],
+        ['partnerEmail', 'email', 'Please enter your email.'],
+        ['clientName', 'text', 'Please enter the couple’s name(s).'],
+        ['clientEmail', 'email', 'Please enter the couple’s email.'],
+        ['termsAccepted', 'check', 'Please agree to the Referral Terms.']
+      ]);
+      if (!ok) { return; }
+      var body = {
+        partnerName: val(referForm, 'partnerName'),
+        companyName: val(referForm, 'companyName'),
+        partnerEmail: val(referForm, 'partnerEmail'),
+        clientName: val(referForm, 'clientName'),
+        clientEmail: val(referForm, 'clientEmail'),
+        referralProgram: 'public_10',
+        termsAccepted: true,
+        referralSource: 'website'
+      };
+      var phone = val(referForm, 'clientPhone');
+      if (phone) { body.clientPhone = phone; }
+
+      referBusy = true;
+      setBusy(referForm, true, 'Sending…');
+      postJson('/api/partner-referrals', body).then(function (result) {
+        referBusy = false;
+        setBusy(referForm, false);
+        if (!result.ok) { showNote(referForm, friendlyError(result)); fitFrame(); return; }
+        if (REFER_THANK_YOU_URL) {
+          var ref = String(result.data.referralReference || '').trim();
+          var dest = REFER_THANK_YOU_URL + (ref ? '?ref=' + encodeURIComponent(ref) : '');
+          try { pageWindow.location.assign(dest); return; } catch (err) { /* fall back to inline confirmation */ }
+        }
+        var view = $('[data-asp-view="refer"]');
+        $('[data-asp-fill="clientName"]', view).textContent = body.clientName;
+        $('[data-asp-fill="partnerEmail"]', view).textContent = body.partnerEmail;
+        showDone('refer');
+      });
+    });
+    $('[data-asp-again="refer"]').addEventListener('click', function () {
+      var keep = { partnerName: val(referForm, 'partnerName'), companyName: val(referForm, 'companyName'), partnerEmail: val(referForm, 'partnerEmail') };
+      resetView('refer');
+      Object.keys(keep).forEach(function (k) { referForm.elements[k].value = keep[k]; });
+      try { referForm.elements.clientName.focus(); } catch (err) { /* ignore */ }
+    });
+
+    /* ============================ PATH 2 — BECOME A PARTNER ============================ */
+    var partnerForm = $('[data-asp-form="partner"]');
+    var agreeBox = $('[data-asp-agree]', partnerForm);
+    var signBtn = $('[data-asp-sign]', partnerForm);
+    var agreeNote = $('[data-asp-agree-note]', partnerForm);
+    var businessSelect = partnerForm.elements.businessType;
+    var signed = null; // { name, company, date, dataUrl }
+    var partnerBusy = false;
+
+    businessSelect.addEventListener('change', function () { businessSelect.classList.toggle('asp-is-empty', !businessSelect.value); });
+
+    function renderAgreement(message) {
+      agreeBox.classList.toggle('asp-is-signed', !!signed);
+      $('[data-asp-signed-text]', agreeBox).textContent = signed ? 'Signed by ' + signed.name + ' on ' + signed.date : '';
+      signBtn.textContent = signed ? 'Review Signed Agreement' : 'Review & E-Sign Partner Agreement';
+      agreeNote.textContent = message || '';
+      agreeNote.hidden = !message;
+      if (signed || !message) { agreeBox.removeAttribute('data-invalid'); }
+      fitFrame();
+    }
+
+    ['fullName', 'companyName'].forEach(function (name) {
+      partnerForm.elements[name].addEventListener('input', function () {
+        if (!signed) { return; }
+        if (val(partnerForm, 'fullName') !== signed.name || val(partnerForm, 'companyName') !== signed.company) {
+          signed = null;
+          renderAgreement('Your name or company changed after signing. Please review and sign the agreement again.');
+        }
+      });
+    });
+
+    var PARTNER_RULES = [
+      ['fullName', 'text', 'Please enter your full name.'],
+      ['email', 'email', 'Please enter your email.'],
+      ['companyName', 'text', 'Please enter your business or company name.'],
+      ['businessType', 'text', 'Please select your type of business.']
+    ];
+
+    signBtn.addEventListener('click', function () {
+      showNote(partnerForm, '');
+      if (!validate(partnerForm, PARTNER_RULES)) {
+        renderAgreement('Please complete the fields above before signing.');
+        return;
+      }
+      renderAgreement('');
+      openModal();
+    });
+
+    partnerForm.addEventListener('submit', function (event) {
+      event.preventDefault();
+      if (partnerBusy) { return; }
+      showNote(partnerForm, '');
+      if (!validate(partnerForm, PARTNER_RULES)) { return; }
+      if (!signed) {
+        agreeBox.setAttribute('data-invalid', 'true');
+        renderAgreement('Please review and sign the Partner Referral Agreement.');
+        try { signBtn.focus(); } catch (err) { /* ignore */ }
+        return;
+      }
+      var body = {
+        fullName: val(partnerForm, 'fullName'),
+        email: val(partnerForm, 'email'),
+        companyName: val(partnerForm, 'companyName'),
+        businessType: val(partnerForm, 'businessType'),
+        signaturePngBase64: signed.dataUrl
+      };
+      var phone = val(partnerForm, 'phone');
+      if (phone) { body.phone = phone; }
+
+      partnerBusy = true;
+      setBusy(partnerForm, true, 'Submitting…');
+      postJson('/api/referral-partners/apply', body).then(function (result) {
+        partnerBusy = false;
+        setBusy(partnerForm, false);
+        if (!result.ok || (!result.data.reused && !result.data.referralLink)) {
+          showNote(partnerForm, friendlyError(result,
+            'This email is already connected to an Aurora Sonnet partnership. Please email ' + CONTACT_EMAIL + ' and we’ll help you.'));
+          fitFrame();
+          return;
+        }
+        var view = $('[data-asp-view="partner"]');
+        $all('[data-asp-fill="email"]', view).forEach(function (el) { el.textContent = body.email; });
+        var reused = !!result.data.reused;
+        $('[data-asp-done="new"]', view).hidden = reused;
+        $('[data-asp-done="existing"]', view).hidden = !reused;
+        if (!reused) { $('[data-asp-link]', view).value = result.data.referralLink; }
+        showDone('partner');
+      });
+    });
+
+    var copyBtn = $('[data-asp-copy]');
+    copyBtn.addEventListener('click', function () {
+      var input = $('[data-asp-link]');
+      var text = input.value;
+      function done() {
+        copyBtn.textContent = 'Copied';
+        setTimeout(function () { copyBtn.textContent = 'Copy'; }, 1800);
+      }
+      function fallback() {
+        try { input.focus(); input.select(); input.setSelectionRange(0, text.length); if (document.execCommand('copy')) { done(); } } catch (err) { /* ignore */ }
+      }
+      if (navigator.clipboard && navigator.clipboard.writeText) {
+        navigator.clipboard.writeText(text).then(done, fallback);
+      } else { fallback(); }
+    });
+
+    /* ============================ AGREEMENT / E-SIGN MODAL ============================ */
+    var MODAL_CSS =
+      '.asp-m{position:fixed;inset:0;z-index:2147483000;display:flex;align-items:center;justify-content:center;padding:24px;' +
+        'background:rgba(56,46,39,.55);opacity:0;transition:opacity 280ms ease;font-family:Inter,system-ui,-apple-system,"Segoe UI",sans-serif;' +
+        'font-weight:300;color:#382E27;-webkit-font-smoothing:antialiased;overscroll-behavior:contain;text-align:left;line-height:1.6}' +
+      '.asp-m.asp-is-in{opacity:1}' +
+      '.asp-m *,.asp-m *::before,.asp-m *::after{box-sizing:border-box}' +
+      '.asp-m-dialog{position:relative;display:flex;flex-direction:column;width:100%;max-width:720px;height:min(880px,100%);' +
+        'background:#FCFAF7;border:1px solid rgba(56,46,39,.16);transform:translateY(12px);transition:transform 380ms cubic-bezier(.25,.8,.25,1)}' +
+      '.asp-m.asp-is-in .asp-m-dialog{transform:none}' +
+      '.asp-m-head{flex:none;display:flex;align-items:flex-start;justify-content:space-between;gap:16px;padding:26px 32px 20px;border-bottom:1px solid rgba(56,46,39,.1)}' +
+      '.asp-m-cap{margin:0 0 6px;font-size:.66rem;font-weight:400;letter-spacing:.16em;text-transform:uppercase;color:#7A685F}' +
+      '.asp-m-title{margin:0;font-family:"Playfair Display",Georgia,serif;font-weight:400;font-size:1.6rem;line-height:1.2;color:#382E27}' +
+      '.asp-m-close{flex:none;display:inline-flex;align-items:center;justify-content:center;width:44px;height:44px;margin:-8px -12px 0 0;padding:0;' +
+        'border:0;border-radius:50%;background:none;color:#382E27;cursor:pointer;-webkit-appearance:none;appearance:none}' +
+      '.asp-m-close:hover{background:#F5E6E0}.asp-m-close svg{width:13px;height:13px;display:block}' +
+      '.asp-m-body{flex:1;min-height:0;overflow-y:auto;-webkit-overflow-scrolling:touch;overscroll-behavior:contain;padding:30px 32px 32px}' +
+      '.asp-m-doc{max-width:600px;margin:0 auto;font-size:.9rem;line-height:1.75;color:#382E27}' +
+      '.asp-m-doc p{margin:0 0 14px}' +
+      '.asp-m-org{margin:0 0 4px!important;text-align:center;font-size:.7rem!important;letter-spacing:.18em;text-transform:uppercase;color:#7A685F}' +
+      '.asp-m-doctitle{margin:0 0 26px!important;text-align:center;font-family:"Playfair Display",Georgia,serif;font-size:1.35rem!important;line-height:1.3}' +
+      '.asp-m-doc h3{margin:26px 0 8px;font-family:inherit;font-weight:500;font-size:.72rem;letter-spacing:.14em;text-transform:uppercase;color:#382E27}' +
+      '.asp-m-sign{max-width:600px;margin:34px auto 0;padding-top:28px;border-top:1px solid rgba(56,46,39,.14)}' +
+      '.asp-m-sign h3{margin:0 0 20px;font-weight:500;font-size:.72rem;letter-spacing:.14em;text-transform:uppercase}' +
+      '.asp-m-label{display:block;margin:0 0 8px;font-size:.66rem;font-weight:400;letter-spacing:.12em;text-transform:uppercase;color:#382E27}' +
+      '.asp-m-input{display:block;width:100%;height:50px;margin:0;padding:0 14px;border:1px solid rgba(56,46,39,.24);border-radius:0;background:#fff;' +
+        'font:inherit;font-size:16px;font-weight:300;color:#382E27;-webkit-appearance:none;appearance:none}' +
+      '.asp-m-input:focus{outline:none;border-color:#382E27}.asp-m-input[aria-invalid="true"]{border-color:#382E27;background:#F5E6E0}' +
+      '.asp-m-meta{display:grid;grid-template-columns:1fr 1fr;gap:16px;margin:22px 0 24px}' +
+      '.asp-m-meta p{margin:0;font-size:.95rem;word-break:break-word}' +
+      '.asp-m-padhead{display:flex;align-items:baseline;justify-content:space-between;gap:12px}' +
+      '.asp-m-clear{border:0;background:none;padding:10px 0;margin:0;font:inherit;font-size:.76rem;letter-spacing:.04em;color:#7A685F;' +
+        'text-decoration:underline;text-underline-offset:3px;cursor:pointer;-webkit-appearance:none;appearance:none}' +
+      '.asp-m-clear:hover{color:#382E27}' +
+      '.asp-m-pad{position:relative;height:180px;border:1px solid rgba(56,46,39,.24);background:#fff;touch-action:none;-webkit-user-select:none;user-select:none}' +
+      '.asp-m-pad[aria-invalid="true"]{border-color:#382E27}' +
+      '.asp-m-pad canvas{position:absolute;inset:0;width:100%;height:100%;display:block;cursor:crosshair;touch-action:none}' +
+      '.asp-m-line{position:absolute;left:28px;right:28px;bottom:40px;height:1px;background:rgba(56,46,39,.2);pointer-events:none}' +
+      '.asp-m-x{position:absolute;left:28px;bottom:46px;font-size:.95rem;line-height:1;color:#7A685F;pointer-events:none}' +
+      '.asp-m-hint{position:absolute;left:0;right:0;top:38%;text-align:center;font-size:.84rem;color:rgba(122,104,95,.75);pointer-events:none;transition:opacity 200ms ease}' +
+      '.asp-m-pad.asp-has-ink .asp-m-hint{opacity:0}' +
+      '.asp-m-err{display:none;margin:7px 0 0;font-size:.76rem;line-height:1.4;color:#382E27}.asp-m-err.asp-is-on{display:block}' +
+      '.asp-m-foot{flex:none;padding:18px 32px 22px;border-top:1px solid rgba(56,46,39,.1);background:#FCFAF7}' +
+      '.asp-m-submit{display:flex;align-items:center;justify-content:center;gap:12px;width:100%;min-height:52px;margin:0;padding:14px 24px;' +
+        'border:1px solid #382E27;border-radius:0;background:#382E27;color:#FCFAF7;font:inherit;font-size:.84rem;font-weight:400;letter-spacing:.04em;' +
+        'cursor:pointer;-webkit-appearance:none;appearance:none;transition:background 280ms ease}' +
+      '.asp-m-submit:hover{background:#2C241E}' +
+      '.asp-m-fine{margin:10px 0 0;font-size:.72rem;line-height:1.5;color:#7A685F;text-align:center}' +
+      '.asp-m button:focus-visible,.asp-m input:focus-visible,.asp-m canvas:focus-visible{outline:1px solid #382E27;outline-offset:3px}' +
+      '@media (max-width:640px){.asp-m{padding:0;align-items:stretch}.asp-m-dialog{max-width:none;height:100%;border:0}' +
+        '.asp-m-head{padding:16px 20px 14px}.asp-m-title{font-size:1.3rem}.asp-m-body{padding:22px 20px 28px}' +
+        '.asp-m-foot{padding:14px 20px calc(14px + env(safe-area-inset-bottom,0px))}.asp-m-meta{grid-template-columns:1fr;gap:12px}' +
+        '.asp-m-doc{font-size:.92rem}.asp-m-pad{height:170px}}' +
+      '@media (prefers-reduced-motion:reduce){.asp-m,.asp-m-dialog,.asp-m-hint{transition:none}}';
+
+    var modal = null, modalOpen = false, lastFocus = null, savedScroll = null;
+    var pad = null;
+
+    function ensureFonts() {
+      if (pageDoc === document || pageDoc.getElementById('asp-m-fonts')) { return; }
+      var link = pageDoc.createElement('link');
+      link.id = 'asp-m-fonts';
+      link.rel = 'stylesheet';
+      link.href = 'https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500&family=Playfair+Display:wght@400&display=swap';
+      (pageDoc.head || pageDoc.documentElement).appendChild(link);
+    }
+
+    function el(tag, cls, text) {
+      var node = pageDoc.createElement(tag);
+      if (cls) { node.className = cls; }
+      if (text != null) { node.textContent = text; }
+      return node;
+    }
+
+    function buildModal() {
+      ensureFonts();
+      if (!pageDoc.getElementById('asp-m-style')) {
+        var style = pageDoc.createElement('style');
+        style.id = 'asp-m-style';
+        style.textContent = MODAL_CSS;
+        (pageDoc.head || pageDoc.documentElement).appendChild(style);
+      }
+      var overlay = el('div', 'asp-m');
+      overlay.setAttribute('role', 'dialog');
+      overlay.setAttribute('aria-modal', 'true');
+      overlay.setAttribute('aria-labelledby', 'asp-m-title');
+      overlay.innerHTML =
+        '<div class="asp-m-dialog">' +
+          '<div class="asp-m-head"><div><p class="asp-m-cap">Please review &amp; sign</p>' +
+            '<h2 class="asp-m-title" id="asp-m-title">Partner Referral Agreement</h2></div>' +
+            '<button type="button" class="asp-m-close" aria-label="Close agreement"><svg viewBox="0 0 12 12" aria-hidden="true">' +
+            '<path d="M1 1l10 10M11 1L1 11" stroke="currentColor" stroke-width="1.2"/></svg></button></div>' +
+          '<div class="asp-m-body" tabindex="-1">' +
+            '<article class="asp-m-doc"><p class="asp-m-org">Aurora Sonnet LLC</p><p class="asp-m-doctitle">Partner Referral Agreement</p></article>' +
+            '<div class="asp-m-sign"><h3>Partner</h3>' +
+              '<label class="asp-m-label" for="asp-m-name">Full Legal Name *</label>' +
+              '<input class="asp-m-input" id="asp-m-name" type="text" autocomplete="name" maxlength="120">' +
+              '<p class="asp-m-err" data-m-err="name" aria-live="polite"></p>' +
+              '<div class="asp-m-meta"><div><span class="asp-m-label">Business / Company</span><p data-m="company"></p></div>' +
+                '<div><span class="asp-m-label">Date</span><p data-m="date"></p></div></div>' +
+              '<div class="asp-m-padhead"><span class="asp-m-label" id="asp-m-sig-label">Signature *</span>' +
+                '<button type="button" class="asp-m-clear">Clear</button></div>' +
+              '<div class="asp-m-pad" role="group" aria-labelledby="asp-m-sig-label"><span class="asp-m-hint">Sign here with your finger or mouse</span>' +
+                '<span class="asp-m-line"></span><span class="asp-m-x" aria-hidden="true">&times;</span><canvas aria-label="Signature area"></canvas></div>' +
+              '<p class="asp-m-err" data-m-err="sig" aria-live="polite"></p>' +
+            '</div>' +
+          '</div>' +
+          '<div class="asp-m-foot"><button type="button" class="asp-m-submit">Sign Agreement</button>' +
+            '<p class="asp-m-fine">By selecting “Sign Agreement,” you electronically sign the Partner Referral Agreement above.</p></div>' +
+        '</div>';
+
+      var doc = overlay.querySelector('.asp-m-doc');
+      AGREEMENT.forEach(function (item) { doc.appendChild(el(item[0] === 'h' ? 'h3' : 'p', null, item[1])); });
+
+      overlay.querySelector('.asp-m-close').addEventListener('click', closeModal);
+      overlay.addEventListener('mousedown', function (e) { if (e.target === overlay) { closeModal(); } });
+      overlay.addEventListener('keydown', onModalKey);
+      overlay.querySelector('.asp-m-submit').addEventListener('click', confirmSignature);
+      overlay.querySelector('#asp-m-name').addEventListener('input', function () { mError('name', ''); });
+      overlay.querySelector('.asp-m-clear').addEventListener('click', function () { pad.clear(); });
+
+      pageDoc.body.appendChild(overlay);
+      pad = createPad(overlay.querySelector('.asp-m-pad'), overlay.querySelector('canvas'));
+      return overlay;
+    }
+
+    function mError(which, message) {
+      var node = modal.querySelector('[data-m-err="' + which + '"]');
+      node.textContent = message || '';
+      node.classList.toggle('asp-is-on', !!message);
+      var target = which === 'name' ? modal.querySelector('#asp-m-name') : modal.querySelector('.asp-m-pad');
+      target.setAttribute('aria-invalid', message ? 'true' : 'false');
+    }
+
+    function focusables() {
+      return Array.prototype.filter.call(modal.querySelectorAll('button, input, [href]'), function (n) {
+        return !n.disabled && n.offsetParent !== null;
+      });
+    }
+    function onModalKey(e) {
+      if (e.key === 'Escape') { e.preventDefault(); closeModal(); return; }
+      if (e.key !== 'Tab') { return; }
+      var list = focusables();
+      if (!list.length) { return; }
+      var first = list[0], last = list[list.length - 1], active = pageDoc.activeElement;
+      if (e.shiftKey && active === first) { e.preventDefault(); last.focus(); }
+      else if (!e.shiftKey && active === last) { e.preventDefault(); first.focus(); }
+    }
+
+    function lockScroll(lock) {
+      var html = pageDoc.documentElement, body = pageDoc.body;
+      if (lock) {
+        savedScroll = { html: html.style.overflow, body: body.style.overflow };
+        html.style.overflow = 'hidden';
+        body.style.overflow = 'hidden';
+      } else if (savedScroll) {
+        html.style.overflow = savedScroll.html;
+        body.style.overflow = savedScroll.body;
+        savedScroll = null;
+      }
+    }
+
+    function openModal() {
+      if (!modal) { modal = buildModal(); }
+      lastFocus = document.activeElement;
+      modal.querySelector('#asp-m-name').value = val(partnerForm, 'fullName');
+      modal.querySelector('[data-m="company"]').textContent = val(partnerForm, 'companyName');
+      modal.querySelector('[data-m="date"]').textContent = todayLong();
+      mError('name', '');
+      mError('sig', '');
+      modal.style.display = 'flex';
+      modal.querySelector('.asp-m-body').scrollTop = 0;
+      lockScroll(true);
+      modalOpen = true;
+      pad.resize();
+      pad.clear();
+      pageWindow.requestAnimationFrame(function () { modal.classList.add('asp-is-in'); });
+      setTimeout(function () { try { modal.querySelector('.asp-m-close').focus({ preventScroll: true }); } catch (err) { /* ignore */ } }, 60);
+    }
+
+    function closeModal() {
+      if (!modalOpen) { return; }
+      modalOpen = false;
+      modal.classList.remove('asp-is-in');
+      setTimeout(function () { if (!modalOpen) { modal.style.display = 'none'; } }, 300);
+      lockScroll(false);
+      if (lastFocus) { try { lastFocus.focus({ preventScroll: true }); } catch (err) { /* ignore */ } }
+    }
+
+    function confirmSignature() {
+      var nameInput = modal.querySelector('#asp-m-name');
+      var name = String(nameInput.value || '').trim().replace(/\s+/g, ' ');
+      var ok = true;
+      if (name.length < 2) { mError('name', 'Please enter your full legal name.'); ok = false; }
+      if (!pad.hasSignature()) { mError('sig', 'Please sign in the box above.'); ok = false; }
+      if (!ok) {
+        (name.length < 2 ? nameInput : modal.querySelector('.asp-m-pad')).scrollIntoView({ block: 'center', behavior: 'smooth' });
+        if (name.length < 2) { try { nameInput.focus({ preventScroll: true }); } catch (err) { /* ignore */ } }
+        return;
+      }
+      var dataUrl = pad.toDataUrl();
+      if (!dataUrl) { mError('sig', 'We couldn’t capture your signature. Please try signing again.'); return; }
+      partnerForm.elements.fullName.value = name;
+      setError(partnerForm.elements.fullName, '');
+      signed = { name: name, company: val(partnerForm, 'companyName'), date: todayLong(), dataUrl: dataUrl };
+      closeModal();
+      renderAgreement('');
+      showNote(partnerForm, '');
+    }
+
+    pageWindow.addEventListener('resize', function () { if (modalOpen && pad) { pad.resize(); } });
+
+    /* ---------- signature pad (strokes kept so resizing / rotating never loses ink) ---------- */
+    function createPad(box, canvas) {
+      var ctx = canvas.getContext('2d');
+      var strokes = [], currentStroke = null, inkLength = 0, dpr = 1;
+      var INK = '#382E27';
+
+      function resize() {
+        var rect = canvas.getBoundingClientRect();
+        if (!rect.width || !rect.height) { return; }
+        dpr = Math.min(pageWindow.devicePixelRatio || 1, 2);
+        canvas.width = Math.round(rect.width * dpr);
+        canvas.height = Math.round(rect.height * dpr);
+        redraw();
+      }
+      function drawStroke(c, stroke, scale, ox, oy) {
+        if (!stroke.length) { return; }
+        c.strokeStyle = INK;
+        c.fillStyle = INK;
+        c.lineWidth = 2.2 * scale;
+        c.lineCap = 'round';
+        c.lineJoin = 'round';
+        var p0 = stroke[0];
+        if (stroke.length === 1) {
+          c.beginPath();
+          c.arc((p0.x - ox) * scale, (p0.y - oy) * scale, 1.2 * scale, 0, Math.PI * 2);
+          c.fill();
+          return;
+        }
+        c.beginPath();
+        c.moveTo((p0.x - ox) * scale, (p0.y - oy) * scale);
+        for (var i = 1; i < stroke.length - 1; i++) {
+          var a = stroke[i], b = stroke[i + 1];
+          c.quadraticCurveTo((a.x - ox) * scale, (a.y - oy) * scale, ((a.x + b.x) / 2 - ox) * scale, ((a.y + b.y) / 2 - oy) * scale);
+        }
+        var last = stroke[stroke.length - 1];
+        c.lineTo((last.x - ox) * scale, (last.y - oy) * scale);
+        c.stroke();
+      }
+      function redraw() {
+        ctx.setTransform(1, 0, 0, 1, 0, 0);
+        ctx.clearRect(0, 0, canvas.width, canvas.height);
+        strokes.forEach(function (s) { drawStroke(ctx, s, dpr, 0, 0); });
+      }
+      function point(e) {
+        var rect = canvas.getBoundingClientRect();
+        return { x: e.clientX - rect.left, y: e.clientY - rect.top };
+      }
+      function down(e) {
+        if (e.button != null && e.button > 0) { return; }
+        e.preventDefault();
+        try { canvas.setPointerCapture(e.pointerId); } catch (err) { /* ignore */ }
+        currentStroke = [point(e)];
+        strokes.push(currentStroke);
+        box.classList.add('asp-has-ink');
+        mError('sig', '');
+        redraw();
+      }
+      function move(e) {
+        if (!currentStroke) { return; }
+        e.preventDefault();
+        var p = point(e), prev = currentStroke[currentStroke.length - 1];
+        var d = Math.sqrt((p.x - prev.x) * (p.x - prev.x) + (p.y - prev.y) * (p.y - prev.y));
+        if (d < 1) { return; }
+        inkLength += d;
+        currentStroke.push(p);
+        redraw();
+      }
+      function up() { currentStroke = null; }
+
+      canvas.addEventListener('pointerdown', down);
+      canvas.addEventListener('pointermove', move);
+      canvas.addEventListener('pointerup', up);
+      canvas.addEventListener('pointercancel', up);
+      canvas.addEventListener('lostpointercapture', up);
+
+      return {
+        resize: resize,
+        clear: function () {
+          strokes = []; currentStroke = null; inkLength = 0;
+          box.classList.remove('asp-has-ink');
+          redraw();
+        },
+        hasSignature: function () { return inkLength >= 40; },
+        toDataUrl: function () {
+          var minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity;
+          strokes.forEach(function (s) {
+            s.forEach(function (p) {
+              if (p.x < minX) { minX = p.x; } if (p.y < minY) { minY = p.y; }
+              if (p.x > maxX) { maxX = p.x; } if (p.y > maxY) { maxY = p.y; }
+            });
+          });
+          if (!isFinite(minX)) { return ''; }
+          var padPx = 10, scale = 2;
+          minX -= padPx; minY -= padPx; maxX += padPx; maxY += padPx;
+          var out = pageDoc.createElement('canvas');
+          out.width = Math.max(1, Math.round((maxX - minX) * scale));
+          out.height = Math.max(1, Math.round((maxY - minY) * scale));
+          var octx = out.getContext('2d');
+          strokes.forEach(function (s) { drawStroke(octx, s, scale, minX, minY); });
+          try { return out.toDataURL('image/png'); } catch (err) { return ''; }
+        }
+      };
+    }
+  })();
+  </script>
+</div>

@@ -17,13 +17,19 @@ import {
   isReferralClientPaidInFull,
 } from './partnerReferralPayout.js'
 import { initReferralPartnershipSchema } from './referralPartnershipSchema.js'
-import { buildLegacyDefaultTermsSnapshot, parseTermsSnapshot } from './referralPartnershipTerms.js'
+import {
+  buildLegacyDefaultTermsSnapshot,
+  buildPublicReferralProgramSnapshot,
+  parseTermsSnapshot,
+  snapshotFromAgreementRecord,
+} from './referralPartnershipTerms.js'
 import {
   ensureDefaultPartnershipEmailTemplates,
   migrateVenueFirstOutreachTemplateBody,
   migrateVenueFollowUp1TemplateBody,
 } from './partnershipEmailTemplates.js'
 import { nyBusinessDateString } from './businessDays.js'
+import { resolveReferralDecisionStatus, requiresExplicitReferralDecision, initializeReferralDecisionFields } from './referralDecision.js'
 import {
   initVenuesAndVisitsSchema,
   migratePartnershipContactsToVenues,
@@ -1000,6 +1006,40 @@ function rowToPartnerReferral(row) {
     eventCompletedAt: row.eventCompletedAt || undefined,
     clientPaidInFullAt: row.clientPaidInFullAt || undefined,
     linkedProjectId: row.linkedProjectId || undefined,
+    referralSubmittedAt: row.referralSubmittedAt || undefined,
+    referralDecisionDeadline: row.referralDecisionDeadline || undefined,
+    referralDecisionStatus:
+      row.referralDecisionStatus || requiresExplicitReferralDecision(parseTermsSnapshot(row.agreementTermsSnapshot))
+        ? resolveReferralDecisionStatus({
+            referralDecisionStatus: row.referralDecisionStatus,
+            referralDecisionDeadline: row.referralDecisionDeadline,
+          })
+        : undefined,
+    referralAcceptedAt: row.referralAcceptedAt || undefined,
+    referralRejectedAt: row.referralRejectedAt || undefined,
+    referralDecisionBy: row.referralDecisionBy || undefined,
+    referralDecisionNotes: row.referralDecisionNotes || undefined,
+    referralDecisionDeadlineAdjustedAt: row.referralDecisionDeadlineAdjustedAt || undefined,
+    referralDecisionDeadlineAdjustedBy: row.referralDecisionDeadlineAdjustedBy || undefined,
+    referralDecisionDeadlineAdjustReason: row.referralDecisionDeadlineAdjustReason || undefined,
+    referralDecisionAudit: (() => {
+      try {
+        return JSON.parse(row.referralDecisionAuditJson || '[]')
+      } catch {
+        return []
+      }
+    })(),
+    commissionStatementNumber: row.commissionStatementNumber || undefined,
+    commissionStatementGeneratedAt: row.commissionStatementGeneratedAt || undefined,
+    commissionStatementDeliveredAt: row.commissionStatementDeliveredAt || undefined,
+    commissionStatementDeliveryMethod: row.commissionStatementDeliveryMethod || undefined,
+    commissionStatementDeliveryReference: row.commissionStatementDeliveryReference || undefined,
+    commissionStatementDeliveredBy: row.commissionStatementDeliveredBy || undefined,
+    hasCommissionStatement: Boolean(row.commissionStatementBlob && row.commissionStatementBlob.length),
+    commissionPaymentDate: row.commissionPaymentDate || undefined,
+    commissionPaymentMethod: row.commissionPaymentMethod || undefined,
+    commissionPaymentReference: row.commissionPaymentReference || undefined,
+    termsAcceptedAt: row.termsAcceptedAt || undefined,
     updatedAt: row.updatedAt,
   }
 }
@@ -1010,7 +1050,7 @@ function referralPayableContext(referral) {
     ? db.prepare('SELECT * FROM projects WHERE id = ? AND deletedAt IS NULL').get(projectId)
     : null
   const projectInvoices = projectId
-    ? db.prepare('SELECT * FROM invoices WHERE projectId = ?').all()
+    ? db.prepare('SELECT * FROM invoices WHERE projectId = ?').all(projectId)
     : []
   return { project: project ? rowToProject(project) : null, projectInvoices: projectInvoices.map(rowToInvoice) }
 }
@@ -1050,7 +1090,14 @@ export function createPartnerReferral(data) {
   let agreementTermsSnapshot = data.agreementTermsSnapshot ?? null
 
   if (!agreementTermsSnapshot) {
-    const snap = resolveReferralTermsSnapshotForCreate(data.venueId, agreementId)
+    const usePublicProgram =
+      data.referralProgram === 'public_10' || Boolean(String(data.partnerToken || '').trim())
+    const snap = usePublicProgram
+      ? resolvePublicReferralTermsSnapshot({
+          partnerToken: data.partnerToken,
+          partnerEmail: data.partnerEmail,
+        })
+      : resolveReferralTermsSnapshotForCreate(data.venueId, agreementId)
     partnershipId = snap.partnershipId
     agreementId = snap.agreementId
     agreementSnapshotKind = snap.agreementSnapshotKind
@@ -1070,6 +1117,8 @@ export function createPartnerReferral(data) {
       referralStatus,
       commissionableOverrideAmount: data.commissionableOverrideAmount,
       payoutOverrideAmount: data.payoutOverrideAmount,
+      agreementTermsSnapshot: termsForCompute,
+      referralDecisionStatus: requiresExplicitReferralDecision(termsForCompute) ? 'pending' : undefined,
     },
     { termsSnapshot: termsForCompute }
   )
@@ -1101,8 +1150,8 @@ export function createPartnerReferral(data) {
       commissionableAmount, commissionableOverrideAmount, payoutAmount, payoutOverrideAmount,
       payoutStatus, submissionDate, linkedVendorId, linkedLeadId, venueId, referringContactId,
       partnershipId, agreementId, agreementTermsSnapshot, agreementSnapshotKind,
-      eventCompletedAt, clientPaidInFullAt, linkedProjectId, updatedAt
-    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+      eventCompletedAt, clientPaidInFullAt, linkedProjectId, termsAcceptedAt, updatedAt
+    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
   ).run(
     id,
     referralReference,
@@ -1137,8 +1186,19 @@ export function createPartnerReferral(data) {
     eventCompletedAt,
     clientPaidInFullAt,
     data.linkedProjectId ?? data.linkedLeadId ?? null,
+    data.termsAcceptedAt ?? null,
     now
   )
+
+  const decisionInit = initializeReferralDecisionFields({
+    agreementTermsSnapshot: termsForCompute,
+    submissionDate,
+    referralSubmittedAt: now,
+  })
+  if (Object.keys(decisionInit).length) {
+    patchPartnerReferralFields(id, decisionInit)
+  }
+
   return { id, referralReference }
 }
 
@@ -1178,6 +1238,12 @@ export function updatePartnerReferral(id, updates) {
       referralStatus: merged.referralStatus,
       commissionableOverrideAmount: merged.commissionableOverrideAmount,
       payoutOverrideAmount: merged.payoutOverrideAmount,
+      agreementTermsSnapshot: termsForCompute,
+      referralDecisionStatus: row.referralDecisionStatus,
+      referralDecisionDeadline: row.referralDecisionDeadline,
+      commissionStatementGeneratedAt: row.commissionStatementGeneratedAt,
+      commissionStatementDeliveredAt: row.commissionStatementDeliveredAt,
+      payoutStatus: row.payoutStatus,
     },
     { termsSnapshot: termsForCompute }
   )
@@ -1221,7 +1287,17 @@ export function updatePartnerReferral(id, updates) {
   if (!clientPaidInFullAt && payFlags.clientPaidInFullAt) clientPaidInFullAt = payFlags.clientPaidInFullAt
 
   const payoutErr = validatePayoutStatusChange(
-    { ...draft, eventCompletedAt, clientPaidInFullAt },
+    {
+      ...draft,
+      eventCompletedAt,
+      clientPaidInFullAt,
+      agreementTermsSnapshot: parseTermsSnapshot(row.agreementTermsSnapshot),
+      referralDecisionStatus: row.referralDecisionStatus,
+      referralDecisionDeadline: row.referralDecisionDeadline,
+      commissionStatementGeneratedAt: row.commissionStatementGeneratedAt,
+      commissionStatementDeliveredAt: row.commissionStatementDeliveredAt,
+      payoutStatus: row.payoutStatus,
+    },
     payoutStatus,
     referralPayableContext({ linkedProjectId, linkedLeadId, eventCompletedAt, clientPaidInFullAt })
   )
@@ -1286,16 +1362,108 @@ export function getPartnerReferral(id) {
   return row ? rowToPartnerReferral(row) : null
 }
 
+const PARTNER_REFERRAL_PATCH_FIELDS = [
+  'referralSubmittedAt',
+  'referralDecisionDeadline',
+  'referralDecisionStatus',
+  'referralAcceptedAt',
+  'referralRejectedAt',
+  'referralDecisionBy',
+  'referralDecisionNotes',
+  'referralDecisionAuditJson',
+  'referralDecisionDeadlineAdjustedAt',
+  'referralDecisionDeadlineAdjustedBy',
+  'referralDecisionDeadlineAdjustReason',
+  'commissionStatementNumber',
+  'commissionStatementGeneratedAt',
+  'commissionStatementDeliveredAt',
+  'commissionStatementDeliveryMethod',
+  'commissionStatementDeliveryReference',
+  'commissionStatementDeliveredBy',
+  'commissionStatementBlob',
+  'commissionStatementDataJson',
+  'commissionPaymentDate',
+  'commissionPaymentMethod',
+  'commissionPaymentReference',
+  'updatedAt',
+]
+
+export function patchPartnerReferralFields(id, updates) {
+  const row = db.prepare('SELECT * FROM partner_referrals WHERE id = ?').get(id)
+  if (!row) return null
+  const fields = []
+  const values = []
+  for (const key of PARTNER_REFERRAL_PATCH_FIELDS) {
+    if (Object.prototype.hasOwnProperty.call(updates, key)) {
+      fields.push(`${key}=?`)
+      values.push(updates[key] ?? null)
+    }
+  }
+  if (!fields.length) return getPartnerReferral(id)
+  if (!fields.some((f) => f.startsWith('updatedAt'))) {
+    fields.push('updatedAt=?')
+    values.push(new Date().toISOString())
+  }
+  values.push(id)
+  db.prepare(`UPDATE partner_referrals SET ${fields.join(', ')} WHERE id=?`).run(...values)
+  return getPartnerReferral(id)
+}
+
+export function listPartnerReferralsByPartnershipId(partnershipId) {
+  if (!partnershipId) return []
+  return db
+    .prepare('SELECT * FROM partner_referrals WHERE partnershipId = ? ORDER BY submissionDate DESC, id DESC')
+    .all(partnershipId)
+    .map(rowToPartnerReferral)
+}
+
+export function getPartnerReferralPayableContext(referral) {
+  return referralPayableContext(referral)
+}
+
+export function getPartnerReferralCommissionStatementPdf(id) {
+  const row = db.prepare('SELECT commissionStatementBlob FROM partner_referrals WHERE id = ?').get(id)
+  return row?.commissionStatementBlob || null
+}
+
+export function listPartnerReferralsNeedingDecision() {
+  const rows = db
+    .prepare(
+      `SELECT * FROM partner_referrals
+       WHERE referralDecisionStatus IS NULL OR referralDecisionStatus IN ('pending', 'overdue')
+       ORDER BY referralDecisionDeadline ASC, submissionDate ASC`
+    )
+    .all()
+  return rows
+    .map(rowToPartnerReferral)
+    .filter((r) => requiresExplicitReferralDecision(r.agreementTermsSnapshot))
+    .filter((r) => {
+      const s = resolveReferralDecisionStatus(r)
+      return s === 'pending' || s === 'overdue'
+    })
+}
+
 function rowToReferralPartnership(r) {
   return {
     id: r.id,
-    venueId: r.venueId,
+    venueId: r.venueId || undefined,
     status: r.status,
     activeAgreementId: r.activeAgreementId || undefined,
     w9ReceivedAt: r.w9ReceivedAt || undefined,
+    partnerName: r.partnerName || undefined,
+    partnerEmail: r.partnerEmail || undefined,
+    partnerPhone: r.partnerPhone || undefined,
+    companyName: r.companyName || undefined,
+    businessType: r.businessType || undefined,
+    referralToken: r.referralToken || undefined,
     createdAt: r.createdAt,
     updatedAt: r.updatedAt,
   }
+}
+
+function isOwnerApprovedStatus(status) {
+  const s = String(status || '').toLowerCase()
+  return s === 'owner_approved' || s === 'approved'
 }
 
 function rowToReferralPartnershipAgreement(r) {
@@ -1323,6 +1491,9 @@ function rowToReferralPartnershipAgreement(r) {
     legalRecordedByUsername: r.legalRecordedByUsername || undefined,
     legalRejectedAt: r.legalRejectedAt || undefined,
     legalRejectionNotes: r.legalRejectionNotes || undefined,
+    externalCounselReviewedAt: r.externalCounselReviewedAt || undefined,
+    externalCounselReviewerName: r.externalCounselReviewerName || undefined,
+    externalCounselReviewNotes: r.externalCounselReviewNotes || undefined,
     agreementVersionIdentifier: r.agreementVersionIdentifier || undefined,
     auditLog: (() => {
       try {
@@ -1354,10 +1525,57 @@ function rowToVenueActivity(r) {
   }
 }
 
+function emailsMatch(a, b) {
+  const left = String(a || '').trim().toLowerCase()
+  const right = String(b || '').trim().toLowerCase()
+  return Boolean(left) && left === right && left.includes('@')
+}
+
+function publicProgramTermsSnapshot() {
+  return {
+    agreementId: null,
+    partnershipId: null,
+    agreementSnapshotKind: 'public_program',
+    agreementTermsSnapshot: JSON.stringify(buildPublicReferralProgramSnapshot()),
+  }
+}
+
+function agreementSnapshotForActivePartnership(partnership) {
+  if (!partnership || partnership.status !== 'active' || !partnership.activeAgreementId) return null
+  const agreement = getReferralPartnershipAgreementById(partnership.activeAgreementId)
+  if (!agreement || String(agreement.status || '').toLowerCase() !== 'fully_executed') return null
+  const kind = agreement.termsJson?.termsKind
+  const publicAgreement = kind === 'public_partner_agreement'
+  const approvedVenueAgreement = kind === 'referral_partnership_mvp' && isOwnerApprovedStatus(agreement.legalApprovalStatus)
+  if (!publicAgreement && !approvedVenueAgreement) return null
+  return {
+    agreementId: agreement.id,
+    partnershipId: partnership.id,
+    agreementSnapshotKind: 'agreement',
+    agreementTermsSnapshot: JSON.stringify(snapshotFromAgreementRecord(agreement)),
+  }
+}
+
+/**
+ * New public flow only. Token wins when it matches the partner email on the referral.
+ * A token that does not match that email does not attribute anyone.
+ * With no token, an exact email match to an active signed partner is the fallback.
+ * Otherwise the referral is an anonymous 10% public-program snapshot.
+ */
+export function resolvePublicReferralTermsSnapshot({ partnerToken, partnerEmail } = {}) {
+  const token = String(partnerToken || '').trim()
+  if (token) {
+    const partnership = getReferralPartnershipByReferralToken(token)
+    const snap = agreementSnapshotForActivePartnership(partnership)
+    if (snap && emailsMatch(partnership.partnerEmail, partnerEmail)) return snap
+  }
+  return publicProgramTermsSnapshot()
+}
+
 export function resolveReferralTermsSnapshotForCreate(venueId, agreementId) {
   if (agreementId) {
     const agreement = getReferralPartnershipAgreementById(agreementId)
-    if (agreement && agreement.status === 'fully_executed' && agreement.legalApprovalStatus === 'approved') {
+    if (agreement && agreement.status === 'fully_executed' && isOwnerApprovedStatus(agreement.legalApprovalStatus)) {
       return {
         agreementId: agreement.id,
         partnershipId: agreement.partnershipId,
@@ -1374,7 +1592,7 @@ export function resolveReferralTermsSnapshotForCreate(venueId, agreementId) {
     const partnership = getReferralPartnershipByVenueId(venueId)
     if (partnership?.status === 'active' && partnership.activeAgreementId) {
       const agreement = getReferralPartnershipAgreementById(partnership.activeAgreementId)
-      if (agreement && agreement.status === 'fully_executed' && agreement.legalApprovalStatus === 'approved') {
+      if (agreement && agreement.status === 'fully_executed' && isOwnerApprovedStatus(agreement.legalApprovalStatus)) {
         return {
           agreementId: agreement.id,
           partnershipId: partnership.id,
@@ -1416,11 +1634,57 @@ export function getReferralPartnershipByVenueId(venueId) {
   return row ? rowToReferralPartnership(row) : null
 }
 
+export function getReferralPartnershipByReferralToken(token) {
+  const key = String(token || '').trim()
+  if (!key) return null
+  const row = db.prepare('SELECT * FROM referral_partnerships WHERE referralToken = ?').get(key)
+  return row ? rowToReferralPartnership(row) : null
+}
+
+export function getReferralPartnershipByPartnerEmail(email) {
+  const key = String(email || '').trim().toLowerCase()
+  if (!key) return null
+  const row = db.prepare('SELECT * FROM referral_partnerships WHERE lower(partnerEmail) = ?').get(key)
+  return row ? rowToReferralPartnership(row) : null
+}
+
+/** Earliest referral for this client email. First submission keeps attribution. */
+export function findFirstPartnerReferralByClientEmail(email) {
+  const key = String(email || '').trim().toLowerCase()
+  if (!key) return null
+  const row = db
+    .prepare(
+      `SELECT * FROM partner_referrals
+       WHERE lower(clientEmail) = ?
+       ORDER BY submissionDate ASC, rowid ASC
+       LIMIT 1`
+    )
+    .get(key)
+  return row ? rowToPartnerReferral(row) : null
+}
+
 export function insertReferralPartnership(p) {
   db.prepare(
-    `INSERT INTO referral_partnerships (id, venueId, status, activeAgreementId, w9ReceivedAt, createdAt, updatedAt)
-     VALUES (?, ?, ?, ?, ?, ?, ?)`
-  ).run(p.id, p.venueId, p.status, p.activeAgreementId ?? null, p.w9ReceivedAt ?? null, p.createdAt, p.updatedAt)
+    `INSERT INTO referral_partnerships (
+      id, venueId, status, activeAgreementId, w9ReceivedAt,
+      partnerName, partnerEmail, partnerPhone, companyName, businessType, referralToken,
+      createdAt, updatedAt
+    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+  ).run(
+    p.id,
+    p.venueId ?? null,
+    p.status,
+    p.activeAgreementId ?? null,
+    p.w9ReceivedAt ?? null,
+    p.partnerName ?? null,
+    p.partnerEmail ?? null,
+    p.partnerPhone ?? null,
+    p.companyName ?? null,
+    p.businessType ?? null,
+    p.referralToken ?? null,
+    p.createdAt,
+    p.updatedAt
+  )
 }
 
 export function updateReferralPartnership(id, updates) {
@@ -1471,8 +1735,9 @@ export function insertReferralPartnershipAgreement(a) {
       legalApprovalStatus, legalApprovedAt, legalApprovalNotes,
       legalReviewerName, legalRecordedByUsername, legalRejectedAt, legalRejectionNotes,
       agreementVersionIdentifier,
+      externalCounselReviewedAt, externalCounselReviewerName, externalCounselReviewNotes,
       createdAt, updatedAt
-    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
   ).run(
     a.id,
     a.partnershipId,
@@ -1499,6 +1764,9 @@ export function insertReferralPartnershipAgreement(a) {
     a.legalRejectedAt ?? null,
     a.legalRejectionNotes ?? null,
     a.agreementVersionIdentifier ?? null,
+    a.externalCounselReviewedAt ?? null,
+    a.externalCounselReviewerName ?? null,
+    a.externalCounselReviewNotes ?? null,
     a.createdAt,
     a.updatedAt
   )
@@ -1532,6 +1800,9 @@ export function updateReferralPartnershipAgreement(id, updates) {
     'legalRejectedAt',
     'legalRejectionNotes',
     'agreementVersionIdentifier',
+    'externalCounselReviewedAt',
+    'externalCounselReviewerName',
+    'externalCounselReviewNotes',
     'updatedAt',
   ]
   for (const key of allowed) {

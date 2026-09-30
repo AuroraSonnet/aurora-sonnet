@@ -1,13 +1,29 @@
 import { Link } from 'react-router-dom'
+import { useEffect, useMemo, useState } from 'react'
 import { useApp } from '../context/AppContext'
 import type { ProjectStage } from '../data/mock'
 import { getAutomationSuggestions } from '../utils/automationSuggestions'
+import { apiGetReferralDecisionsDue, type PartnerReferral } from '../api/db'
 import styles from './Dashboard.module.css'
 
 export default function Dashboard() {
   const { state } = useApp()
   const { clients, projects, invoices, proposals, contracts } = state
   const automations = state.automations ?? []
+  const [referralDecisionsDue, setReferralDecisionsDue] = useState<PartnerReferral[]>([])
+
+  useEffect(() => {
+    void apiGetReferralDecisionsDue(2).then((res) => {
+      if (res.ok) setReferralDecisionsDue(res.data.referrals ?? [])
+    })
+  }, [])
+
+  const referralDecisionSummary = useMemo(() => {
+    const overdue = referralDecisionsDue.filter((r) => r.referralDecisionStatus === 'overdue').length
+    const approaching = referralDecisionsDue.length - overdue
+    return { overdue, approaching, total: referralDecisionsDue.length }
+  }, [referralDecisionsDue])
+
   const paidInvoices = invoices.filter((i) => i.status === 'paid')
   const totalRevenue = paidInvoices.reduce((s, i) => s + i.amount, 0)
   const activeBookings = projects.filter((p) => p.stage === 'proposal' || p.stage === 'booked').length
@@ -50,6 +66,41 @@ export default function Dashboard() {
           <span className={styles.metricLabel}>Automations on</span>
         </div>
       </div>
+
+      {referralDecisionSummary.total > 0 ? (
+        <section className={styles.card} aria-label="Notifications">
+          <h2>Notifications</h2>
+          <p className={styles.cardDesc}>
+            {referralDecisionSummary.total} partner referral
+            {referralDecisionSummary.total === 1 ? '' : 's'} need an accept/reject decision within 5 business days.
+            {referralDecisionSummary.overdue > 0
+              ? ` ${referralDecisionSummary.overdue} overdue.`
+              : referralDecisionSummary.approaching > 0
+                ? ` ${referralDecisionSummary.approaching} approaching deadline.`
+                : ''}{' '}
+            Silence is not acceptance.
+          </p>
+          <ul className={styles.suggestions}>
+            {referralDecisionsDue.slice(0, 5).map((r) => (
+              <li key={r.id} className={styles.suggestionItem}>
+                <span className={styles.suggestionLabel}>
+                  {r.partnerName}
+                  {r.companyName ? ` · ${r.companyName}` : ''}
+                </span>
+                <span className={styles.suggestionSub}>
+                  {r.referralReference || r.id} · Due {r.referralDecisionDeadline || '—'} ·{' '}
+                  <span className={r.referralDecisionStatus === 'overdue' ? styles.noticeOverdue : undefined}>
+                    {r.referralDecisionStatus === 'overdue' ? 'Overdue' : 'Approaching deadline'}
+                  </span>
+                </span>
+              </li>
+            ))}
+          </ul>
+          <Link to="/partner-referrals" className={styles.cardLink}>
+            Review in Partner Referrals →
+          </Link>
+        </section>
+      ) : null}
 
       <div className={styles.grid}>
         <section className={styles.card}>

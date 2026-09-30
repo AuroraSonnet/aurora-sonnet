@@ -51,6 +51,13 @@ test('isBusinessDay skips weekends in America/New_York', () => {
   assert.equal(isBusinessDay(SAT_JAN_11_NOON_NY), false)
 })
 
+test('isBusinessDay skips U.S. federal holidays observed in New York', () => {
+  const mlk2025 = instantAtNyLocal(2025, 1, 20, 12, 0)
+  assert.equal(isBusinessDay(mlk2025), false)
+  const regular = instantAtNyLocal(2025, 1, 21, 12, 0)
+  assert.equal(isBusinessDay(regular), true)
+})
+
 test('addBusinessDays(Mon, 5) lands on the following Monday', () => {
   const result = addBusinessDays(MON_JAN_6_10AM_NY, 5)
   assert.equal(nyBusinessDateString(result), '2025-01-13')

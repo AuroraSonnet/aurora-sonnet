@@ -10,7 +10,6 @@ import {
   validatePayoutStatusChange,
 } from '../server/partnerReferralPayout.js'
 import { buildLegacyDefaultTermsSnapshot, DEFAULT_REFERRAL_PARTNERSHIP_TERMS } from '../server/referralPartnershipTerms.js'
-import { validateAgreementStatusTransition } from '../server/referralPartnershipLegal.js'
 
 let dataDir
 let db
@@ -24,9 +23,10 @@ function setupTestOrgAndAuth() {
     legalAddress: '200 Business Center, New York, NY 10001',
     signatoryName: 'Lisa Dubocquet',
     signatoryTitle: 'Founder & Artistic Director',
+    noticeEmail: 'legal@aurora-sonnet.test',
   })
   const legalAuth = requireLegalAuthModule()
-  legalAuth.setLegalApprovalAuthorizedUsernames([TEST_ACTOR])
+  legalAuth.setOwnerApprovalAuthorizedUsernames([TEST_ACTOR])
 }
 
 function requireOrgModule() {
@@ -36,6 +36,56 @@ function requireOrgModule() {
 
 function requireLegalAuthModule() {
   return globalThis.__refLegalAuth
+}
+
+function insertTestAgreementWithContact({
+  venueId,
+  partnershipId,
+  agreementId,
+  version = 1,
+  status = 'draft',
+  legalApprovalStatus = 'pending',
+  agreementVersionIdentifier,
+  partnerSignedDate = null,
+  agencySignedDate = null,
+  partnerSignerName = null,
+  agencySignerName = null,
+  signedPdfBlob = null,
+}) {
+  const contactId = db.createVenueContact({
+    venueId,
+    name: 'Pat Partner',
+    email: 'partner-notice@venue.test',
+    jobTitle: 'GM',
+    isDecisionMaker: true,
+  })
+  const now = new Date().toISOString()
+  db.insertReferralPartnershipAgreement({
+    id: agreementId,
+    partnershipId,
+    version,
+    status,
+    termsJson: JSON.stringify(DEFAULT_REFERRAL_PARTNERSHIP_TERMS),
+    contentHtml: '<p>DRAFT</p>',
+    authorizedSignatoryContactId: contactId,
+    signatoryName: 'Pat',
+    signatoryTitle: 'GM',
+    partnerSignerName,
+    partnerSignerTitle: partnerSignerName ? 'GM' : null,
+    partnerSignedDate,
+    agencySignerName,
+    agencySignedDate,
+    generatedPdfBlob: Buffer.from('%PDF'),
+    signedPdfBlob,
+    auditLogJson: '[]',
+    legalApprovalStatus,
+    legalApprovedAt: null,
+    legalApprovalNotes: null,
+    agreementVersionIdentifier,
+    createdAt: now,
+    updatedAt: now,
+  })
+  return contactId
 }
 
 test.before(async () => {
@@ -54,23 +104,45 @@ test.after(() => {
 })
 
 test('agreement template uses Founder & Artistic Director and duly authorized representative language', async () => {
-  const { buildDraftAgreementHtml, DEFAULT_REFERRAL_PARTNERSHIP_TERMS } = await import('../server/referralPartnershipTerms.js')
-  const html = buildDraftAgreementHtml({
+  const { buildAgreementHtml, DEFAULT_REFERRAL_PARTNERSHIP_TERMS, AGREEMENT_TEMPLATE_VERSION } = await import(
+    '../server/referralPartnershipTerms.js'
+  )
+  const html = buildAgreementHtml({
     venueName: 'Test Venue LLC',
     partnerLegalName: 'Test Venue LLC',
     partnerAddress: '1 Test St, Brooklyn, NY',
+    partnerNoticeEmail: 'partner@testvenue.test',
     signatoryName: 'Alex Planner',
     signatoryTitle: 'Events Director',
     agencyLegalName: 'Aurora Sonnet LLC',
     agencyAddress: '200 Business Center, New York, NY',
+    agencyNoticeEmail: 'legal@aurora.test',
     agencySignatoryName: 'Lisa Dubocquet',
     agencySignatoryTitle: 'Founder & Artistic Director',
     agreementVersionIdentifier: 'RPA-test-template',
     terms: DEFAULT_REFERRAL_PARTNERSHIP_TERMS,
-    draftBanner: false,
+    documentMode: 'signature',
   })
+  assert.equal(AGREEMENT_TEMPLATE_VERSION, '2026-v3')
   assert.match(html, /Founder &amp; Artistic Director/)
   assert.match(html, /duly authorized representative/i)
+  assert.match(html, /business mailing address/i)
+  assert.match(html, /Business Day/i)
+  assert.match(html, /Overdue<\/strong>—not accepted/i)
+  assert.match(html, /We may receive a referral commission if you book Aurora Sonnet/i)
+  assert.match(html, /complete referral relationship/i)
+  assert.match(html, /Effective date:<\/strong> ________________/)
+  assert.doesNotMatch(html, /principal address/i)
+  assert.match(html, /never<\/strong> pay an individual coordinator, employee, or representative/i)
+  assert.match(html, /Existing Lead/i)
+  assert.match(html, /Silence does not constitute acceptance/i)
+  assert.match(html, /first valid written referral received/i)
+  assert.match(html, /same event/i)
+  assert.match(html, /commission statement/i)
+  assert.match(html, /30 days/i)
+  assert.match(html, /New York County, New York/i)
+  assert.match(html, /clearly disclose/i)
+  assert.doesNotMatch(html, /unless designated in writing/i)
 })
 
 test('legacy_default snapshot uses expense deduction; agreement terms do not', () => {
@@ -179,7 +251,8 @@ test('create referral offer: one partnership per venue, draft reuse, timeline lo
   assert.ok(activity.some((a) => a.type === 'referral_offer_created'))
 })
 
-test('legal approval required before sent, fully executed, or activation', () => {
+test('Owner Approval required before sent, fully executed, or activation', async () => {
+  const { validateAgreementStatusTransition } = await import('../server/referralPartnershipLegal.js')
   const agreement = {
     id: 'rpa-legal',
     version: 1,
@@ -196,6 +269,7 @@ test('legal approval required before sent, fully executed, or activation', () =>
     address: '50 Partner Ave',
     city: 'Brooklyn',
     borough: 'NY',
+    email: 'gate@venue.test',
   })
   const partnershipId = `rp-legal-${Date.now()}`
   const agreementId = `rpa-legal-block-${Date.now()}`
@@ -209,51 +283,74 @@ test('legal approval required before sent, fully executed, or activation', () =>
     createdAt: now,
     updatedAt: now,
   })
-  db.insertReferralPartnershipAgreement({
-    id: agreementId,
+  insertTestAgreementWithContact({
+    venueId,
     partnershipId,
-    version: 1,
-    status: 'draft',
-    termsJson: JSON.stringify(DEFAULT_REFERRAL_PARTNERSHIP_TERMS),
-    contentHtml: '<p>DRAFT</p>',
-    authorizedSignatoryContactId: null,
-    signatoryName: 'Pat',
-    signatoryTitle: 'GM',
-    partnerSignerName: null,
-    partnerSignerTitle: null,
-    partnerSignedDate: null,
-    agencySignerName: null,
-    agencySignedDate: null,
-    generatedPdfBlob: Buffer.from('%PDF'),
-    signedPdfBlob: null,
-    auditLogJson: '[]',
-    legalApprovalStatus: 'pending',
-    legalApprovedAt: null,
-    legalApprovalNotes: null,
+    agreementId,
     agreementVersionIdentifier: 'RPA-block-v1',
-    createdAt: now,
-    updatedAt: now,
   })
-  const blocked = referralPartnership.updateReferralOfferAgreement(agreementId, { status: 'sent' })
+  const blocked = await referralPartnership.updateReferralOfferAgreement(agreementId, { status: 'sent' })
   assert.ok(blocked.error)
 
-  referralPartnership.approveReferralAgreementLegal(agreementId, {
-    legalReviewerName: 'External Counsel PLLC',
-    notes: 'Counsel reviewed v1',
+  referralPartnership.approveReferralAgreementOwner(agreementId, {
+    notes: 'Owner approved v1',
     actor: TEST_ACTOR,
   })
-  const allowed = referralPartnership.updateReferralOfferAgreement(agreementId, { status: 'sent' })
+  const allowed = await referralPartnership.updateReferralOfferAgreement(agreementId, { status: 'sent' })
   assert.ok(allowed.agreement)
   assert.equal(allowed.agreement.status, 'sent')
 })
 
-test('partnership activates only when legally approved, fully executed, signatures, and signed PDF', () => {
+test('external counsel review is optional and does not gate send', async () => {
+  const venueId = db.createVenue({
+    companyName: 'Counsel Optional Venue',
+    stage: 'visited',
+    address: '12 Counsel Way',
+    city: 'Brooklyn',
+    borough: 'NY',
+    email: 'counsel@venue.test',
+  })
+  const partnershipId = `rp-counsel-${Date.now()}`
+  const agreementId = `rpa-counsel-${Date.now()}`
+  const now = new Date().toISOString()
+  db.insertReferralPartnership({
+    id: partnershipId,
+    venueId,
+    status: 'pending_signature',
+    activeAgreementId: null,
+    w9ReceivedAt: null,
+    createdAt: now,
+    updatedAt: now,
+  })
+  insertTestAgreementWithContact({
+    venueId,
+    partnershipId,
+    agreementId,
+    agreementVersionIdentifier: 'RPA-counsel-v1',
+  })
+  referralPartnership.approveReferralAgreementOwner(agreementId, { actor: TEST_ACTOR })
+  const sent = await referralPartnership.updateReferralOfferAgreement(agreementId, { status: 'sent' })
+  assert.ok(sent.agreement)
+  assert.equal(sent.agreement.status, 'sent')
+  assert.equal(sent.agreement.externalCounselReviewerName, undefined)
+
+  const counsel = referralPartnership.recordReferralAgreementExternalCounselReview(agreementId, {
+    reviewerName: 'External Counsel PLLC',
+    notes: 'Reviewed',
+    actor: TEST_ACTOR,
+  })
+  assert.equal(counsel.ok, true)
+  assert.equal(counsel.agreement.externalCounselReviewerName, 'External Counsel PLLC')
+})
+
+test('partnership activates only when Owner Approved, fully executed, signatures, and signed PDF', () => {
   const venueId = db.createVenue({
     companyName: 'Activate Venue',
     stage: 'partner',
     address: '99 Partner Blvd',
     city: 'New York',
     borough: 'NY',
+    email: 'activate@venue.test',
   })
   const partnershipId = `rp-test-${Date.now()}`
   const agreementId = `rpa-test-${Date.now()}`
@@ -267,38 +364,19 @@ test('partnership activates only when legally approved, fully executed, signatur
     createdAt: now,
     updatedAt: now,
   })
-  db.insertReferralPartnershipAgreement({
-    id: agreementId,
+  insertTestAgreementWithContact({
+    venueId,
     partnershipId,
-    version: 1,
+    agreementId,
     status: 'fully_executed',
-    termsJson: JSON.stringify(DEFAULT_REFERRAL_PARTNERSHIP_TERMS),
-    contentHtml: '<p>DRAFT</p>',
-    authorizedSignatoryContactId: null,
-    signatoryName: 'Pat',
-    signatoryTitle: 'GM',
-    partnerSignerName: null,
-    partnerSignerTitle: null,
-    partnerSignedDate: null,
-    agencySignerName: null,
-    agencySignedDate: null,
-    generatedPdfBlob: Buffer.from('%PDF'),
-    signedPdfBlob: null,
-    auditLogJson: '[]',
-    legalApprovalStatus: 'pending',
-    legalApprovedAt: null,
-    legalApprovalNotes: null,
     agreementVersionIdentifier: 'RPA-activate-v1',
-    createdAt: now,
-    updatedAt: now,
   })
 
   const blockedLegal = referralPartnership.tryActivatePartnership(partnershipId, agreementId)
   assert.equal(blockedLegal.activated, false)
 
-  referralPartnership.approveReferralAgreementLegal(agreementId, {
-    legalReviewerName: 'External Counsel PLLC',
-    notes: 'Approved',
+  referralPartnership.approveReferralAgreementOwner(agreementId, {
+    notes: 'Owner Approved',
     actor: TEST_ACTOR,
   })
 
@@ -407,8 +485,8 @@ test('venue and contact linking on referral', () => {
   assert.equal(row.partnerName, 'Referrer')
 })
 
-test('unauthorized user cannot record legal approval', () => {
-  const venueId = db.createVenue({ companyName: 'Auth Venue', stage: 'visited', address: '1 St', city: 'NY', borough: 'NY' })
+test('unauthorized user cannot record Owner Approval', () => {
+  const venueId = db.createVenue({ companyName: 'Auth Venue', stage: 'visited', address: '1 St', city: 'NY', borough: 'NY', email: 'auth@venue.test' })
   const partnershipId = `rp-auth-${Date.now()}`
   const agreementId = `rpa-auth-${Date.now()}`
   const now = new Date().toISOString()
@@ -446,14 +524,13 @@ test('unauthorized user cannot record legal approval', () => {
     createdAt: now,
     updatedAt: now,
   })
-  const denied = referralPartnership.approveReferralAgreementLegal(agreementId, {
-    legalReviewerName: 'Counsel',
+  const denied = referralPartnership.approveReferralAgreementOwner(agreementId, {
     actor: 'intruder',
   })
   assert.equal(denied.ok, false)
 })
 
-test('placeholder or missing org address blocks send even after legal approval', () => {
+test('placeholder or missing org address blocks send even after Owner Approval', async () => {
   const orgSettings = requireOrgModule()
   orgSettings.updateAuroraOrganizationSettings({ legalAddress: '[Configure address]' })
   const venueId = db.createVenue({
@@ -462,6 +539,7 @@ test('placeholder or missing org address blocks send even after legal approval',
     address: '10 Real St',
     city: 'Brooklyn',
     borough: 'NY',
+    email: 'ph@venue.test',
   })
   const partnershipId = `rp-ph-${Date.now()}`
   const agreementId = `rpa-ph-${Date.now()}`
@@ -475,47 +553,28 @@ test('placeholder or missing org address blocks send even after legal approval',
     createdAt: now,
     updatedAt: now,
   })
-  db.insertReferralPartnershipAgreement({
-    id: agreementId,
+  insertTestAgreementWithContact({
+    venueId,
     partnershipId,
-    version: 1,
-    status: 'draft',
-    termsJson: JSON.stringify(DEFAULT_REFERRAL_PARTNERSHIP_TERMS),
-    contentHtml: '<p>DRAFT</p>',
-    authorizedSignatoryContactId: null,
-    signatoryName: 'Pat',
-    signatoryTitle: 'GM',
-    partnerSignerName: null,
-    partnerSignerTitle: null,
-    partnerSignedDate: null,
-    agencySignerName: null,
-    agencySignedDate: null,
-    generatedPdfBlob: Buffer.from('%PDF'),
-    signedPdfBlob: null,
-    auditLogJson: '[]',
-    legalApprovalStatus: 'pending',
-    legalApprovedAt: null,
-    legalApprovalNotes: null,
+    agreementId,
     agreementVersionIdentifier: 'RPA-ph-v1',
-    createdAt: now,
-    updatedAt: now,
   })
-  referralPartnership.approveReferralAgreementLegal(agreementId, {
-    legalReviewerName: 'Counsel',
+  referralPartnership.approveReferralAgreementOwner(agreementId, {
     actor: TEST_ACTOR,
   })
-  const blocked = referralPartnership.updateReferralOfferAgreement(agreementId, { status: 'sent' })
+  const blocked = await referralPartnership.updateReferralOfferAgreement(agreementId, { status: 'sent' })
   assert.ok(blocked.error)
   setupTestOrgAndAuth()
 })
 
-test('rejected version is immutable and cannot be approved or sent', () => {
+test('rejected version is immutable and cannot be approved or sent', async () => {
   const venueId = db.createVenue({
     companyName: 'Reject Venue',
     stage: 'visited',
     address: '22 Reject Rd',
     city: 'Brooklyn',
     borough: 'NY',
+    email: 'reject@venue.test',
   })
   const partnershipId = `rp-rej-${Date.now()}`
   const agreementId = `rpa-rej-${Date.now()}`
@@ -529,30 +588,11 @@ test('rejected version is immutable and cannot be approved or sent', () => {
     createdAt: now,
     updatedAt: now,
   })
-  db.insertReferralPartnershipAgreement({
-    id: agreementId,
+  insertTestAgreementWithContact({
+    venueId,
     partnershipId,
-    version: 1,
-    status: 'draft',
-    termsJson: JSON.stringify(DEFAULT_REFERRAL_PARTNERSHIP_TERMS),
-    contentHtml: '<p>DRAFT</p>',
-    authorizedSignatoryContactId: null,
-    signatoryName: 'Pat',
-    signatoryTitle: 'GM',
-    partnerSignerName: null,
-    partnerSignerTitle: null,
-    partnerSignedDate: null,
-    agencySignerName: null,
-    agencySignedDate: null,
-    generatedPdfBlob: Buffer.from('%PDF'),
-    signedPdfBlob: null,
-    auditLogJson: '[]',
-    legalApprovalStatus: 'pending',
-    legalApprovedAt: null,
-    legalApprovalNotes: null,
+    agreementId,
     agreementVersionIdentifier: 'RPA-rej-v1',
-    createdAt: now,
-    updatedAt: now,
   })
   const rejected = referralPartnership.rejectReferralAgreementLegal(agreementId, {
     rejectionNotes: 'Section 5 wording needs revision',
@@ -561,12 +601,129 @@ test('rejected version is immutable and cannot be approved or sent', () => {
   assert.equal(rejected.ok, true)
   assert.equal(rejected.agreement.legalApprovalStatus, 'rejected')
 
-  const sendBlocked = referralPartnership.updateReferralOfferAgreement(agreementId, { status: 'sent' })
+  const sendBlocked = await referralPartnership.updateReferralOfferAgreement(agreementId, { status: 'sent' })
   assert.ok(sendBlocked.error)
 
-  const approveBlocked = referralPartnership.approveReferralAgreementLegal(agreementId, {
-    legalReviewerName: 'Counsel',
+  const approveBlocked = referralPartnership.approveReferralAgreementOwner(agreementId, {
     actor: TEST_ACTOR,
   })
   assert.equal(approveBlocked.ok, false)
+})
+
+test('draft PDF includes banner; signable PDF removes draft warnings', async () => {
+  const { buildAgreementHtml, DEFAULT_REFERRAL_PARTNERSHIP_TERMS } = await import('../server/referralPartnershipTerms.js')
+  const { renderAgreementPdfFromHtml, htmlToPlainText, stripDraftArtifacts } = await import('../server/referralAgreementPdf.js')
+  const fields = {
+    venueName: 'PDF Venue LLC',
+    partnerLegalName: 'PDF Venue LLC',
+    partnerAddress: '1 PDF St',
+    partnerNoticeEmail: 'pdf@venue.test',
+    signatoryName: 'Signer',
+    signatoryTitle: 'GM',
+    agencyLegalName: 'Aurora Sonnet LLC',
+    agencyAddress: '200 Business Center, NY',
+    agencyNoticeEmail: 'legal@aurora.test',
+    agencySignatoryName: 'Lisa Dubocquet',
+    agencySignatoryTitle: 'Founder & Artistic Director',
+    agreementVersionIdentifier: 'RPA-pdf-test',
+    terms: DEFAULT_REFERRAL_PARTNERSHIP_TERMS,
+  }
+  const draftHtml = buildAgreementHtml({ ...fields, documentMode: 'draft' })
+  const signHtml = buildAgreementHtml({ ...fields, documentMode: 'signature' })
+  assert.match(draftHtml, /DRAFT — NOT FOR SIGNATURE/)
+  assert.doesNotMatch(signHtml, /DRAFT — NOT FOR SIGNATURE/)
+
+  const draftPdf = await renderAgreementPdfFromHtml(draftHtml, { includeDraftBanner: true })
+  const signPdf = await renderAgreementPdfFromHtml(signHtml, { includeDraftBanner: false })
+  assert.ok(draftPdf.length > 1000)
+  assert.ok(signPdf.length > 1000)
+
+  const signText = stripDraftArtifacts(htmlToPlainText(signHtml))
+  assert.doesNotMatch(signText, /DRAFT — NOT FOR SIGNATURE/)
+})
+
+test('effective date derives from final signature date', async () => {
+  const { buildAgreementHtml, DEFAULT_REFERRAL_PARTNERSHIP_TERMS, computeEffectiveDateFromSignatures } =
+    await import('../server/referralPartnershipTerms.js')
+  assert.equal(computeEffectiveDateFromSignatures('2026-08-01', '2026-08-15'), '2026-08-15')
+  assert.equal(computeEffectiveDateFromSignatures('2026-08-20', '2026-08-10'), '2026-08-20')
+
+  const signHtml = buildAgreementHtml({
+    venueName: 'Test Venue LLC',
+    partnerLegalName: 'Test Venue LLC',
+    partnerAddress: '1 Test St, Brooklyn, NY',
+    partnerNoticeEmail: 'partner@testvenue.test',
+    signatoryName: 'Alex',
+    signatoryTitle: 'Director',
+    agencyLegalName: 'Aurora Sonnet LLC',
+    agencyAddress: '200 Business Center, New York, NY',
+    agencyNoticeEmail: 'legal@aurora.test',
+    agencySignatoryName: 'Lisa Dubocquet',
+    agencySignatoryTitle: 'Founder & Artistic Director',
+    agreementVersionIdentifier: 'RPA-test-eff',
+    terms: DEFAULT_REFERRAL_PARTNERSHIP_TERMS,
+    documentMode: 'signature',
+  })
+  assert.match(signHtml, /Effective date:<\/strong> ________________/)
+  assert.doesNotMatch(signHtml, /date of the final party's signature/i)
+
+  const execHtml = buildAgreementHtml({
+    venueName: 'Test Venue LLC',
+    partnerLegalName: 'Test Venue LLC',
+    partnerAddress: '1 Test St, Brooklyn, NY',
+    partnerNoticeEmail: 'partner@testvenue.test',
+    signatoryName: 'Alex',
+    signatoryTitle: 'Director',
+    agencyLegalName: 'Aurora Sonnet LLC',
+    agencyAddress: '200 Business Center, New York, NY',
+    agencyNoticeEmail: 'legal@aurora.test',
+    agencySignatoryName: 'Lisa Dubocquet',
+    agencySignatoryTitle: 'Founder & Artistic Director',
+    agreementVersionIdentifier: 'RPA-test-eff',
+    terms: DEFAULT_REFERRAL_PARTNERSHIP_TERMS,
+    documentMode: 'executed',
+    effectiveDate: '2026-08-15',
+  })
+  assert.match(execHtml, /Effective date:<\/strong> 2026-08-15 \(the date of the final party's signature below\)/)
+})
+
+test('Owner Approval records immutable version id in audit log', () => {
+  const venueId = db.createVenue({
+    companyName: 'Audit Venue',
+    stage: 'visited',
+    address: '1 Audit',
+    city: 'NY',
+    borough: 'NY',
+    email: 'audit@venue.test',
+  })
+  const partnershipId = `rp-audit-${Date.now()}`
+  const agreementId = `rpa-audit-${Date.now()}`
+  const versionId = 'RPA-audit-immutable-v2'
+  const now = new Date().toISOString()
+  db.insertReferralPartnership({
+    id: partnershipId,
+    venueId,
+    status: 'pending_signature',
+    activeAgreementId: null,
+    w9ReceivedAt: null,
+    createdAt: now,
+    updatedAt: now,
+  })
+  insertTestAgreementWithContact({
+    venueId,
+    partnershipId,
+    agreementId,
+    agreementVersionIdentifier: versionId,
+    version: 2,
+  })
+  const approved = referralPartnership.approveReferralAgreementOwner(agreementId, {
+    notes: 'Ready to send',
+    actor: TEST_ACTOR,
+  })
+  assert.equal(approved.ok, true)
+  assert.equal(approved.agreement.legalApprovalStatus, 'owner_approved')
+  const audit = approved.agreement.auditLog || []
+  const ownerEvent = audit.find((e) => e.event === 'owner_approved')
+  assert.ok(ownerEvent)
+  assert.equal(ownerEvent.agreementVersionIdentifier, versionId)
 })

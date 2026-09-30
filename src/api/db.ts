@@ -75,15 +75,40 @@ export interface PartnerReferral {
   eventCompletedAt?: string
   clientPaidInFullAt?: string
   linkedProjectId?: string
+  referralSubmittedAt?: string
+  referralDecisionDeadline?: string
+  referralDecisionStatus?: 'pending' | 'accepted' | 'rejected' | 'overdue'
+  referralAcceptedAt?: string
+  referralRejectedAt?: string
+  referralDecisionBy?: string
+  referralDecisionNotes?: string
+  referralDecisionDeadlineAdjustReason?: string
+  referralDecisionAudit?: { at: string; event: string; [key: string]: unknown }[]
+  commissionStatementNumber?: string
+  commissionStatementGeneratedAt?: string
+  commissionStatementDeliveredAt?: string
+  commissionStatementDeliveryMethod?: string
+  commissionStatementDeliveryReference?: string
+  hasCommissionStatement?: boolean
+  commissionPaymentDate?: string
+  commissionPaymentMethod?: string
+  commissionPaymentReference?: string
+  termsAcceptedAt?: string
   updatedAt: string
 }
 
 export interface ReferralPartnership {
   id: string
-  venueId: string
+  venueId?: string
   status: 'inactive' | 'pending_signature' | 'active'
   activeAgreementId?: string
   w9ReceivedAt?: string
+  partnerName?: string
+  partnerEmail?: string
+  partnerPhone?: string
+  companyName?: string
+  businessType?: string
+  referralToken?: string
   createdAt: string
   updatedAt: string
 }
@@ -105,13 +130,16 @@ export interface ReferralPartnershipAgreement {
   agencySignedDate?: string
   hasGeneratedPdf?: boolean
   hasSignedPdf?: boolean
-  legalApprovalStatus?: 'pending' | 'approved' | 'rejected'
+  legalApprovalStatus?: 'pending' | 'owner_approved' | 'approved' | 'rejected'
   legalApprovedAt?: string
   legalApprovalNotes?: string
   legalReviewerName?: string
   legalRecordedByUsername?: string
   legalRejectedAt?: string
   legalRejectionNotes?: string
+  externalCounselReviewedAt?: string
+  externalCounselReviewerName?: string
+  externalCounselReviewNotes?: string
   agreementVersionIdentifier?: string
   auditLog?: { at: string; event: string; [key: string]: unknown }[]
   createdAt: string
@@ -1757,6 +1785,57 @@ export async function apiUpdatePartnerReferral(
   }
 }
 
+export function partnerReferralCommissionStatementUrl(id: string) {
+  return `${API}/partner-referrals/${encodeURIComponent(id)}/commission-statement/pdf`
+}
+
+export function apiGetReferralDecisionsDue(approachingDays = 2) {
+  return jsonRequest<{ referrals: PartnerReferral[] }>(
+    `/partner-referrals/decisions-due?approachingDays=${approachingDays}`
+  )
+}
+
+export function apiAcceptPartnerReferralDecision(id: string, notes?: string) {
+  return jsonRequest<PartnerReferral>(`/partner-referrals/${encodeURIComponent(id)}/accept-decision`, {
+    method: 'POST',
+    body: JSON.stringify({ notes: notes || null }),
+  })
+}
+
+export function apiRejectPartnerReferralDecision(id: string, rejectionNotes: string) {
+  return jsonRequest<PartnerReferral>(`/partner-referrals/${encodeURIComponent(id)}/reject-decision`, {
+    method: 'POST',
+    body: JSON.stringify({ rejectionNotes }),
+  })
+}
+
+export function apiAdjustPartnerReferralDecisionDeadline(id: string, newDeadline: string, reason: string) {
+  return jsonRequest<PartnerReferral>(`/partner-referrals/${encodeURIComponent(id)}/decision-deadline`, {
+    method: 'PATCH',
+    body: JSON.stringify({ newDeadline, reason }),
+  })
+}
+
+export function apiGeneratePartnerReferralCommissionStatement(
+  id: string,
+  payload: { paymentDate?: string; paymentMethod?: string; paymentReference?: string } = {}
+) {
+  return jsonRequest<PartnerReferral>(`/partner-referrals/${encodeURIComponent(id)}/commission-statement`, {
+    method: 'POST',
+    body: JSON.stringify(payload),
+  })
+}
+
+export function apiRecordPartnerReferralCommissionStatementDelivery(
+  id: string,
+  payload: { method: string; reference?: string }
+) {
+  return jsonRequest<PartnerReferral>(`/partner-referrals/${encodeURIComponent(id)}/commission-statement/delivery`, {
+    method: 'POST',
+    body: JSON.stringify(payload),
+  })
+}
+
 /** Delete on local CRM server; also on Inquiry/Render URL when set so merge/refresh does not resurrect the row. */
 export async function apiDeletePartnerReferral(id: string): Promise<boolean> {
   const enc = encodeURIComponent(id)
@@ -1818,11 +1897,32 @@ export function referralAgreementPdfUrl(id: string, kind: 'generated' | 'signed'
   return `${API}/referral-partnership-agreements/${encodeURIComponent(id)}/pdf?kind=${kind}`
 }
 
+export function apiApproveReferralAgreementOwner(
+  id: string,
+  payload: { notes?: string } = {}
+) {
+  return jsonRequest<ReferralPartnershipAgreement>(`/referral-partnership-agreements/${id}/owner-approval`, {
+    method: 'POST',
+    body: JSON.stringify(payload),
+  })
+}
+
+/** @deprecated use apiApproveReferralAgreementOwner */
 export function apiApproveReferralAgreementLegal(
   id: string,
-  payload: { legalReviewerName: string; notes?: string }
+  payload: { legalReviewerName?: string; notes?: string } = {}
 ) {
   return jsonRequest<ReferralPartnershipAgreement>(`/referral-partnership-agreements/${id}/legal-approval`, {
+    method: 'POST',
+    body: JSON.stringify(payload),
+  })
+}
+
+export function apiRecordReferralExternalCounselReview(
+  id: string,
+  payload: { reviewerName: string; notes?: string }
+) {
+  return jsonRequest<ReferralPartnershipAgreement>(`/referral-partnership-agreements/${id}/external-counsel-review`, {
     method: 'POST',
     body: JSON.stringify(payload),
   })
@@ -1851,6 +1951,7 @@ export interface AuroraOrganizationSettings {
   legalAddress: string
   signatoryName: string
   signatoryTitle: string
+  noticeEmail: string
 }
 
 export function apiGetVenueActivity(venueId: string) {

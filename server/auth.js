@@ -3,7 +3,7 @@ import bcrypt from 'bcryptjs'
 import { randomBytes, createHash } from 'node:crypto'
 import { Store } from 'express-session'
 import db from './db.js'
-import { canUserRecordLegalApproval } from './referralLegalApprovalAuth.js'
+import { canUserRecordLegalApproval, canUserRecordOwnerApproval } from './referralLegalApprovalAuth.js'
 
 const SESSION_MAX_AGE_MS = 24 * 60 * 60 * 1000 // 24-hour sliding window
 const LOGIN_RATE_WINDOW_MS = 15 * 60 * 1000
@@ -34,6 +34,7 @@ const PUBLIC_API_EXACT = new Set([
   'POST /api/confirm-payment',
   'POST /api/create-checkout-session',
   'POST /api/partner-referrals',
+  'POST /api/referral-partners/apply',
   // External outreach cron — session bypass; OUTREACH_CRON_SECRET enforced in handler.
   'GET /api/outreach-sequence/tick',
   'POST /api/outreach-sequence/tick',
@@ -56,6 +57,9 @@ export function isPublicApiRoute(method, pathOnly) {
   if (method === 'GET' && /^\/api\/contracts\/[^/]+\/sign-info$/.test(pathOnly)) return true
   if (method === 'POST' && /^\/api\/contracts\/[^/]+\/sign-client$/.test(pathOnly)) return true
   if (method === 'GET' && /^\/api\/invoices\/[^/]+$/.test(pathOnly)) return true
+  if (method === 'GET' && /^\/api\/referral-partners\/by-token\/[^/]+$/.test(pathOnly)) return true
+  // Partner Portal: partner session enforced by its own middleware (never grants admin access).
+  if (pathOnly.startsWith('/api/partner-portal/')) return true
   return false
 }
 
@@ -292,6 +296,28 @@ export function createSessionMiddleware() {
   })
 }
 
+export const PARTNER_SESSION_COOKIE = 'aurora_partner_sid'
+const PARTNER_SESSION_MAX_AGE_MS = 14 * 24 * 60 * 60 * 1000
+
+/** Separate cookie from the admin session so a partner login can never carry admin state. */
+export function createPartnerSessionMiddleware() {
+  const secret = (process.env.SESSION_SECRET || 'dev-only-insecure-secret').trim()
+  return session({
+    name: PARTNER_SESSION_COOKIE,
+    secret,
+    store: new SqliteSessionStore(db),
+    resave: false,
+    saveUninitialized: false,
+    rolling: false,
+    cookie: {
+      httpOnly: true,
+      secure: isProduction,
+      sameSite: 'lax',
+      maxAge: PARTNER_SESSION_MAX_AGE_MS,
+    },
+  })
+}
+
 export function requireAuth(req, res, next) {
   const pathOnly = (req.path || '').split('?')[0]
   if (!pathOnly.startsWith('/api')) return next()
@@ -318,6 +344,7 @@ export function registerAuthRoutes(app) {
         authenticated: true,
         username,
         canRecordReferralLegalApproval: canUserRecordLegalApproval(username),
+        canRecordReferralOwnerApproval: canUserRecordOwnerApproval(username),
       })
     }
     return res.json({ authenticated: false })
@@ -349,6 +376,7 @@ export function registerAuthRoutes(app) {
       ok: true,
       username: creds.username,
       canRecordReferralLegalApproval: canUserRecordLegalApproval(creds.username),
+      canRecordReferralOwnerApproval: canUserRecordOwnerApproval(creds.username),
     })
   })
 

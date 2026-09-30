@@ -4,6 +4,7 @@ export type AuthUser = {
   authenticated: boolean
   username: string | null
   canRecordReferralLegalApproval?: boolean
+  canRecordReferralOwnerApproval?: boolean
 }
 
 export async function fetchAuthMe(): Promise<AuthUser> {

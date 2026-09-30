@@ -1,0 +1,187 @@
+<!--
+  AURORA SONNET &mdash; PARTNER LOGIN (passwordless).
+
+  Paste this ENTIRE block into one Hostinger Custom HTML / Embed Code element on the Partner Login page.
+
+  Sends POST APP_URL/api/partner-portal/request-link with the email. The reply is always the same neutral
+  confirmation; only signed partners actually receive a one-time login link.
+
+  WHAT TO EDIT (CONFIG block at the top of the <script>):
+    - APP_URL        Aurora Sonnet app / API address
+    - CONTACT_EMAIL  shown in error messages
+-->
+<div id="as-plogin">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500&family=Playfair+Display:wght@400&display=swap" rel="stylesheet">
+
+  <style>
+  #as-plogin {
+    --apl-espresso: #382E27;
+    --apl-espresso-deep: #2C241E;
+    --apl-taupe: #7A685F;
+    --apl-paper: #FCFAF7;
+    --apl-blush: #F5E6E0;
+    --apl-rose: #C4A49B;
+    --apl-line: rgba(56, 46, 39, .12);
+    --apl-line-strong: rgba(56, 46, 39, .24);
+
+    box-sizing: border-box;
+    display: block;
+    width: 100%;
+    max-width: 100%;
+    margin: 0;
+    padding: clamp(40px, 7vw, 88px) 18px;
+    background: transparent;
+    color: var(--apl-espresso);
+    font-family: 'Inter', system-ui, -apple-system, 'Segoe UI', sans-serif;
+    font-weight: 300;
+    font-size: 16px;
+    line-height: 1.6;
+    text-align: left;
+    -webkit-font-smoothing: antialiased;
+    -webkit-text-size-adjust: 100%;
+  }
+  #as-plogin *, #as-plogin *::before, #as-plogin *::after { box-sizing: border-box; }
+  #as-plogin h2, #as-plogin p { margin: 0; padding: 0; }
+  #as-plogin [hidden] { display: none !important; }
+  #as-plogin button {
+    font: inherit; color: inherit; background: none; border: 0; border-radius: 0; padding: 0; margin: 0;
+    cursor: pointer; -webkit-appearance: none; appearance: none; -webkit-tap-highlight-color: transparent;
+  }
+  #as-plogin :focus { outline: none; }
+  #as-plogin :focus-visible { outline: 1px solid var(--apl-espresso); outline-offset: 3px; }
+
+  #as-plogin .apl-card {
+    max-width: 520px; margin: 0 auto; background: var(--apl-paper); border: 1px solid var(--apl-line);
+    padding: clamp(40px, 6vw, 60px) clamp(22px, 6vw, 56px); text-align: center;
+  }
+  #as-plogin .apl-title { font-family: 'Playfair Display', Georgia, serif; font-weight: 400; font-size: clamp(2rem, 4.2vw, 2.6rem); line-height: 1.15; letter-spacing: -.005em; }
+  #as-plogin .apl-rule { display: block; width: 40px; height: 1px; background: var(--apl-rose); margin: 20px auto; }
+  #as-plogin .apl-text { font-size: .98rem; line-height: 1.7; color: var(--apl-taupe); }
+  #as-plogin form { margin-top: 32px; text-align: left; }
+  #as-plogin .apl-label { display: block; margin: 0 0 8px; font-size: .68rem; font-weight: 400; letter-spacing: .12em; text-transform: uppercase; }
+  #as-plogin .apl-input {
+    display: block; width: 100%; height: 52px; margin: 0; padding: 0 14px;
+    border: 1px solid var(--apl-line-strong); border-radius: 0; background: #fff;
+    font: inherit; font-size: 16px; font-weight: 300; color: var(--apl-espresso);
+    -webkit-appearance: none; appearance: none; transition: border-color 240ms ease, background 240ms ease;
+  }
+  #as-plogin .apl-input::placeholder { color: rgba(122, 104, 95, .62); opacity: 1; }
+  #as-plogin .apl-input:focus { border-color: var(--apl-espresso); }
+  #as-plogin .apl-input[aria-invalid="true"] { background: var(--apl-blush); border-color: var(--apl-espresso); }
+  #as-plogin .apl-btn {
+    display: flex; align-items: center; justify-content: center; gap: 12px; width: 100%;
+    min-height: 52px; margin-top: 18px; padding: 14px 30px;
+    border: 1px solid var(--apl-espresso); background: var(--apl-espresso); color: var(--apl-paper);
+    font-size: .84rem; font-weight: 400; letter-spacing: .04em; line-height: 1.2;
+    transition: background 280ms ease, opacity 280ms ease;
+  }
+  #as-plogin .apl-btn:hover { background: var(--apl-espresso-deep); }
+  #as-plogin .apl-btn[disabled] { opacity: .55; cursor: default; }
+  #as-plogin .apl-note { margin-top: 14px; font-size: .86rem; line-height: 1.55; text-align: center; }
+  #as-plogin .apl-mark {
+    display: flex; align-items: center; justify-content: center; width: 54px; height: 54px; margin: 0 auto 24px;
+    border: 1px solid var(--apl-rose); border-radius: 50%;
+  }
+  #as-plogin .apl-mark svg { width: 20px; height: 20px; }
+  #as-plogin .apl-small { margin-top: 14px; font-size: .84rem; line-height: 1.6; color: var(--apl-taupe); }
+  @media (prefers-reduced-motion: reduce) { #as-plogin * { transition: none !important; } }
+  </style>
+
+  <section class="apl-card" data-apl-view="form">
+    <h2 class="apl-title">Partner Login</h2>
+    <span class="apl-rule"></span>
+    <p class="apl-text">Access your referrals and commissions. We&rsquo;ll email you a secure login link.</p>
+    <form novalidate>
+      <label class="apl-label" for="apl-email">Email</label>
+      <input class="apl-input" id="apl-email" name="email" type="email" autocomplete="email" inputmode="email" placeholder="you@company.com" required>
+      <button class="apl-btn" type="submit">Send Login Link</button>
+      <p class="apl-note" role="status" aria-live="polite" hidden></p>
+    </form>
+  </section>
+
+  <section class="apl-card" data-apl-view="sent" hidden>
+    <span class="apl-mark" aria-hidden="true">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.3"><path d="M3 6.5h18v11H3z"/><path d="M3.5 7l8.5 6.5L20.5 7"/></svg>
+    </span>
+    <h2 class="apl-title">Check Your Email</h2>
+    <span class="apl-rule"></span>
+    <p class="apl-text">If this email belongs to an Aurora Sonnet partner, a login link is on its way.</p>
+    <p class="apl-small">The link works once and expires in 30 minutes. Not there? Check your spam folder.</p>
+  </section>
+
+  <script>
+  (function () {
+    /* ============================== CONFIG ============================== */
+    var APP_URL = 'https://aurora-sonnet-1.onrender.com';
+    var CONTACT_EMAIL = 'contact@aurorasonnet.com';
+    /* ==================================================================== */
+
+    var root = document.getElementById('as-plogin');
+    var form = root.querySelector('form');
+    var input = root.querySelector('#apl-email');
+    var btn = root.querySelector('.apl-btn');
+    var note = root.querySelector('.apl-note');
+    var formView = root.querySelector('[data-apl-view="form"]');
+    var sentView = root.querySelector('[data-apl-view="sent"]');
+
+    var frame = null;
+    try { frame = window.frameElement; } catch (err) { frame = null; }
+    if (frame && document.body && root.parentNode === document.body) {
+      document.documentElement.style.margin = '0';
+      document.body.style.margin = '0';
+      document.body.style.background = 'transparent';
+    }
+    function fitFrame() {
+      if (!frame) { return; }
+      var height = Math.ceil(root.getBoundingClientRect().height);
+      try { frame.style.height = height + 'px'; frame.style.minHeight = height + 'px'; } catch (err) { /* ignore */ }
+    }
+    if (typeof window.ResizeObserver === 'function') { new window.ResizeObserver(fitFrame).observe(root); }
+    window.addEventListener('resize', fitFrame);
+    window.addEventListener('load', fitFrame);
+    fitFrame();
+    setTimeout(fitFrame, 300);
+
+    function say(text) { note.textContent = text; note.hidden = !text; }
+
+    form.addEventListener('submit', function (e) {
+      e.preventDefault();
+      var email = String(input.value || '').trim();
+      if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) {
+        input.setAttribute('aria-invalid', 'true');
+        say('Please enter a valid email address.');
+        input.focus();
+        return;
+      }
+      input.removeAttribute('aria-invalid');
+      say('');
+      btn.disabled = true;
+      btn.textContent = 'Sending\u2026';
+      var slow = setTimeout(function () { say('Our system is waking up \u2014 this can take up to a minute.'); }, 6000);
+      fetch(APP_URL.replace(/\/$/, '') + '/api/partner-portal/request-link', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', Accept: 'application/json' },
+        body: JSON.stringify({ email: email })
+      }).then(function (res) {
+        return res.json().catch(function () { return {}; }).then(function (data) { return { status: res.status, data: data }; });
+      }, function () { return { status: 0, data: {} }; }).then(function (r) {
+        clearTimeout(slow);
+        btn.disabled = false;
+        btn.textContent = 'Send Login Link';
+        if (r.status === 200) {
+          formView.hidden = true;
+          sentView.hidden = false;
+          return;
+        }
+        if (r.status === 0) { say('We couldn\u2019t reach Aurora Sonnet just now. Please check your connection and try again.'); }
+        else if (r.status === 429) { say('Too many requests. Please wait a few minutes and try again.'); }
+        else if (r.status === 502 || r.status === 503) { say('Our system is waking up. Please wait 30\u201360 seconds and try again.'); }
+        else if (r.status === 400 && r.data && typeof r.data.error === 'string') { say(r.data.error); }
+        else { say('Something went wrong. Please try again, or email ' + CONTACT_EMAIL + '.'); }
+      });
+    });
+  })();
+  </script>
+</div>

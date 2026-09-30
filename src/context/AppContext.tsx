@@ -279,6 +279,18 @@ function mergePartnerReferralListsById(local: PartnerReferral[], remote: Partner
 }
 
 async function fetchAndMergeRemotePartnerReferrals(setState: Dispatch<SetStateAction<AppState>>): Promise<void> {
+  try {
+    const localState = await fetchState()
+    if (localState?.partnerReferrals?.length) {
+      setState((prev) => ({
+        ...prev,
+        partnerReferrals: mergePartnerReferralListsById(prev.partnerReferrals ?? [], localState.partnerReferrals ?? []),
+      }))
+    }
+  } catch {
+    // ignore — offline / not logged in yet
+  }
+
   const baseRaw = getInquiryApiBaseUrl()
   const base = baseRaw.replace(/\/$/, '')
   if (!base) return

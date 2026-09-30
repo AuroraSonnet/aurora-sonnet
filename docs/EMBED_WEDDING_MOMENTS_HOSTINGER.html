@@ -1,0 +1,810 @@
+<!--
+  AURORA SONNET — WEDDING MOMENTS (interactive folded-panel component).
+
+  Paste this ENTIRE block into the Hostinger Custom HTML / Embed Code element that sits
+  inside your existing "Live Singing For Your Wedding" section.
+
+  Contains NO heading, NO subtitle and NO CTA — your section already provides those.
+  Background is transparent so it inherits the section's blush background.
+
+  Everything is namespaced under #as-wedding-moments / .as-wm-* and cannot affect the
+  rest of the page. If Playfair Display + Inter are already loaded by your theme, the
+  <link> below is a harmless duplicate (the browser dedupes it) and may be deleted.
+
+  LAYOUT NOTE: Hostinger renders every embed inside a same-origin <iframe srcdoc> that is
+  exactly as wide as the block you drew in the builder. A media query (or measuring the
+  component) therefore sees a ~300px "viewport" on a laptop and picks the phone layout.
+  The script below instead reads the PAGE viewport (>= 1024px = desktop), and in desktop
+  mode widens and centres the iframe itself to ~90% of the section, so the four panels
+  can sit side by side. Below 1024px nothing is touched and the stacked layout is used.
+-->
+<div id="as-wedding-moments">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500&family=Playfair+Display:wght@400;500&display=swap" rel="stylesheet">
+
+  <style>
+  /* ================= tokens (brand palette only) ================= */
+  #as-wedding-moments {
+    --as-espresso: #382E27;
+    --as-taupe: #7A6B5F;
+    --as-blush: #F5EBE0;
+    --as-dur: 560ms;
+    --as-copy-delay: 180ms;
+    --as-ease: cubic-bezier(.2, .82, .2, 1);
+
+    position: relative;
+    width: 100%;
+    margin: 0 auto;
+    padding: 0;
+    background: transparent;
+    font-family: 'Inter', system-ui, -apple-system, sans-serif;
+    -webkit-font-smoothing: antialiased;
+  }
+  #as-wedding-moments *,
+  #as-wedding-moments *::before,
+  #as-wedding-moments *::after { box-sizing: border-box; }
+
+  /* ================= shared: paper, texture, type =================
+     Layout-independent. The stacked layout is the base; the wide horizontal layout is
+     applied by .as-wm-wide, which JS adds once it has measured the real container. */
+
+  #as-wedding-moments .as-wm-panel { --as-lit: 180deg; }
+  #as-wedding-moments .as-wm-panel:nth-child(even) { --as-lit: 0deg; }
+
+  #as-wedding-moments .as-wm-face {
+    position: relative;
+    overflow: hidden;
+    backface-visibility: hidden;
+    box-shadow:
+      inset 0 1px 0 rgba(56, 46, 39, .07),
+      inset 0 -1px 0 rgba(56, 46, 39, .07);
+    transition:
+      transform var(--as-dur) var(--as-ease),
+      transform-origin var(--as-dur) var(--as-ease),
+      box-shadow var(--as-dur) var(--as-ease);
+  }
+
+  #as-wedding-moments .as-wm-panel[data-as-tone="light"] .as-wm-face {
+    background-color: var(--as-blush);
+    background-image:
+      linear-gradient(var(--as-lit), rgba(122, 107, 95, .085), rgba(122, 107, 95, .2)),
+      radial-gradient(96% 128% at 6% -8%, rgba(245, 235, 224, .42), rgba(245, 235, 224, 0) 62%);
+  }
+  #as-wedding-moments .as-wm-panel[data-as-tone="dark"] .as-wm-face {
+    background-color: var(--as-taupe);
+    background-image:
+      linear-gradient(var(--as-lit), rgba(245, 235, 224, .07), rgba(56, 46, 39, .34)),
+      radial-gradient(96% 128% at 94% -8%, rgba(245, 235, 224, .11), rgba(245, 235, 224, 0) 58%);
+  }
+  #as-wedding-moments .as-wm-panel[data-as-tone="deep"] .as-wm-face {
+    background-color: var(--as-espresso);
+    background-image:
+      linear-gradient(var(--as-lit), rgba(122, 107, 95, .28), rgba(56, 46, 39, .4)),
+      radial-gradient(96% 128% at 94% -8%, rgba(122, 107, 95, .22), rgba(122, 107, 95, 0) 58%);
+  }
+
+  /* woven paper tooth + diffused organic silhouettes, pure CSS */
+  #as-wedding-moments .as-wm-grain,
+  #as-wedding-moments .as-wm-leaf,
+  #as-wedding-moments .as-wm-veil {
+    position: absolute;
+    inset: 0;
+    pointer-events: none;
+  }
+  #as-wedding-moments .as-wm-grain {
+    z-index: 0;
+    background-image:
+      repeating-linear-gradient(114deg, rgba(56, 46, 39, .035) 0 1px, rgba(56, 46, 39, 0) 1px 4px),
+      repeating-linear-gradient(26deg, rgba(56, 46, 39, .022) 0 1px, rgba(56, 46, 39, 0) 1px 5px);
+  }
+  #as-wedding-moments .as-wm-leaf { z-index: 0; }
+  #as-wedding-moments .as-wm-panel[data-as-tone="light"] .as-wm-leaf {
+    background-image:
+      radial-gradient(34% 68% at 78% 16%, rgba(56, 46, 39, .028), rgba(56, 46, 39, 0) 72%),
+      radial-gradient(44% 52% at 12% 78%, rgba(56, 46, 39, .022), rgba(56, 46, 39, 0) 74%),
+      radial-gradient(72% 24% at 50% 106%, rgba(56, 46, 39, .03), rgba(56, 46, 39, 0) 70%);
+  }
+  #as-wedding-moments .as-wm-panel[data-as-tone="dark"] .as-wm-leaf,
+  #as-wedding-moments .as-wm-panel[data-as-tone="deep"] .as-wm-leaf {
+    background-image:
+      radial-gradient(34% 68% at 22% 16%, rgba(245, 235, 224, .035), rgba(245, 235, 224, 0) 72%),
+      radial-gradient(44% 52% at 86% 76%, rgba(245, 235, 224, .025), rgba(245, 235, 224, 0) 74%),
+      radial-gradient(72% 24% at 50% 106%, rgba(56, 46, 39, .085), rgba(56, 46, 39, 0) 70%);
+  }
+  /* fold shadow — deepens as a panel angles away from the viewer */
+  #as-wedding-moments .as-wm-veil {
+    z-index: 1;
+    opacity: var(--as-veil, .06);
+    background: linear-gradient(100deg, rgba(56, 46, 39, .55), rgba(56, 46, 39, .1) 62%, rgba(56, 46, 39, 0));
+    transition: opacity var(--as-dur) var(--as-ease);
+  }
+
+  /* creases */
+  #as-wedding-moments .as-wm-face::before,
+  #as-wedding-moments .as-wm-face::after {
+    content: '';
+    position: absolute;
+    pointer-events: none;
+  }
+  #as-wedding-moments .as-wm-face::before {
+    top: 0; left: 0; right: 0; height: 1px;
+    background: linear-gradient(90deg, rgba(56, 46, 39, 0), rgba(56, 46, 39, .22) 50%, rgba(56, 46, 39, 0));
+  }
+  #as-wedding-moments .as-wm-face::after {
+    bottom: 0; left: 0; right: 0; height: 1px;
+    background: linear-gradient(90deg, rgba(245, 235, 224, 0), rgba(245, 235, 224, .22) 50%, rgba(245, 235, 224, 0));
+  }
+
+  /* type */
+  #as-wedding-moments .as-wm-content { position: relative; z-index: 2; }
+  #as-wedding-moments .as-wm-heading { margin: 0; font-weight: 400; }
+  #as-wedding-moments .as-wm-trigger {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 1rem;
+    width: 100%;
+    margin: 0;
+    padding: clamp(1.2rem, 5vw, 1.55rem) clamp(1.15rem, 5vw, 1.6rem);
+    background: none;
+    border: 0;
+    border-radius: 0;
+    font: inherit;
+    color: inherit;
+    text-align: left;
+    cursor: pointer;
+    -webkit-tap-highlight-color: transparent;
+    appearance: none;
+  }
+  #as-wedding-moments .as-wm-trigger:focus { outline: none; }
+  #as-wedding-moments .as-wm-trigger:focus-visible .as-wm-label { box-shadow: 0 1px 0 0 currentColor; }
+  #as-wedding-moments .as-wm-label {
+    display: inline-block;
+    font-family: 'Playfair Display', Georgia, 'Times New Roman', serif;
+    font-weight: 400;
+    font-size: clamp(1.15rem, 4.6vw, 1.45rem);
+    line-height: 1.16;
+    transition: opacity var(--as-dur) var(--as-ease), font-size var(--as-dur) var(--as-ease);
+  }
+  #as-wedding-moments .as-wm-panel[data-as-tone="light"] { color: var(--as-espresso); }
+  #as-wedding-moments .as-wm-panel[data-as-tone="dark"],
+  #as-wedding-moments .as-wm-panel[data-as-tone="deep"] { color: var(--as-blush); }
+
+  #as-wedding-moments .as-wm-body {
+    display: grid;
+    grid-template-rows: 0fr;
+    overflow: hidden;
+    transition: grid-template-rows var(--as-dur) var(--as-ease);
+  }
+  #as-wedding-moments .as-wm-panel.as-is-active .as-wm-body { grid-template-rows: 1fr; }
+  /* Padding must stay OFF this element: with border-box sizing it would stop the 0fr
+     track from reaching zero and leave a phantom strip under every closed title. */
+  #as-wedding-moments .as-wm-bodyInner { position: relative; min-height: 0; padding: 0; }
+  #as-wedding-moments .as-wm-copy {
+    margin: 0;
+    padding: 0 clamp(1.15rem, 5vw, 1.6rem) clamp(1.3rem, 5vw, 1.65rem);
+    max-width: 46ch;
+    font-size: clamp(.875rem, 3.6vw, .9375rem);
+    line-height: 1.62;
+    opacity: 0;
+    transform: translateY(8px);
+    transition: opacity 340ms ease, transform 460ms var(--as-ease);
+    transition-delay: 0ms;
+  }
+  #as-wedding-moments .as-wm-panel.as-is-active .as-wm-copy {
+    opacity: .88;
+    transform: none;
+    transition-delay: var(--as-copy-delay);
+  }
+
+  /* ================= stacked layout (base) ================= */
+  #as-wedding-moments .as-wm-row { display: block; }
+  #as-wedding-moments .as-wm-panel { position: relative; margin: 0 0 -1px 0; }
+  #as-wedding-moments .as-wm-panel.as-is-active .as-wm-face {
+    box-shadow:
+      inset 0 1px 0 rgba(56, 46, 39, .07),
+      inset 0 -1px 0 rgba(56, 46, 39, .07),
+      0 22px 44px -30px rgba(56, 46, 39, .5);
+  }
+  /* the unfold: hinged at the crease, swinging toward the viewer */
+  #as-wedding-moments .as-wm-body { perspective: 780px; perspective-origin: 50% 0%; }
+  #as-wedding-moments .as-wm-bodyInner {
+    transform-origin: 50% 0%;
+    transform: rotateX(-84deg);
+    transition: transform var(--as-dur) var(--as-ease);
+    transition-delay: 40ms;
+  }
+  #as-wedding-moments .as-wm-panel.as-is-active .as-wm-bodyInner { transform: rotateX(0deg); }
+  /* underside of the folded paper, in shadow until it opens */
+  #as-wedding-moments .as-wm-bodyInner::before {
+    content: '';
+    position: absolute;
+    inset: 0;
+    pointer-events: none;
+    background: linear-gradient(180deg, rgba(56, 46, 39, .45), rgba(56, 46, 39, 0) 78%);
+    opacity: 1;
+    transition: opacity var(--as-dur) var(--as-ease);
+  }
+  #as-wedding-moments .as-wm-panel.as-is-active .as-wm-bodyInner::before { opacity: 0; }
+
+  /* + / − indicator: stacked layout only (no hover affordance there) */
+  #as-wedding-moments .as-wm-sign {
+    position: relative;
+    flex: 0 0 auto;
+    width: 11px;
+    height: 11px;
+    opacity: .6;
+  }
+  #as-wedding-moments .as-wm-sign::before,
+  #as-wedding-moments .as-wm-sign::after {
+    content: '';
+    position: absolute;
+    left: 0;
+    top: 50%;
+    width: 100%;
+    height: 1px;
+    background: currentColor;
+    transition: transform 380ms var(--as-ease);
+  }
+  #as-wedding-moments .as-wm-sign::after { transform: rotate(90deg); }
+  #as-wedding-moments .as-wm-panel.as-is-active .as-wm-sign::after { transform: rotate(90deg) scaleX(0); }
+
+  /* ================= wide horizontal layout ================= */
+  /* The root fills whatever box it is given; in desktop mode the script widens that box
+     (the host iframe, or the root itself when not framed) to ~90% of the section. The
+     side/bottom padding is breathing room for the lifted panel's shadow. */
+  #as-wedding-moments.as-wm-wide {
+    --as-dur: 720ms;
+    --as-copy-delay: 280ms;
+    width: 100%;
+    padding: 0 32px 64px;
+  }
+  #as-wedding-moments.as-wm-wide .as-wm-row {
+    display: flex;
+    align-items: stretch;
+    height: clamp(200px, 17vw, 240px);
+    perspective: 1500px;
+    perspective-origin: 50% 44%;
+    transform-style: preserve-3d;
+  }
+  /* Fold geometry lives in custom properties, never in a `transform` declaration — the
+     inline properties JS writes then always win, so no specificity conflict is possible. */
+  #as-wedding-moments.as-wm-wide .as-wm-panel {
+    flex: 1 1 0%;
+    flex-grow: var(--as-grow, 1);
+    min-width: 0;
+    margin: 0 -1px 0 0;
+    transform-style: preserve-3d;
+    transition: flex-grow var(--as-dur) var(--as-ease);
+  }
+  #as-wedding-moments.as-wm-wide .as-wm-panel:last-child { margin-right: 0; }
+  /* a gentle, geometrically exact concertina: alternating valley / mountain folds */
+  #as-wedding-moments.as-wm-wide .as-wm-panel:nth-child(odd) { --as-rot: -3deg; --as-org: 100%; --as-lit: 90deg; }
+  #as-wedding-moments.as-wm-wide .as-wm-panel:nth-child(even) { --as-rot: 3deg; --as-org: 0%; --as-lit: 270deg; }
+
+  #as-wedding-moments.as-wm-wide .as-wm-face {
+    position: absolute;
+    inset: 0;
+    transform-origin: var(--as-org, 50%) 50%;
+    transform: translate3d(var(--as-tx, 0px), 0, var(--as-tz, 0px)) rotateY(var(--as-rot, 0deg));
+    box-shadow:
+      inset 0 1px 0 rgba(56, 46, 39, .07),
+      inset 0 -1px 0 rgba(56, 46, 39, .07),
+      0 18px 44px -34px rgba(56, 46, 39, .5);
+    will-change: transform;
+  }
+  #as-wedding-moments.as-wm-wide .as-wm-panel.as-is-active .as-wm-face {
+    box-shadow:
+      inset 0 1px 0 rgba(56, 46, 39, .07),
+      inset 0 -1px 0 rgba(56, 46, 39, .07),
+      0 26px 58px -28px rgba(56, 46, 39, .5);
+  }
+  /* creases run vertically when the sheet is folded this way */
+  #as-wedding-moments.as-wm-wide .as-wm-face::before {
+    top: 0; bottom: 0; left: 0; right: auto; width: 1px; height: auto;
+    background: linear-gradient(180deg, rgba(56, 46, 39, 0), rgba(56, 46, 39, .22) 48%, rgba(56, 46, 39, 0));
+  }
+  #as-wedding-moments.as-wm-wide .as-wm-face::after {
+    top: 0; bottom: 0; right: 0; left: auto; width: 1px; height: auto;
+    background: linear-gradient(180deg, rgba(245, 235, 224, 0), rgba(245, 235, 224, .3) 48%, rgba(245, 235, 224, 0));
+  }
+
+  #as-wedding-moments.as-wm-wide .as-wm-content {
+    height: 100%;
+    display: flex;
+    flex-direction: column;
+    justify-content: center;
+    padding: clamp(1.1rem, 1.9vw, 1.85rem);
+  }
+  #as-wedding-moments.as-wm-wide .as-wm-trigger { display: block; padding: 0; }
+  #as-wedding-moments.as-wm-wide .as-wm-label { font-size: clamp(1.05rem, 1.45vw, 1.5rem); }
+  #as-wedding-moments.as-wm-wide .as-wm-panel.as-is-active .as-wm-label { font-size: clamp(1.35rem, 2.1vw, 2.15rem); }
+  #as-wedding-moments.as-wm-wide[data-as-open] .as-wm-panel:not(.as-is-active) .as-wm-label { opacity: .64; }
+  #as-wedding-moments.as-wm-wide .as-wm-sign { display: none; }
+  #as-wedding-moments.as-wm-wide .as-wm-body { perspective: none; }
+  #as-wedding-moments.as-wm-wide .as-wm-bodyInner {
+    transform: none;
+    transition: none;
+  }
+  #as-wedding-moments.as-wm-wide .as-wm-bodyInner::before { display: none; }
+  #as-wedding-moments.as-wm-wide .as-wm-copy {
+    padding: .85rem 0 0 0;
+    max-width: 40ch;
+    font-size: clamp(.8125rem, .82vw, .9375rem);
+  }
+
+  /* ================= musical note cursor (fine pointers, wide layout) ================= */
+  #as-wedding-moments .as-wm-note {
+    position: absolute;
+    left: 0;
+    top: 0;
+    z-index: 9;
+    display: none;
+    width: 21px;
+    height: 21px;
+    margin: -11px 0 0 -10px;
+    color: var(--as-espresso);
+    opacity: 0;
+    pointer-events: none;
+    transition: opacity 200ms ease, color 300ms ease;
+  }
+  #as-wedding-moments.as-wm-wide .as-wm-note { display: block; }
+  #as-wedding-moments.as-wm-wide[data-as-note] .as-wm-note { opacity: 1; }
+  #as-wedding-moments[data-as-note-tone="dark"] .as-wm-note,
+  #as-wedding-moments[data-as-note-tone="deep"] .as-wm-note { color: var(--as-blush); }
+  #as-wedding-moments.as-wm-wide[data-as-note],
+  #as-wedding-moments.as-wm-wide[data-as-note] * { cursor: none; }
+
+  @media (max-width: 360px) {
+    #as-wedding-moments .as-wm-trigger { padding: 1rem; }
+    #as-wedding-moments .as-wm-copy { padding: 0 1rem 1.15rem; }
+  }
+
+  /* ================= reduced motion: plain fade + expand, no 3D ================= */
+  @media (prefers-reduced-motion: reduce) {
+    #as-wedding-moments.as-wm-wide .as-wm-row { perspective: none; }
+    #as-wedding-moments .as-wm-face,
+    #as-wedding-moments .as-wm-bodyInner { transform: none !important; }
+    #as-wedding-moments .as-wm-bodyInner::before { opacity: 0 !important; }
+    #as-wedding-moments .as-wm-face,
+    #as-wedding-moments .as-wm-panel,
+    #as-wedding-moments .as-wm-body,
+    #as-wedding-moments .as-wm-copy,
+    #as-wedding-moments .as-wm-veil,
+    #as-wedding-moments .as-wm-label,
+    #as-wedding-moments .as-wm-sign::before,
+    #as-wedding-moments .as-wm-sign::after {
+      transition-duration: 200ms !important;
+      transition-delay: 0ms !important;
+    }
+  }
+  </style>
+
+  <div class="as-wm-row">
+    <div class="as-wm-panel" data-as-tone="light">
+      <div class="as-wm-face">
+        <span class="as-wm-grain" aria-hidden="true"></span>
+        <span class="as-wm-leaf" aria-hidden="true"></span>
+        <span class="as-wm-veil" aria-hidden="true"></span>
+        <div class="as-wm-content">
+          <h3 class="as-wm-heading">
+            <button type="button" class="as-wm-trigger" id="as-wm-t1" aria-expanded="false" aria-controls="as-wm-b1">
+              <span class="as-wm-label">Ceremony</span>
+              <span class="as-wm-sign" aria-hidden="true"></span>
+            </button>
+          </h3>
+          <div class="as-wm-body" id="as-wm-b1" role="region" aria-labelledby="as-wm-t1">
+            <div class="as-wm-bodyInner">
+              <p class="as-wm-copy">For the aisle, vows, and meaningful musical moments. From timeless classics to modern favorites, we&rsquo;ll help you choose the perfect songs for your walk, vows, and recessional.</p>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <div class="as-wm-panel" data-as-tone="dark">
+      <div class="as-wm-face">
+        <span class="as-wm-grain" aria-hidden="true"></span>
+        <span class="as-wm-leaf" aria-hidden="true"></span>
+        <span class="as-wm-veil" aria-hidden="true"></span>
+        <div class="as-wm-content">
+          <h3 class="as-wm-heading">
+            <button type="button" class="as-wm-trigger" id="as-wm-t2" aria-expanded="false" aria-controls="as-wm-b2">
+              <span class="as-wm-label">Cocktail Hour</span>
+              <span class="as-wm-sign" aria-hidden="true"></span>
+            </button>
+          </h3>
+          <div class="as-wm-body" id="as-wm-b2" role="region" aria-labelledby="as-wm-t2">
+            <div class="as-wm-bodyInner">
+              <p class="as-wm-copy">Warm live vocals as guests mingle and celebrate. A refined soundtrack for unforgettable conversations.</p>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <div class="as-wm-panel" data-as-tone="light">
+      <div class="as-wm-face">
+        <span class="as-wm-grain" aria-hidden="true"></span>
+        <span class="as-wm-leaf" aria-hidden="true"></span>
+        <span class="as-wm-veil" aria-hidden="true"></span>
+        <div class="as-wm-content">
+          <h3 class="as-wm-heading">
+            <button type="button" class="as-wm-trigger" id="as-wm-t3" aria-expanded="false" aria-controls="as-wm-b3">
+              <span class="as-wm-label">Dinner</span>
+              <span class="as-wm-sign" aria-hidden="true"></span>
+            </button>
+          </h3>
+          <div class="as-wm-body" id="as-wm-b3" role="region" aria-labelledby="as-wm-t3">
+            <div class="as-wm-bodyInner">
+              <p class="as-wm-copy">From elegant background vocals to a powerful featured performance. A beautiful addition to your dining experience.</p>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <div class="as-wm-panel" data-as-tone="deep">
+      <div class="as-wm-face">
+        <span class="as-wm-grain" aria-hidden="true"></span>
+        <span class="as-wm-leaf" aria-hidden="true"></span>
+        <span class="as-wm-veil" aria-hidden="true"></span>
+        <div class="as-wm-content">
+          <h3 class="as-wm-heading">
+            <button type="button" class="as-wm-trigger" id="as-wm-t4" aria-expanded="false" aria-controls="as-wm-b4">
+              <span class="as-wm-label">Custom</span>
+              <span class="as-wm-sign" aria-hidden="true"></span>
+            </button>
+          </h3>
+          <div class="as-wm-body" id="as-wm-b4" role="region" aria-labelledby="as-wm-t4">
+            <div class="as-wm-bodyInner">
+              <p class="as-wm-copy">A tailored vocal moment designed around your vision.</p>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <script class="as-wm-init">
+  (function () {
+    var root = document.getElementById('as-wedding-moments');
+    if (!root || root.getAttribute('data-as-ready') === '1') { return; }
+    root.setAttribute('data-as-ready', '1');
+
+    var row = root.querySelector('.as-wm-row');
+    var panels = Array.prototype.slice.call(root.querySelectorAll('.as-wm-panel'));
+    if (!row || !panels.length) { return; }
+
+    var DESKTOP_QUERY = '(min-width: 1024px)';
+    var SPREAD_RATIO = 0.92;   /* share of the section the sheet occupies on desktop */
+    var SPREAD_MAX = 1500;     /* px cap for very wide screens */
+    var GROW_ON = 2.6;         /* open panel ≈ 52% of the row (2.6 / (2.6 + 3 × .78)) */
+    var GROW_OFF = 0.78;
+    var RAD = Math.PI / 180;
+
+    var pointerFine = window.matchMedia('(hover: hover) and (pointer: fine)');
+    var calm = window.matchMedia('(prefers-reduced-motion: reduce)');
+
+    /* ---------------- single source of truth ----------------
+       `selected` is the persistent, click-driven choice. `hovered` is a transient
+       desktop preview. `activeIndex()` resolves them with a fixed precedence so hover
+       and click can never disagree about what is open. `suppressed` stops a panel the
+       user just clicked shut from instantly reopening under the still-resting pointer. */
+    var selected = null;
+    var hovered = null;
+    var suppressed = null;
+    var painted = 'never';
+    var isWide = false;
+
+    function activeIndex() {
+      if (isWide && hovered !== null && hovered !== suppressed) { return hovered; }
+      return selected;
+    }
+
+    function angleAt(dist) { return Math.min(14 + dist * 13, 50); }
+
+    function clearVars(panel) {
+      ['--as-rot', '--as-org', '--as-tx', '--as-tz', '--as-grow', '--as-veil'].forEach(function (name) {
+        panel.style.removeProperty(name);
+      });
+    }
+
+    /* Each fold hinges off the edge where the previous fold ended, otherwise the outer
+       panels visibly detach from the sheet. Walking outward from the open panel and
+       accumulating every crease's x/z drift keeps the four pieces joined. */
+    function foldSide(index, step, width) {
+      var driftX = 0;
+      var driftZ = 0;
+      for (var i = index + step; i >= 0 && i < panels.length; i += step) {
+        var dist = Math.abs(i - index);
+        var deg = angleAt(dist);
+        var rad = deg * RAD;
+        var panel = panels[i];
+        panel.style.setProperty('--as-rot', (step < 0 ? -deg : deg) + 'deg');
+        panel.style.setProperty('--as-org', step < 0 ? '100%' : '0%');
+        panel.style.setProperty('--as-tx', driftX.toFixed(2) + 'px');
+        panel.style.setProperty('--as-tz', driftZ.toFixed(2) + 'px');
+        panel.style.setProperty('--as-grow', String(GROW_OFF));
+        panel.style.setProperty('--as-veil', String(Math.min(.12 + dist * .16, .5)));
+        driftX += (step < 0 ? 1 : -1) * width * (1 - Math.cos(rad));
+        driftZ -= width * Math.sin(rad);
+      }
+    }
+
+    function paint() {
+      var index = activeIndex();
+      if (index === painted) { return; }
+      painted = index;
+
+      panels.forEach(function (panel, i) {
+        var on = i === index;
+        panel.classList.toggle('as-is-active', on);
+        panel.querySelector('.as-wm-trigger').setAttribute('aria-expanded', on ? 'true' : 'false');
+      });
+
+      if (index === null) {
+        root.removeAttribute('data-as-open');
+        panels.forEach(clearVars);
+        settle();
+        return;
+      }
+
+      root.setAttribute('data-as-open', '');
+
+      if (isWide) {
+        var width = row.clientWidth * GROW_OFF / (GROW_ON + GROW_OFF * (panels.length - 1));
+        var open = panels[index];
+        open.style.setProperty('--as-rot', '0deg');
+        open.style.setProperty('--as-org', '50%');
+        open.style.setProperty('--as-tx', '0px');
+        open.style.setProperty('--as-tz', '0px');
+        open.style.setProperty('--as-grow', String(GROW_ON));
+        open.style.setProperty('--as-veil', '0');
+        foldSide(index, -1, width);
+        foldSide(index, 1, width);
+      } else {
+        panels.forEach(clearVars);
+      }
+      settle();
+    }
+
+    /* ---------------- layout: decided by the PAGE viewport ----------------
+       Hostinger runs this markup inside a same-origin <iframe srcdoc> that is only as wide
+       as the block drawn in the builder, so window.innerWidth / media queries here describe
+       that little box, not the visitor's screen. We climb to the outermost window we are
+       allowed to touch and ask IT whether this is a desktop. */
+    var pageWindow = window;
+    try {
+      while (pageWindow.parent && pageWindow.parent !== pageWindow) {
+        void pageWindow.parent.document; /* throws when cross-origin */
+        pageWindow = pageWindow.parent;
+      }
+    } catch (err) { /* stop at the last window we could read */ }
+
+    var framed = false;
+    var frame = null;
+    try { frame = window.frameElement; framed = frame !== null; }
+    catch (err) { framed = window.self !== window.top; }
+
+    function isDesktop() {
+      try { return pageWindow.matchMedia(DESKTOP_QUERY).matches; } catch (err) { /* fall through */ }
+      return window.matchMedia(DESKTOP_QUERY).matches;
+    }
+
+    function measure() {
+      var nextWide = isDesktop();
+      if (nextWide === isWide) { return; }
+      isWide = nextWide;
+      root.classList.toggle('as-wm-wide', isWide);
+      hovered = null;
+      suppressed = null;
+      panels.forEach(clearVars);
+      painted = 'never';
+      spread();
+      paint();
+    }
+
+    /* ---------------- desktop: widen our box to the section ----------------
+       The element we can legitimately size is our own: the host iframe when framed,
+       otherwise the root. We grow it to ~92% of the nearest ancestor that is actually
+       wide (the section), and centre it on that ancestor with a relative offset, which
+       never disturbs the surrounding layout. Below 1024px every style is put back. */
+    var box = framed && frame ? frame : root;
+    var boxDoc = box.ownerDocument;
+    var appliedShift = 0;
+    var spreadApplied = false;
+
+    function contentBox(el) {
+      var rect = el.getBoundingClientRect();
+      var css = boxDoc.defaultView.getComputedStyle(el);
+      var padL = parseFloat(css.paddingLeft) || 0;
+      var padR = parseFloat(css.paddingRight) || 0;
+      return { left: rect.left + padL, width: rect.width - padL - padR };
+    }
+
+    function sectionOf(el) {
+      var node = el.parentElement;
+      var need = Math.min(900, (boxDoc.documentElement.clientWidth || 1024) * .8);
+      while (node && node !== boxDoc.body && node !== boxDoc.documentElement) {
+        if (contentBox(node).width >= need) { return node; }
+        node = node.parentElement;
+      }
+      return boxDoc.documentElement;
+    }
+
+    function spread() {
+      if (!isWide) {
+        if (!spreadApplied) { return false; }
+        box.style.width = framed ? '100%' : '';
+        box.style.maxWidth = framed ? 'none' : '';
+        box.style.position = '';
+        box.style.left = '';
+        box.style.display = '';
+        appliedShift = 0;
+        spreadApplied = false;
+        return true;
+      }
+      var section = contentBox(sectionOf(box));
+      var width = Math.round(Math.min(section.width * SPREAD_RATIO, SPREAD_MAX));
+      if (width < 320) { return false; }
+      var staticLeft = box.getBoundingClientRect().left - appliedShift;
+      var shift = Math.round(section.left + (section.width - width) / 2 - staticLeft);
+      if (spreadApplied && Math.abs(shift - appliedShift) < 1 && box.style.width === width + 'px') { return false; }
+      box.style.display = 'block';
+      box.style.position = 'relative';
+      box.style.maxWidth = 'none';
+      box.style.width = width + 'px';
+      box.style.left = shift + 'px';
+      appliedShift = shift;
+      spreadApplied = true;
+      return true;
+    }
+
+    /* ---------------- interaction ---------------- */
+    panels.forEach(function (panel, i) {
+      var trigger = panel.querySelector('.as-wm-trigger');
+
+      /* Click is the only thing that mutates `selected`, on every layout and every
+         pointer type. No focus handler, so nothing races the click. */
+      trigger.addEventListener('click', function () {
+        if (selected === i) {
+          selected = null;
+          suppressed = i;
+        } else {
+          selected = i;
+          suppressed = null;
+        }
+        paint();
+      });
+
+      panel.addEventListener('mouseenter', function () {
+        root.setAttribute('data-as-note-tone', panel.getAttribute('data-as-tone') || 'light');
+        if (!isWide || !pointerFine.matches) { return; }
+        hovered = i;
+        paint();
+      });
+
+      panel.addEventListener('mouseleave', function () {
+        if (suppressed === i) { suppressed = null; }
+      });
+    });
+
+    root.addEventListener('mouseleave', function () {
+      hovered = null;
+      suppressed = null;
+      paint();
+    });
+
+    /* ---------------- frame height ----------------
+       Builders size the iframe by guesswork, which clips the panels. We keep it exactly
+       as tall as the sheet, on every layout. */
+    function fitFrame() {
+      if (!framed) { return; }
+      var height = Math.ceil(root.getBoundingClientRect().height);
+      try {
+        if (frame) {
+          if (!spreadApplied) {
+            frame.style.width = '100%';
+            frame.style.maxWidth = 'none';
+          }
+          frame.style.height = height + 'px';
+          frame.style.minHeight = height + 'px';
+        }
+      } catch (err) { /* cross-origin: the message below is the only option */ }
+      try {
+        window.parent.postMessage({ type: 'as-wedding-moments:height', height: height }, '*');
+      } catch (err) { /* nothing else we can do */ }
+    }
+
+    function settle() {
+      fitFrame();
+      window.setTimeout(fitFrame, 120);
+      window.setTimeout(fitFrame, 820);
+    }
+
+    /* An iframe gives us our own document whose default body margin would inset the
+       sheet. Done here rather than in CSS so no `body` selector ever ships. */
+    if (framed && document.body && root.parentNode === document.body) {
+      document.documentElement.style.margin = '0';
+      document.body.style.margin = '0';
+      document.body.style.background = 'transparent';
+    }
+
+    function relayout() {
+      measure();
+      /* a new box width changes the fold geometry of whatever is open, so repaint it */
+      if (spread() && painted !== null && painted !== 'never') { painted = 'never'; paint(); }
+      fitFrame();
+    }
+
+    if (typeof window.ResizeObserver === 'function') {
+      new window.ResizeObserver(relayout).observe(root);
+    }
+    window.addEventListener('resize', relayout);
+    /* Once we pin the iframe to a px width it stops following the page, so listen to the
+       page window too: that is where a desktop ↔ tablet resize actually happens. */
+    if (pageWindow !== window) {
+      try { pageWindow.addEventListener('resize', relayout); } catch (err) { /* ignore */ }
+    }
+    if (document.readyState !== 'complete') { window.addEventListener('load', relayout); }
+    relayout();
+    settle();
+
+    /* ---------------- musical note cursor ---------------- */
+    if (pointerFine.matches) {
+      var note = document.createElement('span');
+      note.className = 'as-wm-note';
+      note.setAttribute('aria-hidden', 'true');
+      note.innerHTML =
+        '<svg width="21" height="21" viewBox="0 0 21 21" fill="none" stroke="currentColor"' +
+        ' stroke-width="1.35" stroke-linecap="round" focusable="false">' +
+        '<path d="M13.1 15.4V2.9c2.2.5 4.1 1.8 4.9 3.8"/>' +
+        '<ellipse cx="10" cy="16.5" rx="3.3" ry="2.5" transform="rotate(-20 10 16.5)"' +
+        ' fill="currentColor" stroke="none"/></svg>';
+      root.appendChild(note);
+
+      var clientX = 0, clientY = 0, noteX = 0, noteY = 0, frameId = 0, snap = true;
+
+      function tick() {
+        var rect = root.getBoundingClientRect();
+        var targetX = clientX - rect.left;
+        var targetY = clientY - rect.top;
+        var ease = calm.matches ? 1 : .2;
+        if (snap) { noteX = targetX; noteY = targetY; snap = false; }
+        noteX += (targetX - noteX) * ease;
+        noteY += (targetY - noteY) * ease;
+        note.style.transform = 'translate3d(' + noteX.toFixed(1) + 'px,' + noteY.toFixed(1) + 'px,0)';
+        frameId = window.requestAnimationFrame(tick);
+      }
+
+      root.addEventListener('mousemove', function (event) {
+        clientX = event.clientX;
+        clientY = event.clientY;
+      });
+
+      root.addEventListener('mouseenter', function (event) {
+        if (!isWide) { return; }
+        clientX = event.clientX;
+        clientY = event.clientY;
+        snap = true;
+        root.setAttribute('data-as-note', '');
+        if (!frameId) { frameId = window.requestAnimationFrame(tick); }
+      });
+
+      root.addEventListener('mouseleave', function () {
+        root.removeAttribute('data-as-note');
+        if (frameId) { window.cancelAnimationFrame(frameId); frameId = 0; }
+      });
+    }
+  })();
+  </script>
+
+  <!-- Site builders that inject embeds with innerHTML leave <script> tags inert, which
+       would render the panels with no interactivity. An inline handler still fires on
+       that path, so it re-inserts the script as a live element. The data-as-ready guard
+       above makes the extra run a no-op when the page parsed normally. -->
+  <img alt="" aria-hidden="true" src="data:," style="display:none"
+    onerror="(function(img){img.removeAttribute('onerror');var s=document.querySelector('#as-wedding-moments script.as-wm-init');if(!s){return;}var live=document.createElement('script');live.appendChild(document.createTextNode(s.textContent));s.parentNode.appendChild(live);})(this)">
+</div>

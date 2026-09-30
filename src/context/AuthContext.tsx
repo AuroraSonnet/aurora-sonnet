@@ -5,6 +5,7 @@ type AuthContextValue = {
   authenticated: boolean
   username: string | null
   canRecordReferralLegalApproval: boolean
+  canRecordReferralOwnerApproval: boolean
   loading: boolean
   login: (username: string, password: string) => Promise<{ ok: true } | { ok: false; error: string }>
   logout: () => Promise<void>
@@ -17,6 +18,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const [authenticated, setAuthenticated] = useState(false)
   const [username, setUsername] = useState<string | null>(null)
   const [canRecordReferralLegalApproval, setCanRecordReferralLegalApproval] = useState(false)
+  const [canRecordReferralOwnerApproval, setCanRecordReferralOwnerApproval] = useState(false)
   const [loading, setLoading] = useState(true)
 
   const refresh = useCallback(async () => {
@@ -24,6 +26,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     setAuthenticated(Boolean(me.authenticated))
     setUsername(me.username ?? null)
     setCanRecordReferralLegalApproval(Boolean(me.canRecordReferralLegalApproval))
+    setCanRecordReferralOwnerApproval(Boolean(me.canRecordReferralOwnerApproval ?? me.canRecordReferralLegalApproval))
   }, [])
 
   useEffect(() => {
@@ -49,11 +52,12 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     setAuthenticated(false)
     setUsername(null)
     setCanRecordReferralLegalApproval(false)
+    setCanRecordReferralOwnerApproval(false)
   }, [])
 
   return (
     <AuthContext.Provider
-      value={{ authenticated, username, canRecordReferralLegalApproval, loading, login, logout, refresh }}
+      value={{ authenticated, username, canRecordReferralLegalApproval, canRecordReferralOwnerApproval, loading, login, logout, refresh }}
     >
       {children}
     </AuthContext.Provider>

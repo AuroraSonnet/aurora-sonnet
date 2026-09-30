@@ -63,7 +63,9 @@ import {
   updatePartnerReferral,
   deletePartnerReferral,
   getPartnerReferral,
+  getPartnerReferralCommissionStatementPdf,
   getReferralPartnershipByVenueId,
+  getReferralPartnershipByReferralToken,
   getReferralPartnershipAgreementPdf,
   listVenueActivity,
   getPartnershipContactByEmail,
@@ -135,12 +137,41 @@ import {
   updateReferralOfferAgreement,
   uploadSignedAgreementPdf,
   regenerateOfferPdf,
+  approveReferralAgreementOwner,
   approveReferralAgreementLegal,
+  rejectReferralAgreementOwner,
   rejectReferralAgreementLegal,
+  recordReferralAgreementExternalCounselReview,
 } from './referralPartnership.js'
 import { getAuroraOrganizationSettings, updateAuroraOrganizationSettings } from './referralOrganizationSettings.js'
-import { canUserRecordLegalApproval, getLegalApprovalAuthorizedUsernames } from './referralLegalApprovalAuth.js'
-import { normalizeMessageId } from './outreachMailer.js'
+import {
+  canUserRecordOwnerApproval,
+  canUserRecordLegalApproval,
+  getOwnerApprovalAuthorizedUsernames,
+  getLegalApprovalAuthorizedUsernames,
+} from './referralLegalApprovalAuth.js'
+import {
+  listReferralDecisionsForOutreach,
+  acceptPartnerReferralDecision,
+  rejectPartnerReferralDecision,
+  adjustPartnerReferralDecisionDeadline,
+  generatePartnerReferralCommissionStatement,
+  recordPartnerReferralCommissionStatementDelivery,
+} from './partnerReferralDecisions.js'
+import {
+  attributeInquiryToReferralPartner,
+  submitPublicPartnerApplication,
+} from './publicReferralPartner.js'
+import {
+  PORTAL_WELCOME_TOKEN_TTL_MS,
+  consumePortalLoginToken,
+  createPortalLoginToken,
+  portalDashboard,
+  resolvePortalAccessByEmail,
+  resolvePortalAccessById,
+} from './partnerPortal.js'
+import { renderContinuePage, renderDashboardPage, renderSignedOutPage } from './partnerPortalPages.js'
+import { normalizeMessageId, resolveManualOutreachRecipient, applyOutreachTestRoutingToMail } from './outreachMailer.js'
 import { accelerateAndSendNextTestFollowUp, accelerateTestFollowUpScheduleOnly } from './outreachTestAccel.js'
 import {
   seedClients,
@@ -153,6 +184,8 @@ import {
 import {
   validateAuthConfig,
   createSessionMiddleware,
+  createPartnerSessionMiddleware,
+  PARTNER_SESSION_COOKIE,
   loginRateLimitMiddleware,
   requireAuth,
   registerAuthRoutes,
@@ -386,13 +419,17 @@ const allowedOrigins = [
   'https://www.aurorasonnet.com',
   'https://aurora-sonnet-1.onrender.com',
 ].filter(Boolean)
-const publicEndpoints = ['/api/state', '/api/inquiry', '/api/music-selection', '/api/partner-referrals']
+const publicEndpoints = ['/api/state', '/api/inquiry', '/api/music-selection', '/api/partner-referrals', '/api/partner-portal/request-link']
 const clientBulkEndpoints = ['/api/clients/delete-all', '/api/clients/restore-all']
 const desktopSyncEndpoints = ['/api/proposals/sync-for-accept', '/api/proposals', '/api/short-links']
 app.use((req, res, next) => {
   const origin = req.headers.origin
   const isStateGet = req.method === 'GET' && req.path === '/api/state'
-  const isPublicEndpoint = publicEndpoints.some((p) => req.path === p || req.path.startsWith(p + '?'))
+  const isReferralPartnerPublic =
+    (req.method === 'POST' && req.path === '/api/referral-partners/apply') ||
+    (req.method === 'GET' && req.path.startsWith('/api/referral-partners/by-token/'))
+  const isPublicEndpoint =
+    isReferralPartnerPublic || publicEndpoints.some((p) => req.path === p || req.path.startsWith(p + '?'))
   const isClientBulk = req.method === 'POST' && clientBulkEndpoints.includes(req.path)
   const isDesktopSync = desktopSyncEndpoints.some((p) => req.path === p || req.path.startsWith(p + '/'))
   const allow =
@@ -458,6 +495,20 @@ app.use('/api/state', (req, res, next) => {
   rateLimitState.set(key, data)
   if (data.count > rateLimitMaxState) {
     return res.status(429).json({ error: 'Too many requests.' })
+  }
+  next()
+})
+
+const rateLimitMaxReferralPartner = 12
+const rateLimitReferralPartner = new Map()
+app.use('/api/referral-partners', (req, res, next) => {
+  cleanupRateLimit(rateLimitReferralPartner, rateLimitWindowMs)
+  const key = getClientKey(req)
+  const data = rateLimitReferralPartner.get(key) || { count: 0, start: Date.now() }
+  data.count++
+  rateLimitReferralPartner.set(key, data)
+  if (data.count > rateLimitMaxReferralPartner) {
+    return res.status(429).json({ error: 'Too many submissions. Please try again later.' })
   }
   next()
 })
@@ -534,7 +585,10 @@ app.post(
 app.use(express.json({ limit: '50mb' }))
 app.use(express.urlencoded({ extended: true }))
 
-app.use(createSessionMiddleware())
+const adminSession = createSessionMiddleware()
+const partnerSession = createPartnerSessionMiddleware()
+const isPartnerPortalPath = (p) => p === '/partner' || p.startsWith('/partner/') || p.startsWith('/api/partner-portal/')
+app.use((req, res, next) => (isPartnerPortalPath(req.path) ? partnerSession : adminSession)(req, res, next))
 app.use(loginRateLimitMiddleware)
 app.use(requireAuth)
 registerAuthRoutes(app)
@@ -1312,7 +1366,9 @@ async function sendPartnerReferralPartnerConfirmation(partnerEmail, data) {
   const lines = [
     greeting,
     '',
-    `Thank you for referring ${clientName} to Aurora Sonnet. We have received your referral and are grateful for your trust in us.`,
+    data.source === 'partner_link'
+      ? `Good news: ${clientName} contacted Aurora Sonnet through your partner link, and the referral has been credited to you. Thank you for recommending us.`
+      : `Thank you for referring ${clientName} to Aurora Sonnet. We have received your referral and are grateful for your trust in us.`,
     '',
     `Your referral reference number is ${ref}. Please keep it for your records when corresponding with our team.`,
   ]
@@ -1364,6 +1420,79 @@ async function sendPartnerReferralPartnerConfirmation(partnerEmail, data) {
   }
 }
 
+async function sendPublicPartnerLinkEmail(to, data) {
+  const mailFrom = smtpFromAddress()
+  if (!reminderTransporter || !mailFrom) return
+  const recipient = String(to || '').trim()
+  if (!recipient || !data?.referralLink) return
+  const first = inquiryFirstNameFromFullName(data.partnerName)
+  const greeting = first ? `Dear ${first},` : 'Hello,'
+  const text = [
+    greeting,
+    '',
+    data.signedPdf
+      ? 'Welcome to the Aurora Sonnet referral partner program. Your Partner Referral Agreement is signed and your partnership is active. A copy of your signed agreement is attached for your records.'
+      : 'Here is your Aurora Sonnet partner link, as requested.',
+    '',
+    'Your partner link:',
+    data.referralLink,
+    '',
+    'Share this link with couples. When they contact Aurora Sonnet through it, the referral is credited to you automatically. You do not need to submit each couple yourself.',
+    '',
+    ...(data.portalLink
+      ? [
+          'Access Your Partner Portal (track your referrals and earnings):',
+          data.portalLink,
+          '',
+          'This sign-in link works once and expires in 72 hours. Afterwards, use Partner Login on aurorasonnet.com.',
+          '',
+        ]
+      : []),
+    'Warmly,',
+    'Lisa Dubocquet',
+    'Aurora Sonnet LLC',
+    'aurorasonnet.com',
+  ].join('\n')
+  await reminderTransporter.sendMail({
+    from: mailFrom,
+    to: recipient,
+    subject: data.signedPdf ? 'Welcome to the Aurora Sonnet partner program' : 'Your Aurora Sonnet partner link',
+    text,
+    ...(data.signedPdf
+      ? { attachments: [{ filename: 'Aurora-Sonnet-Partner-Referral-Agreement-signed.pdf', content: data.signedPdf, contentType: 'application/pdf' }] }
+      : {}),
+  })
+}
+
+/** Agency notification when someone signs the public Partner Referral Agreement on the website. */
+async function sendPublicPartnerAgencyNotification(data) {
+  if (!reminderTransporter || !INQUIRY_NOTIFY_EMAIL) return
+  const lines = [
+    'A new referral partner signed the Partner Referral Agreement on the website. The partnership is active.',
+    '',
+    '— Partner —',
+    `Name: ${data.partnerName}`,
+    `Email: ${data.partnerEmail}`,
+    ...(data.partnerPhone ? [`Phone: ${data.partnerPhone}`] : []),
+    `Business / company: ${data.companyName}`,
+    `Type of business: ${data.businessType}`,
+    '',
+    `Partner link: ${data.referralLink}`,
+    `Partnership ID (internal): ${data.partnershipId}`,
+    '',
+    'The signed agreement is attached and saved under Partner Referrals in the app.',
+  ]
+  await reminderTransporter.sendMail({
+    from: SMTP_FROM,
+    to: INQUIRY_NOTIFY_EMAIL,
+    subject: `New referral partner: ${data.partnerName} — ${data.companyName}`,
+    text: lines.join('\n'),
+    ...(data.signedPdf
+      ? { attachments: [{ filename: `Partner-Referral-Agreement-${String(data.companyName || 'partner').replace(/[^A-Za-z0-9]+/g, '-')}-signed.pdf`, content: data.signedPdf, contentType: 'application/pdf' }] }
+      : {}),
+  })
+}
+
 /** Agency notification when a partner submits the website referral form (same SMTP / INQUIRY_NOTIFY_EMAIL as inquiries). */
 async function sendPartnerReferralAgencyNotification(referralId, data) {
   if (!reminderTransporter || !INQUIRY_NOTIFY_EMAIL) {
@@ -1376,15 +1505,18 @@ async function sendPartnerReferralAgencyNotification(referralId, data) {
       ? `New partner referral — Referral Reference: ${ref}`
       : `New partner referral: ${data.partnerName} → ${data.clientName}`
   const lines = [
-    'A new partner referral was submitted via the website form.',
+    data.source === 'partner_link'
+      ? 'A client inquired through a partner referral link. The referral was attributed to the partner automatically.'
+      : 'A new partner referral was submitted via the website form.',
     '',
     `Referral Reference: ${ref}`,
+    ...(data.termsLabel ? [`Terms: ${data.termsLabel}`] : []),
     '',
     `Record ID (internal): ${referralId}`,
     '',
     '— Partner —',
     `Name: ${data.partnerName}`,
-    `Email: ${data.partnerEmail}`,
+    ...(data.partnerEmail ? [`Email: ${data.partnerEmail}`] : []),
     ...(data.companyName ? [`Company: ${data.companyName}`] : []),
     '',
     '— Referred client —',
@@ -1991,6 +2123,9 @@ app.post('/api/inquiry', async (req, res) => {
       ? rawPerf.filter((x) => x && String(x).trim()).map((x) => String(x).trim())
       : (rawPerf && typeof rawPerf === 'string' ? [rawPerf.trim()].filter(Boolean) : [])
 
+    let referralAttribution = null
+    const partnerToken = String(body.partnerToken || body.partner || '').trim()
+
     const { clientId, projectId } = createInquiryInTransaction({
       name,
       email,
@@ -2007,6 +2142,44 @@ app.post('/api/inquiry', async (req, res) => {
       requestedArtist: requestedArtist || undefined,
       performanceMoment: performanceMoment.length > 0 ? performanceMoment : undefined,
     })
+
+    if (partnerToken) {
+      try {
+        referralAttribution = attributeInquiryToReferralPartner({
+          partnerToken,
+          clientName: name,
+          clientEmail: email,
+          clientPhone: phone || null,
+          eventDate: String(body.weddingDate || '').trim() || null,
+          eventLocation: venue || null,
+          linkedProjectId: projectId,
+        })
+      } catch (attrErr) {
+        logError('DB', 'Partner link attribution failed', attrErr)
+        referralAttribution = { status: 'error' }
+      }
+      if (referralAttribution?.status === 'created') {
+        const notifyPayload = {
+          partnerName: referralAttribution.partnerName,
+          partnerEmail: referralAttribution.partnerEmail,
+          companyName: referralAttribution.companyName,
+          clientName: name,
+          clientEmail: email,
+          clientPhone: phone || undefined,
+          referralReference: referralAttribution.referralReference,
+          eventDate: String(body.weddingDate || '').trim() || undefined,
+          eventLocation: venue || undefined,
+          source: 'partner_link',
+          termsLabel: 'Partner Referral Agreement (10%, no minimum)',
+        }
+        sendPartnerReferralAgencyNotification(referralAttribution.referralId, notifyPayload).catch((err) =>
+          logError('SMTP', 'Partner link agency notification', err)
+        )
+        sendPartnerReferralPartnerConfirmation(referralAttribution.partnerEmail, notifyPayload).catch((err) =>
+          logError('SMTP', 'Partner link partner notification', err)
+        )
+      }
+    }
 
     // Fire-and-forget email so the form response isn't blocked by slow SMTP
     console.log('[AGENCY-EMAIL] before sendInquiryNotification (scheduling)')
@@ -2044,6 +2217,13 @@ app.post('/api/inquiry', async (req, res) => {
         logError('SMTP', 'Inquiry client confirmation (non-blocking)', err)
       })
 
+    if (referralAttribution) {
+      console.log('[PARTNER-LINK] inquiry attribution', {
+        status: referralAttribution.status,
+        referralId: referralAttribution.referralId || null,
+        projectId,
+      })
+    }
     if (nextUrl) {
       return res.redirect(303, nextUrl)
     }
@@ -3931,6 +4111,21 @@ app.post('/api/partner-referrals', (req, res) => {
         if (Number.isFinite(n)) payload.payoutOverrideAmount = Math.max(0, n)
       }
     }
+    const referralProgram = String(b.referralProgram || '').trim()
+    const partnerToken = String(b.partnerToken || '').trim()
+    if (referralProgram === 'public_10') {
+      const accepted =
+        b.termsAccepted === true || b.termsAccepted === 'true' || b.termsAccepted === 1 || b.termsAccepted === '1'
+      if (!accepted) {
+        return res.status(400).json({ error: 'Partner Referral Terms must be accepted.' })
+      }
+      if (!payload.companyName) {
+        return res.status(400).json({ error: 'Business / company is required.' })
+      }
+      payload.referralProgram = 'public_10'
+      payload.termsAcceptedAt = new Date().toISOString()
+    }
+    if (partnerToken) payload.partnerToken = partnerToken
     if (b.venueId != null && String(b.venueId).trim()) payload.venueId = String(b.venueId).trim()
     if (b.referringContactId != null && String(b.referringContactId).trim()) {
       payload.referringContactId = String(b.referringContactId).trim()
@@ -3962,7 +4157,11 @@ app.post('/api/partner-referrals', (req, res) => {
       omitPartnerConfirmationEmail,
       willSendPartnerConfirmation: !omitPartnerConfirmationEmail,
     })
-    const notifyPayload = { ...payload, referralReference: created.referralReference }
+    const notifyPayload = {
+      ...payload,
+      referralReference: created.referralReference,
+      termsLabel: getPartnerReferral(created.id)?.agreementTermsSnapshot?.label || null,
+    }
     // Same as inquiry: non-blocking SMTP so response is not tied to mail latency / lifecycle.
     sendPartnerReferralAgencyNotification(created.id, notifyPayload)
       .then(() => console.log('[PARTNER-REFERRAL-EMAIL] after agency notification (promise settled)'))
@@ -3990,6 +4189,209 @@ app.post('/api/partner-referrals', (req, res) => {
   }
 })
 
+app.post('/api/referral-partners/apply', async (req, res) => {
+  try {
+    const body = req.body || {}
+    const result = await submitPublicPartnerApplication(body, {
+      ip: getClientKey(req),
+      userAgent: req.headers['user-agent'],
+    })
+    if (result.error) return res.status(result.status || 400).json({ error: result.error })
+    let signedPdf = null
+    if (!result.reused) {
+      try {
+        signedPdf = getReferralPartnershipAgreementPdf(result.agreementId, 'signed')
+      } catch (pdfErr) {
+        logError('DB', 'Load signed partner agreement for email', pdfErr)
+      }
+    }
+    const partnerName = String(body.fullName || body.partnerName || '').trim()
+    const partnerEmail = String(body.email || body.partnerEmail || '').trim()
+    let portalLink = null
+    if (!result.reused) {
+      try {
+        portalLink = partnerPortalVerifyUrl(createPortalLoginToken(result.partnershipId, PORTAL_WELCOME_TOKEN_TTL_MS))
+      } catch (tokenErr) {
+        logError('DB', 'Create partner portal welcome link', tokenErr)
+      }
+    }
+    sendPublicPartnerLinkEmail(partnerEmail, {
+      partnerName,
+      referralLink: result.referralLink,
+      signedPdf,
+      portalLink,
+    }).catch((err) => logError('SMTP', 'Public partner link email', err))
+    if (!result.reused) {
+      sendPublicPartnerAgencyNotification({
+        partnerName,
+        partnerEmail,
+        partnerPhone: String(body.phone || body.partnerPhone || '').trim() || null,
+        companyName: String(body.companyName || '').trim(),
+        businessType: String(body.businessType || '').trim(),
+        referralLink: result.referralLink,
+        partnershipId: result.partnershipId,
+        signedPdf,
+      }).catch((err) => logError('SMTP', 'Public partner agency notification', err))
+    }
+    if (result.reused) {
+      // Anyone can type an existing partner's email, so the link only goes to that inbox.
+      return res.status(200).json({ reused: true, status: result.status })
+    }
+    res.status(201).json(result)
+  } catch (err) {
+    logError('DB', 'Failed to submit public partner application', err)
+    res.status(500).json({ error: 'Failed to submit partner application' })
+  }
+})
+
+// --- Partner Portal V1 (read-only window into existing referral data; see server/partnerPortal.js) ---
+const PARTNER_PORTAL_BASE_URL = String(process.env.PARTNER_PORTAL_URL || APP_BASE_URL).replace(/\/$/, '')
+function partnerPortalVerifyUrl(token) {
+  return `${PARTNER_PORTAL_BASE_URL}/partner/verify?token=${encodeURIComponent(token)}`
+}
+
+const PORTAL_RATE_WINDOW_MS = 15 * 60 * 1000
+const portalRateLimits = { ip: new Map(), email: new Map(), verify: new Map() }
+function portalRateLimited(map, key, max) {
+  cleanupRateLimit(map, PORTAL_RATE_WINDOW_MS)
+  const data = map.get(key) || { count: 0, start: Date.now() }
+  data.count += 1
+  map.set(key, data)
+  return data.count > max
+}
+
+async function sendPartnerPortalLoginEmail(to, data) {
+  const mailFrom = smtpFromAddress()
+  if (!reminderTransporter || !mailFrom) return
+  const first = inquiryFirstNameFromFullName(data.partnerName)
+  const text = [
+    first ? `Dear ${first},` : 'Hello,',
+    '',
+    'Here is your secure link to the Aurora Sonnet Partner Portal:',
+    data.link,
+    '',
+    'The link works once and expires in 30 minutes. If you did not request it, you can ignore this email.',
+    '',
+    'Warmly,',
+    'Aurora Sonnet',
+  ].join('\n')
+  await reminderTransporter.sendMail({ from: mailFrom, to, subject: 'Your Aurora Sonnet Partner Portal link', text })
+}
+
+const PORTAL_LINK_SENT_MESSAGE = 'If this email belongs to an Aurora Sonnet partner, a login link is on its way.'
+
+app.post('/api/partner-portal/request-link', (req, res) => {
+  const email = String(req.body?.email || '').trim().toLowerCase().slice(0, 120)
+  if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) {
+    return res.status(400).json({ error: 'Please enter a valid email address.' })
+  }
+  if (portalRateLimited(portalRateLimits.ip, getClientKey(req), 10)) {
+    return res.status(429).json({ error: 'Too many requests. Please try again in a few minutes.' })
+  }
+  const emailLimited = portalRateLimited(portalRateLimits.email, email, 3)
+  res.json({ ok: true, message: PORTAL_LINK_SENT_MESSAGE })
+  if (emailLimited) return
+  setImmediate(() => {
+    try {
+      const access = resolvePortalAccessByEmail(email)
+      if (!access) return
+      const link = partnerPortalVerifyUrl(createPortalLoginToken(access.partnership.id))
+      sendPartnerPortalLoginEmail(access.partnership.partnerEmail, {
+        partnerName: access.partnership.partnerName,
+        link,
+      }).catch((err) => logError('SMTP', 'Partner portal login email', err))
+    } catch (err) {
+      logError('DB', 'Partner portal login link', err)
+    }
+  })
+})
+
+app.post('/api/partner-portal/verify', (req, res) => {
+  if (portalRateLimited(portalRateLimits.verify, getClientKey(req), 20)) {
+    return res.status(429).json({ error: 'Too many attempts. Please try again in a few minutes.' })
+  }
+  const partnershipId = consumePortalLoginToken(req.body?.token)
+  const access = partnershipId ? resolvePortalAccessById(partnershipId) : null
+  if (!access) {
+    return res.status(400).json({ error: 'This login link has expired or was already used. Please request a new one.' })
+  }
+  req.session.regenerate((err) => {
+    if (err) {
+      logError('API', 'Partner portal session', err)
+      return res.status(500).json({ error: 'Could not sign you in. Please try again.' })
+    }
+    req.session.partnerPortal = { partnershipId: access.partnership.id, loginAt: Date.now() }
+    req.session.save((saveErr) => {
+      if (saveErr) {
+        logError('API', 'Partner portal session save', saveErr)
+        return res.status(500).json({ error: 'Could not sign you in. Please try again.' })
+      }
+      res.json({ ok: true })
+    })
+  })
+})
+
+/** Identity comes only from the partner session; no endpoint accepts a partner, referral, or agreement id. */
+function requirePortalPartner(req, res, next) {
+  res.setHeader('Cache-Control', 'no-store')
+  const access = resolvePortalAccessById(req.session?.partnerPortal?.partnershipId)
+  if (!access) {
+    if (req.session?.partnerPortal) delete req.session.partnerPortal
+    return res.status(401).json({ error: 'Please log in again.' })
+  }
+  req.portalAccess = access
+  next()
+}
+
+app.get('/api/partner-portal/me', requirePortalPartner, (req, res) => {
+  res.json(portalDashboard(req.portalAccess))
+})
+
+app.get('/api/partner-portal/agreement.pdf', requirePortalPartner, (req, res) => {
+  const pdf = getReferralPartnershipAgreementPdf(req.portalAccess.agreement.id, 'signed')
+  if (!pdf) return res.status(404).json({ error: 'Signed agreement not found.' })
+  const disposition = req.query.download === '1' ? 'attachment' : 'inline'
+  res.setHeader('Content-Type', 'application/pdf')
+  res.setHeader('Content-Disposition', `${disposition}; filename="Aurora-Sonnet-Partner-Referral-Agreement.pdf"`)
+  res.setHeader('X-Content-Type-Options', 'nosniff')
+  res.send(Buffer.from(pdf))
+})
+
+app.get('/partner/verify', (req, res) => renderContinuePage(res))
+
+app.get('/partner', (req, res) => {
+  const access = resolvePortalAccessById(req.session?.partnerPortal?.partnershipId)
+  if (!access) return renderSignedOutPage(res)
+  renderDashboardPage(res, portalDashboard(access))
+})
+
+app.post('/api/partner-portal/logout', (req, res) => {
+  const done = () => {
+    res.clearCookie(PARTNER_SESSION_COOKIE)
+    res.json({ ok: true })
+  }
+  if (!req.session) return done()
+  req.session.destroy(() => done())
+})
+
+app.get('/api/referral-partners/by-token/:token', (req, res) => {
+  try {
+    const partnership = getReferralPartnershipByReferralToken(req.params.token)
+    if (!partnership || partnership.status !== 'active' || !partnership.referralToken) {
+      return res.status(404).json({ active: false })
+    }
+    res.json({
+      active: true,
+      partnerName: partnership.partnerName || null,
+      companyName: partnership.companyName || null,
+      businessType: partnership.businessType || null,
+    })
+  } catch (err) {
+    logError('DB', 'Failed to look up referral partner', err)
+    res.status(500).json({ error: 'Failed to look up partner' })
+  }
+})
+
 app.patch('/api/partner-referrals/:id', (req, res) => {
   try {
     const updated = updatePartnerReferral(req.params.id, req.body || {})
@@ -4012,6 +4414,108 @@ app.delete('/api/partner-referrals/:id', (req, res) => {
   } catch (err) {
     logError('DB', 'Failed to delete partner referral', err)
     res.status(500).json({ error: 'Failed to delete partner referral' })
+  }
+})
+
+app.get('/api/partner-referrals/decisions-due', (req, res) => {
+  try {
+    const approachingDays = Math.max(0, parseInt(String(req.query.approachingDays || '2'), 10) || 2)
+    const referrals = listReferralDecisionsForOutreach({ approachingDays })
+    res.json({ referrals })
+  } catch (err) {
+    logError('PARTNER-REFERRAL', 'List decisions due failed', err)
+    res.status(500).json({ error: 'Failed to list referral decisions' })
+  }
+})
+
+app.post('/api/partner-referrals/:id/accept-decision', (req, res) => {
+  try {
+    const b = req.body || {}
+    const result = acceptPartnerReferralDecision(req.params.id, {
+      actor: req.session?.username || 'crm',
+      notes: b.notes || null,
+    })
+    if (!result.ok) return res.status(400).json({ error: result.error })
+    res.json(result.referral)
+  } catch (err) {
+    logError('PARTNER-REFERRAL', 'Accept decision failed', err)
+    res.status(500).json({ error: 'Failed to accept referral' })
+  }
+})
+
+app.post('/api/partner-referrals/:id/reject-decision', (req, res) => {
+  try {
+    const b = req.body || {}
+    const result = rejectPartnerReferralDecision(req.params.id, {
+      actor: req.session?.username || 'crm',
+      notes: b.notes || b.rejectionNotes || '',
+    })
+    if (!result.ok) return res.status(400).json({ error: result.error })
+    res.json(result.referral)
+  } catch (err) {
+    logError('PARTNER-REFERRAL', 'Reject decision failed', err)
+    res.status(500).json({ error: 'Failed to reject referral' })
+  }
+})
+
+app.patch('/api/partner-referrals/:id/decision-deadline', (req, res) => {
+  try {
+    const b = req.body || {}
+    const result = adjustPartnerReferralDecisionDeadline(req.params.id, {
+      actor: req.session?.username || '',
+      newDeadline: b.newDeadline || b.deadline,
+      reason: b.reason || b.adjustReason,
+    })
+    if (!result.ok) return res.status(result.error?.includes('authorized') ? 403 : 400).json({ error: result.error })
+    res.json(result.referral)
+  } catch (err) {
+    logError('PARTNER-REFERRAL', 'Adjust deadline failed', err)
+    res.status(500).json({ error: 'Failed to adjust decision deadline' })
+  }
+})
+
+app.post('/api/partner-referrals/:id/commission-statement', async (req, res) => {
+  try {
+    const b = req.body || {}
+    const result = await generatePartnerReferralCommissionStatement(req.params.id, {
+      paymentDate: b.paymentDate || null,
+      paymentMethod: b.paymentMethod || null,
+      paymentReference: b.paymentReference || null,
+    })
+    if (!result.ok) return res.status(400).json({ error: result.error })
+    res.json(result.referral)
+  } catch (err) {
+    logError('PARTNER-REFERRAL', 'Generate commission statement failed', err)
+    res.status(500).json({ error: 'Failed to generate commission statement' })
+  }
+})
+
+app.post('/api/partner-referrals/:id/commission-statement/delivery', (req, res) => {
+  try {
+    const b = req.body || {}
+    const result = recordPartnerReferralCommissionStatementDelivery(req.params.id, {
+      method: b.method || b.deliveryMethod,
+      reference: b.reference || b.deliveryReference,
+      actor: req.session?.username || 'crm',
+    })
+    if (!result.ok) return res.status(400).json({ error: result.error })
+    res.json(result.referral)
+  } catch (err) {
+    logError('PARTNER-REFERRAL', 'Record statement delivery failed', err)
+    res.status(500).json({ error: 'Failed to record statement delivery' })
+  }
+})
+
+app.get('/api/partner-referrals/:id/commission-statement/pdf', (req, res) => {
+  try {
+    const pdf = getPartnerReferralCommissionStatementPdf(req.params.id)
+    if (!pdf || !pdf.length) return res.status(404).json({ error: 'Commission statement not found' })
+    res.setHeader('Content-Type', 'application/pdf')
+    res.setHeader('Content-Disposition', `inline; filename="commission-statement-${req.params.id}.pdf"`)
+    res.send(pdf)
+  } catch (err) {
+    logError('PARTNER-REFERRAL', 'Serve commission statement PDF failed', err)
+    res.status(500).json({ error: 'Failed to load commission statement' })
   }
 })
 
@@ -4059,12 +4563,13 @@ app.patch('/api/referral-partnership-agreements/:id', async (req, res) => {
     if (Object.prototype.hasOwnProperty.call(b, 'termsJson')) {
       patch.termsJson = typeof b.termsJson === 'string' ? b.termsJson : JSON.stringify(b.termsJson)
     }
-    const result = updateReferralOfferAgreement(req.params.id, patch, req.session?.username || 'crm')
+    const result = await updateReferralOfferAgreement(req.params.id, patch, req.session?.username || 'crm')
     if (!result) return res.status(404).json({ error: 'Agreement not found' })
     if (result.error) return res.status(400).json({ error: result.error })
     let updated = result.agreement
     if (b.regeneratePdf) {
       updated = await regenerateOfferPdf(req.params.id)
+      if (updated?.error) return res.status(400).json({ error: updated.error })
     }
     res.json(updated)
   } catch (err) {
@@ -4095,7 +4600,7 @@ app.post('/api/referral-partnership-agreements/:id/signed-pdf', (req, res) => {
       },
       req.session?.username || 'crm'
     )
-    if (!result.ok) return res.status(result.error?.includes('Legal') || result.error?.includes('signature') ? 400 : 404).json({ error: result.error })
+    if (!result.ok) return res.status(result.error?.includes('Owner') || result.error?.includes('signature') || result.error?.includes('approval') ? 400 : 404).json({ error: result.error })
     res.json(result.agreement)
   } catch (err) {
     logError('REFERRAL-PARTNERSHIP', 'Upload signed PDF failed', err)
@@ -4103,11 +4608,30 @@ app.post('/api/referral-partnership-agreements/:id/signed-pdf', (req, res) => {
   }
 })
 
+app.post('/api/referral-partnership-agreements/:id/owner-approval', (req, res) => {
+  try {
+    const actor = req.session?.username || ''
+    if (!canUserRecordOwnerApproval(actor)) {
+      return res.status(403).json({ error: 'You are not authorized to record Owner Approval for referral agreements.' })
+    }
+    const b = req.body || {}
+    const result = approveReferralAgreementOwner(req.params.id, {
+      notes: b.notes || b.ownerApprovalNotes || b.legalApprovalNotes || null,
+      actor,
+    })
+    if (!result.ok) return res.status(result.error?.includes('not found') ? 404 : 400).json({ error: result.error })
+    res.json(result.agreement)
+  } catch (err) {
+    logError('REFERRAL-PARTNERSHIP', 'Owner approval failed', err)
+    res.status(500).json({ error: 'Failed to record Owner Approval' })
+  }
+})
+
 app.post('/api/referral-partnership-agreements/:id/legal-approval', (req, res) => {
   try {
     const actor = req.session?.username || ''
     if (!canUserRecordLegalApproval(actor)) {
-      return res.status(403).json({ error: 'You are not authorized to record legal approval for referral agreements.' })
+      return res.status(403).json({ error: 'You are not authorized to record Owner Approval for referral agreements.' })
     }
     const b = req.body || {}
     const result = approveReferralAgreementLegal(req.params.id, {
@@ -4119,7 +4643,27 @@ app.post('/api/referral-partnership-agreements/:id/legal-approval', (req, res) =
     res.json(result.agreement)
   } catch (err) {
     logError('REFERRAL-PARTNERSHIP', 'Legal approval failed', err)
-    res.status(500).json({ error: 'Failed to record legal approval' })
+    res.status(500).json({ error: 'Failed to record Owner Approval' })
+  }
+})
+
+app.post('/api/referral-partnership-agreements/:id/external-counsel-review', (req, res) => {
+  try {
+    const actor = req.session?.username || ''
+    if (!canUserRecordOwnerApproval(actor)) {
+      return res.status(403).json({ error: 'You are not authorized to record external counsel review.' })
+    }
+    const b = req.body || {}
+    const result = recordReferralAgreementExternalCounselReview(req.params.id, {
+      reviewerName: b.reviewerName || b.externalCounselReviewerName || '',
+      notes: b.notes || b.externalCounselReviewNotes || null,
+      actor,
+    })
+    if (!result.ok) return res.status(result.error?.includes('not found') ? 404 : 400).json({ error: result.error })
+    res.json(result.agreement)
+  } catch (err) {
+    logError('REFERRAL-PARTNERSHIP', 'External counsel review failed', err)
+    res.status(500).json({ error: 'Failed to record external counsel review' })
   }
 })
 
@@ -4127,7 +4671,7 @@ app.post('/api/referral-partnership-agreements/:id/legal-rejection', (req, res) 
   try {
     const actor = req.session?.username || ''
     if (!canUserRecordLegalApproval(actor)) {
-      return res.status(403).json({ error: 'You are not authorized to record legal rejection for referral agreements.' })
+      return res.status(403).json({ error: 'You are not authorized to record rejection for referral agreements.' })
     }
     const b = req.body || {}
     const result = rejectReferralAgreementLegal(req.params.id, {
@@ -4138,7 +4682,26 @@ app.post('/api/referral-partnership-agreements/:id/legal-rejection', (req, res) 
     res.json(result.agreement)
   } catch (err) {
     logError('REFERRAL-PARTNERSHIP', 'Legal rejection failed', err)
-    res.status(500).json({ error: 'Failed to record legal rejection' })
+    res.status(500).json({ error: 'Failed to record rejection' })
+  }
+})
+
+app.post('/api/referral-partnership-agreements/:id/owner-rejection', (req, res) => {
+  try {
+    const actor = req.session?.username || ''
+    if (!canUserRecordOwnerApproval(actor)) {
+      return res.status(403).json({ error: 'You are not authorized to record rejection for referral agreements.' })
+    }
+    const b = req.body || {}
+    const result = rejectReferralAgreementOwner(req.params.id, {
+      rejectionNotes: b.rejectionNotes || b.notes || '',
+      actor,
+    })
+    if (!result.ok) return res.status(result.error?.includes('not found') ? 404 : 400).json({ error: result.error })
+    res.json(result.agreement)
+  } catch (err) {
+    logError('REFERRAL-PARTNERSHIP', 'Owner rejection failed', err)
+    res.status(500).json({ error: 'Failed to record rejection' })
   }
 })
 
@@ -4158,6 +4721,7 @@ app.patch('/api/settings/referral-organization', (req, res) => {
       legalAddress: b.legalAddress,
       signatoryName: b.signatoryName,
       signatoryTitle: b.signatoryTitle,
+      noticeEmail: b.noticeEmail,
     })
     res.json({ organization })
   } catch (err) {
@@ -4546,10 +5110,20 @@ app.post('/api/partnership-contacts/:id/send-email', async (req, res) => {
       return res.status(429).json({ error: 'An email was just sent to this contact moments ago. Wait a few seconds before sending another.' })
     }
 
-    const to = String(contact.email || '').trim()
-    if (!isSendableContactEmail(to)) {
+    const intendedTo = String(contact.email || '').trim()
+    if (!isSendableContactEmail(intendedTo)) {
       return res.status(400).json({ error: 'This contact does not have a valid email address. Add an email before sending, or use Visit Contact Form for website form outreach.' })
     }
+
+    const { to, originalTo, isTestOverride } = resolveManualOutreachRecipient(intendedTo)
+    let outboundSubject = subject
+    let outboundBody = body
+    ;({ subject: outboundSubject, body: outboundBody } = applyOutreachTestRoutingToMail({
+      subject,
+      body,
+      originalTo,
+      isTestOverride,
+    }))
 
     const overrideHardBounce = b.overrideHardBounce === true
     if (contact.stage === EMAIL_DELIVERY_FAILED_STAGE && !overrideHardBounce) {
@@ -4560,10 +5134,10 @@ app.post('/api/partnership-contacts/:id/send-email', async (req, res) => {
       })
     }
 
-    console.log('[PARTNERSHIP-OUTREACH-EMAIL] sendMail attempt', { from: mailFrom, to, templateId, contactId: id })
+    console.log('[PARTNERSHIP-OUTREACH-EMAIL] sendMail attempt', { from: mailFrom, to, intendedTo: originalTo, isTestOverride, templateId, contactId: id })
     let mailInfo
     try {
-      mailInfo = await reminderTransporter.sendMail({ from: mailFrom, to, subject, text: body })
+      mailInfo = await reminderTransporter.sendMail({ from: mailFrom, to, subject: outboundSubject, text: outboundBody })
       console.log('[PARTNERSHIP-OUTREACH-EMAIL] sendMail resolved', {
         to,
         messageId: mailInfo && mailInfo.messageId,
@@ -5178,8 +5752,8 @@ app.post('/api/visits/:id/send-same-day-email', async (req, res) => {
     const b = req.body || {}
     const contactId = b.contactId ? String(b.contactId).trim() : null
     const contact = contactId ? getVenueContactById(contactId) : null
-    const to = String(b.to || contact?.email || '').trim()
-    if (!to || !isValidEmailFormatLoose(to)) {
+    const intendedTo = String(b.to || contact?.email || '').trim()
+    if (!intendedTo || !isValidEmailFormatLoose(intendedTo)) {
       return res.status(400).json({ error: 'A valid recipient email is required (pick a venue contact or set "to").' })
     }
 
@@ -5188,9 +5762,19 @@ app.post('/api/visits/:id/send-same-day-email', async (req, res) => {
     if (!subject) return res.status(400).json({ error: 'subject is required' })
     if (!body) return res.status(400).json({ error: 'body is required' })
 
+    const { to, originalTo, isTestOverride } = resolveManualOutreachRecipient(intendedTo)
+    let outboundSubject = subject
+    let outboundBody = body
+    ;({ subject: outboundSubject, body: outboundBody } = applyOutreachTestRoutingToMail({
+      subject,
+      body,
+      originalTo,
+      isTestOverride,
+    }))
+
     let mailInfo
     try {
-      mailInfo = await reminderTransporter.sendMail({ from: mailFrom, to, subject, text: body })
+      mailInfo = await reminderTransporter.sendMail({ from: mailFrom, to, subject: outboundSubject, text: outboundBody })
     } catch (err) {
       logError('VENUE-SAME-DAY-EMAIL', 'sendMail threw', err)
       return res.status(502).json({ error: 'Failed to send email. Check SMTP settings and try again.' })

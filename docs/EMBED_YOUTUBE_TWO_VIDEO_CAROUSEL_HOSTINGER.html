@@ -1,0 +1,151 @@
+<!-- AURORA SONNET — 2-video YouTube carousel. Paste entire block into Hostinger → Custom HTML / Embed Code. -->
+<div id="as-yt-carousel-embed">
+  <style>
+    #as-yt-carousel-embed * { box-sizing: border-box; }
+    #as-yt-carousel-embed {
+      width: 100%;
+      max-width: 100%;
+      margin: 0 auto;
+      font-family: Georgia, "Times New Roman", Times, serif;
+      padding: 0.5rem 0 1.5rem;
+    }
+    #as-yt-carousel-embed .as-yt-wrap {
+      width: 100%;
+      max-width: 100%;
+    }
+    #as-yt-carousel-embed .as-yt-stage {
+      position: relative;
+      width: 100%;
+      max-width: 100%;
+      border-radius: 8px;
+      overflow: hidden;
+      background: #111;
+      box-shadow: 0 4px 20px rgba(36, 26, 20, 0.08);
+    }
+    #as-yt-carousel-embed .as-yt-ratio {
+      position: relative;
+      width: 100%;
+      padding-bottom: 56.25%;
+      height: 0;
+    }
+    #as-yt-carousel-embed .as-yt-ratio iframe {
+      position: absolute;
+      inset: 0;
+      width: 100% !important;
+      height: 100% !important;
+      max-width: none !important;
+      border: 0;
+    }
+    #as-yt-carousel-embed .as-yt-nav {
+      position: absolute;
+      top: 50%;
+      transform: translateY(-50%);
+      z-index: 4;
+      min-width: 44px;
+      min-height: 44px;
+      border: none;
+      border-radius: 0;
+      background: transparent;
+      color: #fff;
+      cursor: pointer;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      padding: 6px 4px;
+      box-shadow: none;
+      -webkit-tap-highlight-color: transparent;
+      transition: transform 0.15s ease;
+    }
+    #as-yt-carousel-embed .as-yt-nav:hover {
+      transform: translateY(-50%) scale(1.08);
+    }
+    #as-yt-carousel-embed .as-yt-prev { left: 4px; }
+    #as-yt-carousel-embed .as-yt-next { right: 4px; }
+    #as-yt-carousel-embed .as-yt-nav svg {
+      width: 36px;
+      height: 36px;
+      stroke-width: 2.75;
+      stroke-linecap: round;
+      stroke-linejoin: round;
+      filter: drop-shadow(0 0 1px rgba(0, 0, 0, 0.85)) drop-shadow(0 0 3px rgba(0, 0, 0, 0.55)) drop-shadow(0 2px 4px rgba(0, 0, 0, 0.45));
+    }
+    @media (max-width: 520px) {
+      #as-yt-carousel-embed .as-yt-nav svg {
+        width: 30px;
+        height: 30px;
+        stroke-width: 2.5;
+      }
+      #as-yt-carousel-embed .as-yt-prev { left: 2px; }
+      #as-yt-carousel-embed .as-yt-next { right: 2px; }
+    }
+  </style>
+  <div class="as-yt-wrap" role="region" aria-roledescription="carousel" aria-label="Featured videos">
+    <div class="as-yt-stage">
+      <div class="as-yt-ratio">
+        <!-- First video URL in HTML so it still loads if the host strips or delays <script> -->
+        <iframe
+          id="as-yt-carousel-frame"
+          title="YouTube video 1 of 2"
+          src="https://www.youtube.com/embed/NizTXQH1dMM?rel=0&modestbranding=1"
+          allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture; web-share"
+          referrerpolicy="strict-origin-when-cross-origin"
+          allowfullscreen
+        ></iframe>
+      </div>
+      <button type="button" class="as-yt-nav as-yt-prev" aria-label="Previous video">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.75" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M15 18l-6-6 6-6"/></svg>
+      </button>
+      <button type="button" class="as-yt-nav as-yt-next" aria-label="Next video">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.75" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M9 18l6-6-6-6"/></svg>
+      </button>
+    </div>
+  </div>
+  <script>
+  (function () {
+    /** Swap URLs here if you change videos — keep first URL in sync with iframe src above */
+    var SOURCES = [
+      'https://youtu.be/NizTXQH1dMM?si=f1voGE7MFu1wLips',
+      'https://www.youtube.com/watch?v=RXAguhSxlJ0'
+    ];
+
+    function extractId(input) {
+      if (!input) return '';
+      var s = String(input).trim();
+      if (/^[a-zA-Z0-9_-]{11}$/.test(s)) return s;
+      var m = s.match(/(?:youtube\.com\/(?:watch\?(?:.*&)?v=|embed\/|shorts\/)|youtu\.be\/)([a-zA-Z0-9_-]{11})/);
+      return m ? m[1] : '';
+    }
+    var ids = SOURCES.map(extractId).filter(Boolean);
+    if (ids.length < 2) {
+      if (typeof console !== 'undefined' && console.warn) {
+        console.warn('[as-yt-carousel] Add two valid YouTube URLs or IDs in SOURCES.');
+      }
+      return;
+    }
+
+    var root = document.getElementById('as-yt-carousel-embed');
+    var iframe = document.getElementById('as-yt-carousel-frame');
+    var prevBtn = root.querySelector('.as-yt-prev');
+    var nextBtn = root.querySelector('.as-yt-next');
+    var i = 0;
+
+    function embedUrl(id) {
+      return 'https://www.youtube.com/embed/' + id + '?rel=0&modestbranding=1';
+    }
+    function show() {
+      var u = embedUrl(ids[i]);
+      if (iframe.getAttribute('src') !== u) iframe.src = u;
+      iframe.setAttribute('title', 'YouTube video ' + (i + 1) + ' of ' + ids.length);
+    }
+    prevBtn.addEventListener('click', function () {
+      i = (i - 1 + ids.length) % ids.length;
+      show();
+    });
+    nextBtn.addEventListener('click', function () {
+      i = (i + 1) % ids.length;
+      show();
+    });
+    show();
+  })();
+  </script>
+</div>

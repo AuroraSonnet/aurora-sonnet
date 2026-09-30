@@ -50,6 +50,22 @@
   var YOUR_APP_URL = 'https://aurora-sonnet-1.onrender.com';
   var THANK_YOU_URL = 'https://aurorasonnet.com/general-inquiry-thank-you';
 
+  // Partner link (?partner=TOKEN): same key and rules as the homepage quote embed.
+  function asPartnerToken() {
+    var KEY = 'asPartnerRef', TTL = 90 * 864e5, now = Date.now(), top = window, found = '', store = null, saved = null;
+    try { while (top.parent && top.parent !== top) { void top.parent.document; top = top.parent; } } catch (e) {}
+    try { var m = /[?&]partner=([^&#]+)/.exec(top.location.search); if (m) { found = decodeURIComponent(m[1]).trim(); } } catch (e) {}
+    try { store = top.localStorage; } catch (e) { try { store = window.localStorage; } catch (e2) { store = null; } }
+    try { saved = JSON.parse(store.getItem(KEY) || 'null'); } catch (e) { saved = null; }
+    if (!saved || typeof saved.t !== 'string' || !(saved.exp > now)) { saved = null; }
+    if (!saved && /^[A-Za-z0-9_-]{16,128}$/.test(found)) {
+      saved = { t: found, exp: now + TTL };
+      try { store.setItem(KEY, JSON.stringify(saved)); } catch (e) {}
+    }
+    return saved ? saved.t : '';
+  }
+  asPartnerToken();
+
   var form = document.getElementById('aurora-general-inquiry-form');
   var errorEl = document.getElementById('aurora-form-error');
   var submitBtn = document.getElementById('aurora-submit-btn');
@@ -79,7 +95,8 @@
       name: nameVal,
       email: emailVal,
       phone: phoneVal,
-      message: messageVal || undefined
+      message: messageVal || undefined,
+      partnerToken: asPartnerToken() || undefined
     };
 
     var inquiryUrl = YOUR_APP_URL.replace(/\/$/, '') + '/api/inquiry';

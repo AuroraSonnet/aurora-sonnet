@@ -1,4 +1,4 @@
-<!-- AURORA SONNET — Wedding Music Selection: paste this entire block into Hostinger (Custom HTML / Code block) -->
+<!-- AURORA SONNET — DUO REPERTOIRE (music selection form). Paste entire block into Hostinger Custom HTML. NOT the quote inquiry (that is EMBED_DUO_FULL_CODE.txt). -->
 <div id="aurora-music-embed">
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
@@ -16,7 +16,7 @@
     #aurora-music-embed .as-sectionTitle { font-family: 'Playfair Display', Georgia, serif; font-size: 0.75rem; font-weight: 500; color: #241a14; letter-spacing: 0.2em; text-transform: uppercase; margin: 0; }
     #aurora-music-embed .as-playlistSection { border-bottom: 1px solid #e8dfd6; }
     #aurora-music-embed .as-playlistSection:last-of-type { border-bottom: none; }
-    #aurora-music-embed .as-playlistHeader { display: flex; align-items: center; justify-content: space-between; width: 100%; padding: 0.875rem 2rem; background: transparent; border: none; cursor: pointer; font-family: inherit; font-size: 1.0625rem; font-weight: 600; color: #241a14; text-align: left; }
+    #aurora-music-embed .as-playlistHeader { display: flex; align-items: center; justify-content: space-between; width: 100%; padding: 0.875rem 2rem; background: transparent; border: none; cursor: pointer; font-family: inherit; font-size: 0.9375rem; color: #241a14; text-align: left; }
     #aurora-music-embed .as-playlistHeader:hover { background: rgba(36,26,20,0.04); }
     #aurora-music-embed .as-chevron { flex-shrink: 0; width: 20px; height: 20px; color: #241a14; transition: transform 0.2s ease; }
     #aurora-music-embed .as-chevronOpen { transform: rotate(180deg); }
@@ -34,23 +34,32 @@
     #aurora-music-embed .as-selectedCategoryTitle { font-size: 0.8125rem; font-weight: 600; color: #241a14; text-transform: uppercase; letter-spacing: 0.05em; margin: 0 0 0.75rem 0; }
     #aurora-music-embed .as-selectedCategoryTitle:not(:first-child) { margin-top: 1.25rem; }
     #aurora-music-embed .as-selectedTrackItem { display: flex; align-items: center; gap: 0.5rem; padding: 0.4rem 0; font-size: 0.9375rem; color: #241a14; }
-    #aurora-music-embed .as-selectionForm { margin-top: 1rem; display: flex; flex-direction: column; gap: 0.6rem; max-width: 420px; }
-    #aurora-music-embed .as-selectedCard .as-selectionForm { margin-top: 0; }
-    #aurora-music-embed .as-selectionFieldLabel { display: block; font-size: 0.8125rem; font-weight: 500; color: #241a14; margin-bottom: 0.2rem; }
-    #aurora-music-embed .as-selectionFieldInput,
-    #aurora-music-embed .as-selectionFieldTextarea { width: 100%; padding: 0.5rem 0.65rem; font-size: 0.9375rem; color: #241a14; border: 1px solid #c4b8ac; border-radius: 6px; background: #fff; font-family: inherit; }
-    #aurora-music-embed .as-selectionFieldTextarea { min-height: 5rem; resize: vertical; line-height: 1.45; }
     #aurora-music-embed .as-selectedTrackItem::before { content: ''; width: 16px; height: 16px; flex-shrink: 0; background: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%23241a14' stroke-width='2'%3E%3Cpath d='M20 6L9 17l-5-5'/%3E%3C/svg%3E") center/contain no-repeat; }
     #aurora-music-embed .as-footerNote { text-align: center; font-size: 0.8125rem; color: #241a14; margin: 1.5rem 0 1.25rem 0; padding: 0 1rem; line-height: 1.5; opacity: 0.9; }
     #aurora-music-embed .as-submitBtn { display: block; margin: 0 auto; padding: 0.75rem 2.5rem; font-family: 'Playfair Display', Georgia, serif; font-size: 0.9375rem; font-weight: 500; color: #241a14; background: linear-gradient(180deg,#ebe2da 0%,#e0d6ce 100%); border: 1px solid #c4b8ac; border-radius: 999px; cursor: pointer; box-shadow: 0 1px 2px rgba(36,26,20,0.08); }
     #aurora-music-embed .as-submitBtn:hover { background: linear-gradient(180deg,#e0d6ce 0%,#d4c8be 100%); }
     #aurora-music-embed .as-submitBtn:active { transform: scale(0.99); }
-    #aurora-music-embed .as-submitBtn:disabled { opacity: 0.65; cursor: not-allowed; transform: none; }
     #aurora-music-embed .as-emptySelected { color: #241a14; font-size: 0.875rem; margin: 0.5rem 0 0 0; opacity: 0.8; }
     #aurora-music-embed .as-inlineEmbed{margin:0.25rem 0 0.5rem 2.25rem;padding:0.5rem 0.75rem;background:#fdfaf7;border-radius:12px;border:1px solid #e8dfd6;box-shadow:0 2px 12px rgba(36,26,20,0.06);}
     #aurora-music-embed .as-inlineEmbedHeader{font-size:0.75rem;color:#5b4a3c;margin-bottom:0.25rem;}
     #aurora-music-embed .as-inlineEmbedFrame{border-radius:8px;border:none;width:100%;height:80px;display:block;background:#0000;}
-    @media (max-width:640px) { #aurora-music-embed .as-page { padding: 0.75rem; } #aurora-music-embed .as-timeSummary, #aurora-music-embed .as-playlistHeader, #aurora-music-embed .as-playlistTracks, #aurora-music-embed .as-selectedSection { padding-left: 0.9rem; padding-right: 0.9rem; } #aurora-music-embed .as-sectionDivider { padding-left: 0.9rem; padding-right: 0.9rem; } #aurora-music-embed .as-inlineEmbed{margin-left:0;} #aurora-music-embed .as-inlineEmbedFrame{height:170px;transform:scale(0.9);transform-origin:0 0;} }
+    #aurora-music-embed .as-selectionForm { margin-top: 1rem; display: flex; flex-direction: column; gap: 0.6rem; max-width: 100%; }
+    #aurora-music-embed .as-selectionFieldLabel { display: block; font-size: 0.8125rem; font-weight: 500; color: #241a14; margin-bottom: 0.2rem; }
+    #aurora-music-embed .as-selectionFieldInput,
+    #aurora-music-embed .as-selectionFieldTextarea { width: 100%; padding: 0.5rem 0.65rem; font-size: 0.9375rem; color: #241a14; border: 1px solid #c4b8ac; border-radius: 6px; background: #fff; font-family: inherit; }
+    #aurora-music-embed .as-selectionFieldTextarea { min-height: 5rem; resize: vertical; line-height: 1.45; }
+    #aurora-music-embed .as-submitBtn:disabled { opacity: 0.65; cursor: not-allowed; transform: none; }
+    @media (max-width:640px) {
+      #aurora-music-embed .as-page { padding: 0 0 1.25rem; }
+      #aurora-music-embed .as-container { max-width: 100%; border-radius: 0; border-left: none; border-right: none; }
+      #aurora-music-embed .as-timeSummary,
+      #aurora-music-embed .as-playlistHeader,
+      #aurora-music-embed .as-playlistTracks,
+      #aurora-music-embed .as-selectedSection { padding-left: 0.6rem; padding-right: 0.6rem; }
+      #aurora-music-embed .as-sectionDivider { padding-left: 0.6rem; padding-right: 0.6rem; }
+      #aurora-music-embed .as-inlineEmbed { margin-left: 0; }
+      #aurora-music-embed .as-inlineEmbedFrame { height: 170px; transform: scale(0.9); transform-origin: 0 0; }
+    }
   </style>
   <div class="as-page">
     <div class="as-container">
@@ -61,13 +70,14 @@
       </header>
       <div class="as-sectionDivider"><h2 class="as-sectionTitle">Ceremony</h2></div>
       <div id="as-ceremony"></div>
-      <div class="as-sectionDivider"><h2 class="as-sectionTitle">Reception</h2></div>
-      <div id="as-reception"></div>
+      <div class="as-sectionDivider"><h2 class="as-sectionTitle">Cocktail Hour</h2></div>
+      <div id="as-cocktail"></div>
+      <div class="as-sectionDivider"><h2 class="as-sectionTitle">Featured Selections</h2></div>
+      <div id="as-featured"></div>
       <div class="as-sectionDivider"><h2 class="as-sectionTitle">Your Selected Songs</h2></div>
       <div class="as-selectedSection">
         <div class="as-selectedCard" id="as-selectedCard"></div>
-        <div class="as-selectedCard" id="as-selectionFormWrap" style="display:none; margin-top:0.75rem">
-          <div class="as-selectionForm">
+        <div class="as-selectionForm" id="as-selectionForm" style="display:none">
           <div>
             <label for="as-specialRequestsInput" class="as-selectionFieldLabel">Special song requests (optional)</label>
             <textarea id="as-specialRequestsInput" class="as-selectionFieldTextarea" placeholder="Any specific songs, dedications, or ideas you'd love us to consider." maxlength="2000" rows="4"></textarea>
@@ -84,7 +94,6 @@
             <label for="as-selectionLabelInput" class="as-selectionFieldLabel">Label for these selections (optional)</label>
             <input type="text" id="as-selectionLabelInput" class="as-selectionFieldInput" placeholder="e.g. Ceremony, Dinner Serenade" maxlength="80">
           </div>
-          </div>
         </div>
         <p class="as-footerNote">Final selections are kindly requested 21 days prior to your event to allow time for thoughtful preparation.</p>
         <button type="button" class="as-submitBtn" id="as-submitBtn">Submit Selections</button>
@@ -95,6 +104,7 @@
   (function(){
     var API_BASE='https://aurora-sonnet-1.onrender.com';
     var THANK_YOU='https://aurorasonnet.com/repertoire-submissions-thank-you';
+    /** Break out of site-builder iframes: never read window.top.location (throws cross-origin); assign only, then fallbacks. */
     function goRepertoireThankYou(url){
       try{window.top.location.href=url;return;}catch(_){}
       try{if(window.open(url,'_top'))return;}catch(_){}
@@ -109,13 +119,17 @@
         cat:'ceremony',
         t:[
           {id:'ga-1',n:'Turning Page',a:'Sleeping At Last',p:'https://open.spotify.com/track/2kfGoV9a5dbSKCNmUWH2ZF?si=88a8c714394c4a3d'},
-          {id:'ga-2',n:'River Flows In You',a:'Yiruma',p:'https://open.spotify.com/track/2agBDIr9MYDUducQPC1sFU?si=7b7eebba9b574318'},
           {id:'ga-3',n:'La Vie en rose',a:'Édith Piaf',p:'https://open.spotify.com/track/3lAun9V0YdTlCSIEXPvfsY?si=72f3dee4e9e54ee7'},
           {id:'ga-4',n:'Here Comes The Sun - Remastered 2009',a:'The Beatles',p:'https://open.spotify.com/track/6dGnYIeXmHdcikdzNNDMm2?si=aeb1159bd4154465'},
           {id:'ga-5',n:'The Luckiest',a:'Ben Folds',p:'https://open.spotify.com/track/1fujSajijBpJlr5mRGKHJN?si=3065340e1e2b423f'},
           {id:'ga-6',n:'Ave Maria',a:'Céline Dion',p:'https://open.spotify.com/track/7v6DvsyQHmsQQhmVDmrnZg?si=5d35b664b9c44732'},
           {id:'ga-7',n:'In My Life - Remastered 2009',a:'The Beatles',p:'https://open.spotify.com/track/3KfbEIOC7YIv90FIfNSZpo?si=99b27afbc7b3474a'},
-          {id:'ga-8',n:'God Only Knows',a:'The Beach Boys',p:'https://open.spotify.com/track/1Umw3vhysHBodpBFpFsVgK?si=a6333ca620c941cb'}
+          {id:'ga-8',n:'God Only Knows',a:'The Beach Boys',p:'https://open.spotify.com/track/1Umw3vhysHBodpBFpFsVgK?si=a6333ca620c941cb'},
+          {id:'ga-9',n:'All of Me',a:'John Legend',p:'https://open.spotify.com/track/3U4isOIWM3VvDubwSI3y7a?si=ee883cb64a1d4518'},
+          {id:'ga-10',n:'From This Moment On',a:'Shania Twain, Bryan White',p:'https://open.spotify.com/track/0Q7Jp3aCwfYnSnbMDoXWyR?si=6dfe45660bdb400f'},
+          {id:'ga-11',n:'Somewhere Over The Rainbow',a:"Israel Kamakawiwo'ole",p:'https://open.spotify.com/track/25U7raB3ZSszayTYClh4hF?si=4f81c5ecd83141ee'},
+          {id:'ga-12',n:'Make You Feel My Love',a:'Adele',p:'https://open.spotify.com/track/5FgPwJ7Nh2FVmIXviKl2VF?si=1cd30bde3a2f4e45'},
+          {id:'ga-13',n:'The Prayer',a:'Céline Dion, Andrea Bocelli',p:'https://open.spotify.com/track/6zlY4xmlgqvn4LxjzoS2mz?si=d7e89a6f7b7e4cd5'}
         ]
       },
       {
@@ -129,18 +143,6 @@
           {id:'pr-4',n:'At Last',a:'Etta James',p:'https://open.spotify.com/track/4Hhv2vrOTy89HFRcjU3QOx?si=e6b5b6f8e4d741c2'},
           {id:'pr-5',n:'Until I Found You',a:'Stephen Sanchez',p:'https://open.spotify.com/track/0T5iIrXA4p5GsubkhuBIKV?si=a20cbe5a575b46f8'},
           {id:'pr-6',n:'How Long Will I Love You',a:'Ellie Goulding',p:'https://open.spotify.com/track/3fA8bXrZL4mYhHbkkMgFH5?si=eb0ef9aa030a4960'}
-        ]
-      },
-      {
-        id:'interlude',
-        title:'Interlude',
-        cat:'ceremony',
-        t:[
-          {id:'in-1',n:'All of Me',a:'John Legend',p:'https://open.spotify.com/track/0Q7Jp3aCwfYnSnbMDoXWyR?si=a3b71256656749c2'},
-          {id:'in-2',n:'From This Moment On',a:'Shania Twain, Bryan White',p:'https://open.spotify.com/track/25U7raB3ZSszayTYClh4hF?si=226c952abd044e30'},
-          {id:'in-3',n:'Somewhere Over The Rainbow/What A Wonderful World',a:'Israel Kamakawiwo\'ole',p:'https://open.spotify.com/track/5FgPwJ7Nh2FVmIXviKl2VF?si=9a893c07e0444489'},
-          {id:'in-4',n:'Make You Feel My Love',a:'Adele',p:'https://open.spotify.com/track/6zlY4xmlgqvn4LxjzoS2mz?si=c55960a8622943d7'},
-          {id:'in-5',n:'The Prayer',a:'Céline Dion, Andrea Bocelli',p:'https://open.spotify.com/track/3U4isOIWM3VvDubwSI3y7a?si=cce98ff8acaa47a3'}
         ]
       },
       {
@@ -204,7 +206,7 @@
         title:'Highlights',
         cat:'reception',
         t:[
-          {id:'hl-1',n:'Love Me Like You Do - From \"Fifty Shades Of Grey\"',a:'Ellie Goulding',p:'https://open.spotify.com/track/3zHq9ouUJQFQRf3cm1rRLu?si=d4567b09715448a3'},
+          {id:'hl-1',n:'Love Me Like You Do - From "Fifty Shades Of Grey"',a:'Ellie Goulding',p:'https://open.spotify.com/track/3zHq9ouUJQFQRf3cm1rRLu?si=d4567b09715448a3'},
           {id:'hl-2',n:'September',a:'Earth, Wind & Fire',p:'https://open.spotify.com/track/2grjqo0Frpf2okIBiifQKs?si=47c22bfaa0634c9f'},
           {id:'hl-3',n:'Crazy In Love (feat. JAY-Z)',a:'Beyoncé, JAY-Z',p:'https://open.spotify.com/track/5IVuqXILoxVWvWEPm82Jxr?si=35eca123b3a64421'},
           {id:'hl-4',n:'Valerie - Amy Winehouse',a:'Amy Winehouse',p:'https://open.spotify.com/episode/36uvKErfVOtOrDSk6sYsVX?si=dd2c35992d4f4c05'},
@@ -234,18 +236,23 @@
       var url=t.p||('https://open.spotify.com/search/'+encodeURIComponent(t.n+' '+t.a));
       window.open(url,'_blank','noopener,noreferrer');
     }
-    function render(){
-      var cer=document.getElementById('as-ceremony'),rec=document.getElementById('as-reception');
-      cer.innerHTML='';rec.innerHTML='';
-      P.forEach(function(pl){
+    function renderPlInto(el, playlists){
+      el.innerHTML='';
+      playlists.forEach(function(pl){
         var wrap=document.createElement('section');wrap.className='as-playlistSection';
-        var lab=pl.title.toUpperCase()+(pl.cat==='ceremony'?' – Ceremony':' – Reception');
+        var lab=pl.cat==='ceremony'?pl.title.toUpperCase()+' – Ceremony':pl.title.toUpperCase();
         var isOp=open[pl.id];
         wrap.innerHTML='<button type="button" class="as-playlistHeader" data-id="'+esc(pl.id)+'" aria-expanded="'+isOp+'"><span class="as-playlistHeaderLabel">'+esc(lab)+'</span><svg class="as-chevron'+(isOp?' as-chevronOpen':'')+'" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M6 9l6 6 6-6"/></svg></button>'+(isOp?'<div class="as-playlistTracks">'+pl.t.map(function(t){var ch=sel[t.id]?' checked':'';return'<div class="as-trackRow"><input type="checkbox" class="as-trackCheckbox" id="cb-'+esc(t.id)+'" data-id="'+esc(t.id)+'"'+ch+'><label class="as-trackLabel" for="cb-'+esc(t.id)+'">'+esc(t.n)+' — '+esc(t.a)+'</label><button type="button" class="as-trackPlayBtn" data-tid="'+esc(t.id)+'" title="Open in Spotify"><svg viewBox="0 0 24 24" fill="currentColor"><path d="M8 5v14l11-7z"/></svg></button></div>';}).join('')+'</div>':'');
-        (pl.cat==='ceremony'?cer:rec).appendChild(wrap);
+        el.appendChild(wrap);
       });
-      cer.querySelectorAll('.as-playlistHeader').forEach(function(b){b.onclick=function(){togglePl(b.getAttribute('data-id'));};});
-      rec.querySelectorAll('.as-playlistHeader').forEach(function(b){b.onclick=function(){togglePl(b.getAttribute('data-id'));};});
+      el.querySelectorAll('.as-playlistHeader').forEach(function(b){b.onclick=function(){togglePl(b.getAttribute('data-id'));};});
+    }
+    function render(){
+      var cer=document.getElementById('as-ceremony'),cock=document.getElementById('as-cocktail'),feat=document.getElementById('as-featured');
+      var cerP=P.filter(function(p){return p.cat==='ceremony';});
+      var cockP=P.filter(function(p){return p.id==='cocktail-hour';});
+      var featP=P.filter(function(p){return ['first-dance','parent-dance','highlights'].indexOf(p.id)>=0;});
+      renderPlInto(cer,cerP);renderPlInto(cock,cockP);renderPlInto(feat,featP);
       document.querySelectorAll('#aurora-music-embed .as-trackCheckbox').forEach(function(cb){cb.onchange=function(){toggle(cb.getAttribute('data-id'));};});
       document.querySelectorAll('#aurora-music-embed .as-trackPlayBtn:not([disabled])').forEach(function(btn){
         var tid=btn.getAttribute('data-tid'),tr=null;
@@ -253,16 +260,23 @@
         if(tr)btn.onclick=function(){play(tr,btn);};
       });
     }
+    function selHeading(g){
+      if(g.cat==='reception'){
+        if(g.title==='Cocktail Hour')return'COCKTAIL HOUR – '+g.title;
+        if(g.title==='First Dance'||g.title==='Parent Dance'||g.title==='Highlights')return'FEATURED SELECTIONS – '+g.title;
+      }
+      return g.cat.toUpperCase()+' – '+g.title;
+    }
     function renderSel(){
-      var card=document.getElementById('as-selectedCard'),formWrap=document.getElementById('as-selectionFormWrap'),out=[];
+      var card=document.getElementById('as-selectedCard'),form=document.getElementById('as-selectionForm'),out=[];
       P.forEach(function(pl){var ts=pl.t.filter(function(t){return sel[t.id];});if(ts.length)out.push({cat:pl.cat,title:pl.title,ts:ts});});
       if(!out.length){
         card.innerHTML='<p class="as-emptySelected">No songs selected yet. Choose from the playlists above.</p>';
-        if(formWrap)formWrap.style.display='none';
+        if(form)form.style.display='none';
         return;
       }
-      card.innerHTML=out.map(function(g){return'<h3 class="as-selectedCategoryTitle">'+esc(g.cat.toUpperCase()+' – '+g.title)+'</h3>'+g.ts.map(function(t){return'<div class="as-selectedTrackItem">'+esc(t.n)+' — '+esc(t.a)+'</div>';}).join('');}).join('');
-      if(formWrap)formWrap.style.display='block';
+      card.innerHTML=out.map(function(g){return'<h3 class="as-selectedCategoryTitle">'+esc(selHeading(g))+'</h3>'+g.ts.map(function(t){return'<div class="as-selectedTrackItem">'+esc(t.n)+' — '+esc(t.a)+'</div>';}).join('');}).join('');
+      if(form)form.style.display='flex';
     }
     document.getElementById('as-submitBtn').onclick=function(){
       var c=Object.keys(sel).length;

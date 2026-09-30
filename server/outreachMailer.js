@@ -42,11 +42,16 @@ export function mailDomainFromAddress(fromAddress) {
 /**
  * Phase 3 safety: automated sends require OUTREACH_TEST_EMAIL unless explicitly allowed.
  */
-export function resolveAutomatedRecipient(contactEmail) {
+function outreachTestInboxOverride() {
   const override = process.env.OUTREACH_TEST_EMAIL || process.env.OUTREACH_AUTOMATED_TO_OVERRIDE
-  if (override && String(override).trim()) {
+  return override && String(override).trim() ? String(override).trim() : null
+}
+
+export function resolveAutomatedRecipient(contactEmail) {
+  const testInbox = outreachTestInboxOverride()
+  if (testInbox) {
     return {
-      to: String(override).trim(),
+      to: testInbox,
       originalTo: contactEmail,
       isTestOverride: true,
     }
@@ -59,6 +64,28 @@ export function resolveAutomatedRecipient(contactEmail) {
   )
   err.code = 'OUTREACH_SEND_BLOCKED'
   throw err
+}
+
+/** Manual sends (same-day / partnership UI) — redirect to test inbox when configured. */
+export function resolveManualOutreachRecipient(intendedTo) {
+  const to = String(intendedTo || '').trim()
+  if (process.env.OUTREACH_ALLOW_PRODUCTION_SENDS === 'true') {
+    return { to, originalTo: to, isTestOverride: false }
+  }
+  const testInbox = outreachTestInboxOverride()
+  if (!testInbox) return { to, originalTo: to, isTestOverride: false }
+  if (to.toLowerCase() === testInbox.toLowerCase()) {
+    return { to: testInbox, originalTo: to, isTestOverride: false }
+  }
+  return { to: testInbox, originalTo: to, isTestOverride: true }
+}
+
+export function applyOutreachTestRoutingToMail({ subject, body, originalTo, isTestOverride }) {
+  if (!isTestOverride) return { subject, body }
+  return {
+    subject: `[Outreach test → ${originalTo}] ${subject}`,
+    body: `[Phase 3 test routing — intended recipient: ${originalTo}]\n\n${body}`,
+  }
 }
 
 export function buildThreadingHeaders(priorMessages) {
@@ -79,11 +106,7 @@ export function buildAutomatedOutreachMail({
   const { to, originalTo, isTestOverride } = resolveAutomatedRecipient(contact.email)
   let subject = mergePartnershipTemplateText(template.subject, contact)
   let body = mergePartnershipTemplateText(template.body, contact)
-
-  if (isTestOverride) {
-    subject = `[Outreach test → ${originalTo}] ${subject}`
-    body = `[Phase 3 test routing — intended recipient: ${originalTo}]\n\n${body}`
-  }
+  ;({ subject, body } = applyOutreachTestRoutingToMail({ subject, body, originalTo, isTestOverride }))
 
   const messageId = generateOutreachMessageId(fromAddress)
   const threading = buildThreadingHeaders(priorMessages)

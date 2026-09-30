@@ -1,7 +1,6 @@
 import { useMemo, useState, useEffect, useCallback, type CSSProperties } from 'react'
 import { useApp } from '../context/AppContext'
-import { apiCreatePartnerReferral, apiDeletePartnerReferral, apiUpdatePartnerReferral } from '../api/db'
-import type { PartnerReferral, PartnerReferralExpenseLine } from '../api/db'
+import { apiCreatePartnerReferral, apiDeletePartnerReferral, apiUpdatePartnerReferral, apiAcceptPartnerReferralDecision, apiRejectPartnerReferralDecision, apiGeneratePartnerReferralCommissionStatement, apiRecordPartnerReferralCommissionStatementDelivery, partnerReferralCommissionStatementUrl, type PartnerReferral, type PartnerReferralExpenseLine } from '../api/db'
 import { getInquiryApiBaseUrl } from '../utils/inquiryApiUrl'
 import styles from './PartnerReferrals.module.css'
 
@@ -99,8 +98,24 @@ const REFERRAL_STATUS_OPTIONS: { value: string; label: string }[] = [
 const PAYOUT_STATUS_OPTIONS: { value: string; label: string }[] = [
   { value: 'none', label: '—' },
   { value: 'pending', label: 'Pending' },
-  { value: 'paid', label: 'Paid' },
+  { value: 'paid', label: 'Paid (legacy)' },
+  { value: 'completed', label: 'Completed' },
 ]
+
+const DECISION_STATUS_LABELS: Record<string, string> = {
+  pending: 'Pending',
+  accepted: 'Accepted',
+  rejected: 'Rejected',
+  overdue: 'Overdue',
+}
+
+function requiresPartnershipDecision(terms: TermsSnap | null): boolean {
+  return terms?.termsKind === 'referral_partnership_mvp'
+}
+
+function isReferralDecisionAccepted(row: PartnerReferral): boolean {
+  return String(row.referralDecisionStatus || '').toLowerCase() === 'accepted'
+}
 
 function referralStatusLabel(status: string): string {
   const key = normalizeReferralStatusKey(status)
@@ -393,6 +408,12 @@ export default function PartnerReferrals() {
   const [venueId, setVenueId] = useState('')
   const [referringContactId, setReferringContactId] = useState('')
   const [linkedProjectId, setLinkedProjectId] = useState('')
+  const [statementPaymentDate, setStatementPaymentDate] = useState('')
+  const [statementPaymentMethod, setStatementPaymentMethod] = useState('')
+  const [statementPaymentReference, setStatementPaymentReference] = useState('')
+  const [statementDeliveryMethod, setStatementDeliveryMethod] = useState('')
+  const [statementDeliveryReference, setStatementDeliveryReference] = useState('')
+  const [decisionBusy, setDecisionBusy] = useState(false)
   const [saving, setSaving] = useState(false)
   const [formError, setFormError] = useState('')
 
@@ -490,6 +511,12 @@ export default function PartnerReferrals() {
     if (po != null) {
       currentPayout = po
     } else if (!referralStatusEligibleForBookingPayout(referralStatus)) {
+      currentPayout = 0
+    } else if (
+      requiresPartnershipDecision(previewTerms) &&
+      editor?.type === 'edit' &&
+      !isReferralDecisionAccepted(editor.row)
+    ) {
       currentPayout = 0
     } else {
       currentPayout = formulaPayout
@@ -735,6 +762,7 @@ export default function PartnerReferrals() {
               <th className={styles.colPartner}>Partner</th>
               <th className={styles.colClient}>Client</th>
               <th className={styles.colVenue}>Venue</th>
+              <th className={styles.colStatus}>Decision</th>
               <th className={styles.colStatus}>Status</th>
               <th className={styles.colMoney}>Booking</th>
               <th className={styles.colMoney}>Payout</th>
@@ -744,13 +772,13 @@ export default function PartnerReferrals() {
           <tbody>
             {rows.length === 0 ? (
               <tr>
-                <td colSpan={8} className={styles.emptyCell}>
+                <td colSpan={9} className={styles.emptyCell}>
                   No partner referrals yet. Use Add referral or the website form to create one.
                 </td>
               </tr>
             ) : filteredRows.length === 0 ? (
               <tr>
-                <td colSpan={8} className={styles.emptyCell}>
+                <td colSpan={9} className={styles.emptyCell}>
                   No referrals match your search. Clear the search box to see all referrals.
                 </td>
               </tr>
@@ -801,6 +829,18 @@ export default function PartnerReferrals() {
                           ? 'Legacy default terms'
                           : `Agreement v${agreementsById[r.agreementId || '']?.version ?? '?'}`}
                       </div>
+                    ) : null}
+                  </td>
+                  <td className={styles.colStatus}>
+                    {r.referralDecisionStatus ? (
+                      <span className={styles.statusPill} data-referral-status={r.referralDecisionStatus === 'accepted' ? 'won' : r.referralDecisionStatus === 'rejected' ? 'lost' : 'pipeline'}>
+                        {DECISION_STATUS_LABELS[r.referralDecisionStatus] || r.referralDecisionStatus}
+                      </span>
+                    ) : (
+                      '—'
+                    )}
+                    {r.referralDecisionDeadline ? (
+                      <div className={styles.partnerEmail}>Due {r.referralDecisionDeadline}</div>
                     ) : null}
                   </td>
                   <td className={styles.colStatus}>
@@ -1070,6 +1110,138 @@ export default function PartnerReferrals() {
                 </p>
               ) : null}
 
+              {isEdit && editRow && requiresPartnershipDecision(previewTerms) ? (
+                <>
+                  <p className={styles.formSectionLabel}>Referral acceptance decision</p>
+                  <p className={styles.sectionHint}>
+                    Status: {DECISION_STATUS_LABELS[editRow.referralDecisionStatus || 'pending'] || editRow.referralDecisionStatus || 'Pending'}
+                    {editRow.referralDecisionDeadline ? ` · Deadline ${editRow.referralDecisionDeadline}` : ''}
+                    {editRow.referralDecisionStatus !== 'accepted' ? ' · Commission requires explicit acceptance.' : ''}
+                  </p>
+                  {editRow.referralDecisionStatus !== 'accepted' && editRow.referralDecisionStatus !== 'rejected' ? (
+                    <div className={styles.formGrid}>
+                      <button
+                        type="button"
+                        className={styles.addLineBtn}
+                        disabled={decisionBusy || saving}
+                        onClick={async () => {
+                          setDecisionBusy(true)
+                          const res = await apiAcceptPartnerReferralDecision(editRow.id)
+                          setDecisionBusy(false)
+                          if (res.ok) {
+                            setEditor({ type: 'edit', row: res.data })
+                            void actions.refreshPartnerReferralsRemote?.()
+                          } else setFormError(res.error)
+                        }}
+                      >
+                        Accept referral
+                      </button>
+                      <button
+                        type="button"
+                        className={styles.removeLineBtn}
+                        disabled={decisionBusy || saving}
+                        onClick={async () => {
+                          const notes = window.prompt('Rejection notes (required):')
+                          if (!notes?.trim()) return
+                          setDecisionBusy(true)
+                          const res = await apiRejectPartnerReferralDecision(editRow.id, notes.trim())
+                          setDecisionBusy(false)
+                          if (res.ok) {
+                            setEditor({ type: 'edit', row: res.data })
+                            void actions.refreshPartnerReferralsRemote?.()
+                          } else setFormError(res.error)
+                        }}
+                      >
+                        Reject referral
+                      </button>
+                    </div>
+                  ) : null}
+                </>
+              ) : null}
+
+              {isEdit && editRow ? (
+                <>
+                  <p className={styles.formSectionLabel}>Commission statement</p>
+                  <p className={styles.sectionHint}>
+                    {editRow.hasCommissionStatement
+                      ? `Generated ${editRow.commissionStatementGeneratedAt?.slice(0, 10) || ''}${editRow.commissionStatementDeliveredAt ? ` · Delivered ${editRow.commissionStatementDeliveredAt.slice(0, 10)}` : ' · Delivery not recorded'}`
+                      : 'Generate statement before marking payout Completed or Paid.'}
+                  </p>
+                  <div className={styles.formGrid}>
+                    <label className={styles.formField}>
+                      Payment date
+                      <input className={styles.input} type="date" value={statementPaymentDate} onChange={(e) => setStatementPaymentDate(e.target.value)} />
+                    </label>
+                    <label className={styles.formField}>
+                      Payment method
+                      <input className={styles.input} value={statementPaymentMethod} onChange={(e) => setStatementPaymentMethod(e.target.value)} placeholder="ACH, check, …" />
+                    </label>
+                    <label className={styles.formField}>
+                      Payment reference
+                      <input className={styles.input} value={statementPaymentReference} onChange={(e) => setStatementPaymentReference(e.target.value)} />
+                    </label>
+                  </div>
+                  <div className={styles.formGrid}>
+                    <button
+                      type="button"
+                      className={styles.addLineBtn}
+                      disabled={decisionBusy || saving}
+                      onClick={async () => {
+                        setDecisionBusy(true)
+                        const res = await apiGeneratePartnerReferralCommissionStatement(editRow.id, {
+                          paymentDate: statementPaymentDate || undefined,
+                          paymentMethod: statementPaymentMethod || undefined,
+                          paymentReference: statementPaymentReference || undefined,
+                        })
+                        setDecisionBusy(false)
+                        if (res.ok) {
+                          setEditor({ type: 'edit', row: res.data })
+                          void actions.refreshPartnerReferralsRemote?.()
+                        } else setFormError(res.error)
+                      }}
+                    >
+                      Generate statement PDF
+                    </button>
+                    {editRow.hasCommissionStatement ? (
+                      <a className={styles.addLineBtn} href={partnerReferralCommissionStatementUrl(editRow.id)} target="_blank" rel="noreferrer">
+                        Download statement
+                      </a>
+                    ) : null}
+                  </div>
+                  {editRow.hasCommissionStatement && !editRow.commissionStatementDeliveredAt ? (
+                    <div className={styles.formGrid}>
+                      <label className={styles.formField}>
+                        Delivery method
+                        <input className={styles.input} value={statementDeliveryMethod} onChange={(e) => setStatementDeliveryMethod(e.target.value)} placeholder="Email to partner" />
+                      </label>
+                      <label className={styles.formField}>
+                        Delivery reference
+                        <input className={styles.input} value={statementDeliveryReference} onChange={(e) => setStatementDeliveryReference(e.target.value)} />
+                      </label>
+                      <button
+                        type="button"
+                        className={styles.addLineBtn}
+                        disabled={decisionBusy || saving || !statementDeliveryMethod.trim()}
+                        onClick={async () => {
+                          setDecisionBusy(true)
+                          const res = await apiRecordPartnerReferralCommissionStatementDelivery(editRow.id, {
+                            method: statementDeliveryMethod.trim(),
+                            reference: statementDeliveryReference.trim() || undefined,
+                          })
+                          setDecisionBusy(false)
+                          if (res.ok) {
+                            setEditor({ type: 'edit', row: res.data })
+                            void actions.refreshPartnerReferralsRemote?.()
+                          } else setFormError(res.error)
+                        }}
+                      >
+                        Record delivery
+                      </button>
+                    </div>
+                  ) : null}
+                </>
+              ) : null}
+
               <p className={styles.formSectionLabel}>Status and amounts</p>
               <div className={styles.formGrid}>
                 <label className={styles.formField}>
@@ -1102,9 +1274,9 @@ export default function PartnerReferrals() {
                       </option>
                     ))}
                   </select>
-                  {(payoutStatus === 'pending' || payoutStatus === 'paid') && (
+                  {(payoutStatus === 'pending' || payoutStatus === 'paid' || payoutStatus === 'completed') && (
                     <span className={styles.hint}>
-                      Requires event completed and client paid in full (link a project or set flags on save).
+                      Requires explicit referral acceptance (MVP), event completed, client paid, and commission statement generated + delivery recorded for Completed/Paid.
                     </span>
                   )}
                 </label>

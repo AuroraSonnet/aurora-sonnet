@@ -4,6 +4,7 @@
  */
 
 import { parseTermsSnapshot } from './referralPartnershipTerms.js'
+import { isReferralCommissionEligible } from './referralDecision.js'
 
 export const PARTNER_REFERRAL_COMMISSION_RATE = 0.05
 export const PARTNER_REFERRAL_MIN_PAYOUT_AMOUNT = 100
@@ -79,7 +80,7 @@ function termsUseLegacyExpenseDeduction(termsSnapshot) {
 
 function commissionRateFromTerms(termsSnapshot) {
   const t = parseTermsSnapshot(termsSnapshot)
-  if (isPartnershipTermsSnapshot(t)) {
+  if (isTenPercentProgramTerms(t)) {
     const rate = t?.commissionRate
     return Number.isFinite(rate) && rate >= 0 ? rate : 0.1
   }
@@ -87,14 +88,19 @@ function commissionRateFromTerms(termsSnapshot) {
   return Number.isFinite(rate) && rate >= 0 ? rate : PARTNER_REFERRAL_COMMISSION_RATE
 }
 
-function isPartnershipTermsSnapshot(termsSnapshot) {
+function isTenPercentProgramTerms(termsSnapshot) {
   const t = parseTermsSnapshot(termsSnapshot)
-  return t?.termsKind === 'referral_partnership_mvp'
+  const kind = t?.termsKind
+  return (
+    kind === 'referral_partnership_mvp' ||
+    kind === 'public_partner_agreement' ||
+    kind === 'public_referral_10'
+  )
 }
 
 function minPayoutFromTerms(termsSnapshot) {
   const t = parseTermsSnapshot(termsSnapshot)
-  if (isPartnershipTermsSnapshot(t)) return 0
+  if (isTenPercentProgramTerms(t)) return 0
   if (!t || t.termsKind === 'legacy_default' || t.useLegacyExpenseDeduction) {
     const min = t?.minPayoutAmount
     return Number.isFinite(min) && min >= 0 ? min : PARTNER_REFERRAL_MIN_PAYOUT_AMOUNT
@@ -136,7 +142,9 @@ export function computePartnerReferralAmounts(values, options = {}) {
   const commissionableAmount =
     commissionableOverrideAmount != null ? commissionableOverrideAmount : autoCommissionable
 
-  const eligible = referralStatusEligibleForBookingPayout(values.referralStatus)
+  const eligible =
+    referralStatusEligibleForBookingPayout(values.referralStatus) &&
+    isReferralCommissionEligible(values)
   const rate = commissionRateFromTerms(options.termsSnapshot)
   const minPayout = minPayoutFromTerms(options.termsSnapshot)
 
@@ -188,10 +196,29 @@ export function isReferralClientPaidInFull(referral, projectInvoices) {
  * Payout may become pending/paid only when booked-eligible, event completed, and client paid in full.
  */
 export function isReferralPayoutPayable(referral, context = {}) {
+  if (!isReferralCommissionEligible(referral)) return false
   if (!referralStatusEligibleForBookingPayout(referral?.referralStatus)) return false
   if (!isReferralEventCompleted(referral, context.project)) return false
   if (!isReferralClientPaidInFull(referral, context.projectInvoices)) return false
   return true
+}
+
+function payoutRequiresCommissionStatement(referral, nextStatus) {
+  const next = String(nextStatus || '').toLowerCase()
+  if (next !== 'paid' && next !== 'completed') return false
+  const cur = String(referral?.payoutStatus || 'none').toLowerCase()
+  if (cur === 'paid' || cur === 'completed') return false
+  return true
+}
+
+export function validateCommissionStatementForPayout(referral) {
+  if (!referral?.commissionStatementGeneratedAt) {
+    return 'Generate a commission statement before marking this payout Completed.'
+  }
+  if (!referral?.commissionStatementDeliveredAt) {
+    return 'Record commission statement delivery before marking this payout Completed.'
+  }
+  return null
 }
 
 /**
@@ -202,10 +229,17 @@ export function validatePayoutStatusChange(referral, nextPayoutStatus, context =
   const cur = String(referral?.payoutStatus || 'none').toLowerCase()
   if (next === cur) return null
   if (next === 'none') return null
-  if (next === 'pending' || next === 'paid') {
+  if (next === 'pending' || next === 'paid' || next === 'completed') {
     if (!isReferralPayoutPayable(referral, context)) {
-      return 'Payout cannot be Pending or Paid until the event is completed and the client has paid Aurora Sonnet in full.'
+      if (!isReferralCommissionEligible(referral)) {
+        return 'Referral must be explicitly accepted before commission payout.'
+      }
+      return 'Payout cannot be Pending or Completed until the event is completed and the client has paid Aurora Sonnet in full.'
     }
+  }
+  if (payoutRequiresCommissionStatement(referral, next)) {
+    const stmtErr = validateCommissionStatementForPayout(referral)
+    if (stmtErr) return stmtErr
   }
   return null
 }

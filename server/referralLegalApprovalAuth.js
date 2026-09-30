@@ -1,9 +1,9 @@
 /**
- * CRM users authorized to record external legal approval/rejection for referral agreements.
+ * CRM users authorized to record Owner Approval / rejection for referral agreements.
  */
 import { getAppSetting, setAppSetting } from './db.js'
 
-const SETTINGS_KEY = 'referralLegalApprovalUsernames'
+const SETTINGS_KEY = 'referralOwnerApprovalUsernames'
 
 function parseUsernameList(raw) {
   if (!raw) return []
@@ -20,24 +20,40 @@ function parseUsernameList(raw) {
     .filter(Boolean)
 }
 
-export function getLegalApprovalAuthorizedUsernames(adminUsername = '') {
+export function getOwnerApprovalAuthorizedUsernames(adminUsername = '') {
   const fromSettings = parseUsernameList(getAppSetting(SETTINGS_KEY, ''))
   if (fromSettings.length) return fromSettings
-  const fromEnv = parseUsernameList(process.env.LEGAL_APPROVAL_USERNAMES || '')
+  const legacy = parseUsernameList(getAppSetting('referralLegalApprovalUsernames', ''))
+  if (legacy.length) return legacy
+  const fromEnv = parseUsernameList(process.env.OWNER_APPROVAL_USERNAMES || process.env.LEGAL_APPROVAL_USERNAMES || '')
   if (fromEnv.length) return fromEnv
   const admin = String(adminUsername || process.env.ADMIN_USERNAME || '').trim()
   return admin ? [admin] : []
 }
 
-export function canUserRecordLegalApproval(username) {
+export function canUserRecordOwnerApproval(username) {
   const u = String(username || '').trim()
   if (!u) return false
-  const allowed = getLegalApprovalAuthorizedUsernames()
-  return allowed.includes(u)
+  return getOwnerApprovalAuthorizedUsernames().includes(u)
 }
 
-export function setLegalApprovalAuthorizedUsernames(usernames) {
+/** @deprecated */
+export function getLegalApprovalAuthorizedUsernames(adminUsername) {
+  return getOwnerApprovalAuthorizedUsernames(adminUsername)
+}
+
+/** @deprecated */
+export function canUserRecordLegalApproval(username) {
+  return canUserRecordOwnerApproval(username)
+}
+
+export function setOwnerApprovalAuthorizedUsernames(usernames) {
   const list = parseUsernameList(usernames)
   setAppSetting(SETTINGS_KEY, JSON.stringify(list))
   return list
+}
+
+/** @deprecated */
+export function setLegalApprovalAuthorizedUsernames(usernames) {
+  return setOwnerApprovalAuthorizedUsernames(usernames)
 }
