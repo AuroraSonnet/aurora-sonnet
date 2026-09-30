@@ -24,7 +24,7 @@ const AGREEMENT_PARAGRAPHS = [
   '7. NO GUARANTEE',
   'Aurora Sonnet does not guarantee that a referred client will book, that a particular artist will be available, or that Partner will earn any minimum amount of referral fees.',
   '8. TERM & TERMINATION',
-  'Either party may terminate this Agreement by written notice. Eligible referrals submitted before termination remain attributed to Partner for their original 12-month attribution period.',
+  'This Agreement remains in effect until terminated by either party by written notice. Termination does not affect eligible referrals submitted before termination, which remain attributed to Partner for the applicable 12-month attribution period.',
   '9. GENERAL',
   'This Agreement is governed by New York law and constitutes the entire agreement between Aurora Sonnet and Partner regarding the referral relationship. Changes must be agreed to in writing.',
   '10. ELECTRONIC SIGNATURE',

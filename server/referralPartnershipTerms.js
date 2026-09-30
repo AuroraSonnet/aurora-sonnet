@@ -42,7 +42,7 @@ export const DEFAULT_REFERRAL_PARTNERSHIP_TERMS = {
 }
 
 /** Standard public agreement the partner e-signs. Distinct from the venue CRM template. */
-export const PUBLIC_PARTNER_AGREEMENT_VERSION = 'partner-referral-agreement-2026-09'
+export const PUBLIC_PARTNER_AGREEMENT_VERSION = 'partner-referral-agreement-2026-09-r2'
 
 const PUBLIC_AGREEMENT_EXCLUSIONS = [
   'taxes',
