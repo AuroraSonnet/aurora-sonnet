@@ -3,9 +3,10 @@
 
   Paste this ENTIRE block into one Hostinger Custom HTML / Embed Code element.
 
-  • Refer a Couple   → POST APP_URL/api/partner-referrals  (referralProgram "public_10", 10% public terms)
+  • Refer a Couple   → POST APP_URL/api/referral-partners/refer-couple
+                       (same e-signed agreement and partner account, plus the couple on that account)
   • Become a Partner → POST APP_URL/api/referral-partners/apply  (e-signed agreement, active immediately,
-                       returns the partner's unique referral link)
+                       returns the partner's unique referral link, no couple)
 
   Everything is namespaced under #as-partner / .asp-* (and .asp-m-* for the agreement modal, which is
   placed on the page itself so it can cover the whole screen). Fonts are loaded here because Hostinger
@@ -13,8 +14,6 @@
 
   WHAT TO EDIT (CONFIG block at the top of the <script>):
     • APP_URL             Aurora Sonnet app / API address
-    • REFERRAL_TERMS_URL  page opened by the "Referral Terms" link
-    • REFER_THANK_YOU_URL page shown after a successful "Refer a Couple" ('' = show the in-embed thank-you)
     • CONTACT_EMAIL       shown in error messages
 
   The agreement text below must stay identical to server/publicPartnerAgreementPdf.js (the signed PDF).
@@ -291,12 +290,21 @@
               <input class="asp-input" name="clientPhone" type="tel" autocomplete="off" inputmode="tel" placeholder="(123) 456-7890" maxlength="40">
               <span class="asp-err" aria-live="polite"></span></label>
 
-            <label class="asp-check">
-              <input type="checkbox" name="termsAccepted" value="1">
-              <span class="asp-box" aria-hidden="true"><svg viewBox="0 0 12 12"><path d="M2 6.2l2.6 2.6L10 3.4" fill="none" stroke="#FCFAF7" stroke-width="1.6"/></svg></span>
-              <span>I agree to the <a href="#" data-asp-terms target="_blank" rel="noopener noreferrer">Referral Terms</a> *</span>
-            </label>
-            <p class="asp-err" data-asp-err="termsAccepted" aria-live="polite"></p>
+            <div class="asp-agree" data-asp-agree>
+              <div class="asp-agree-row">
+                <svg class="asp-agree-icon" viewBox="0 0 26 32" aria-hidden="true"><path d="M1.5 1.5h15l8 8v21h-23z M16.5 1.5v8h8 M6 15h14 M6 19.5h14 M6 24h9" fill="none" stroke="currentColor" stroke-width="1"/></svg>
+                <div>
+                  <h3 class="asp-agree-title asp-serif">Partner Referral Agreement</h3>
+                  <p class="asp-agree-text">Review and e-sign our Partner Referral Agreement to join the program.</p>
+                </div>
+              </div>
+              <div class="asp-agree-status" aria-live="polite">
+                <span class="asp-agree-tick" aria-hidden="true"><svg viewBox="0 0 12 12"><path d="M2 6.2l2.6 2.6L10 3.4" fill="none" stroke="currentColor" stroke-width="1.6"/></svg></span>
+                <span data-asp-signed-text></span>
+              </div>
+              <p class="asp-agree-note" data-asp-agree-note hidden></p>
+              <button type="button" class="asp-btn asp-btn-ghost asp-btn-wide" data-asp-sign>Review &amp; E-Sign Partner Agreement</button>
+            </div>
           </div>
 
           <button type="submit" class="asp-btn asp-btn-wide asp-submit" data-asp-submit>Submit Referral <span class="asp-arrow" aria-hidden="true">&rarr;</span></button>
@@ -306,8 +314,23 @@
 
       <div class="asp-done" data-asp-part="done" hidden tabindex="-1">
         <div class="asp-done-mark" aria-hidden="true"><svg viewBox="0 0 20 20"><path d="M4 10.5l4 4L16.5 6" fill="none" stroke="currentColor" stroke-width="1.3"/></svg></div>
-        <h2 class="asp-done-title asp-serif">Thank you</h2>
-        <p class="asp-done-text">Your referral has been received. We’ll reach out to <strong data-asp-fill="clientName"></strong> personally, and a confirmation is on its way to <strong data-asp-fill="partnerEmail"></strong>.</p>
+        <div data-asp-done="new">
+          <h2 class="asp-done-title asp-serif">Welcome to Aurora Sonnet</h2>
+          <p class="asp-done-text">Your Partner Referral Agreement is signed and your partnership is now active.</p>
+          <p class="asp-linkcap">Your Partner Link</p>
+          <div class="asp-link">
+            <input type="text" readonly data-asp-link aria-label="Your partner link">
+            <button type="button" data-asp-copy>Copy</button>
+          </div>
+          <p class="asp-done-small" data-asp-credit></p>
+          <p class="asp-done-small">We’ve also emailed it to <span data-asp-fill="partnerEmail"></span>.</p>
+        </div>
+        <div data-asp-done="existing" hidden>
+          <h2 class="asp-done-title asp-serif">You’re already a partner</h2>
+          <p class="asp-done-text">An active partnership already exists for <strong data-asp-fill="partnerEmail"></strong>. We’ve emailed your partner link and this referral confirmation there.</p>
+          <p class="asp-done-small" data-asp-credit></p>
+        </div>
+        <p class="asp-done-text" data-asp-notice hidden></p>
         <div class="asp-done-actions"><button type="button" class="asp-textbtn" data-asp-again="refer">Refer another couple</button></div>
       </div>
     </div>
@@ -397,8 +420,6 @@
 
     /* ============================== CONFIG ============================== */
     var APP_URL = 'https://aurora-sonnet-1.onrender.com';
-    var REFERRAL_TERMS_URL = 'https://aurorasonnet.com/partner-referral-terms';
-    var REFER_THANK_YOU_URL = 'https://aurorasonnet.com/thank-you-partner-referral';
     var CONTACT_EMAIL = 'contact@aurorasonnet.com';
     /* ==================================================================== */
 
@@ -663,102 +684,130 @@
       input.addEventListener(evt, function () { if (input.getAttribute('aria-invalid') === 'true') { setError(input, ''); } });
     });
 
-    /* ============================ PATH 1 — REFER A COUPLE ============================ */
+    /* ============================ SHARED AGREEMENT ============================ */
     var referForm = $('[data-asp-form="refer"]');
+    var partnerForm = $('[data-asp-form="partner"]');
+    var referSigned = null;
+    var signed = null;
+    var signForm = null;
+
+    function nameField(form) { return form === referForm ? 'partnerName' : 'fullName'; }
+
+    function renderAgreement(form, record, message) {
+      var box = $('[data-asp-agree]', form);
+      var btn = $('[data-asp-sign]', form);
+      var note = $('[data-asp-agree-note]', form);
+      box.classList.toggle('asp-is-signed', !!record);
+      $('[data-asp-signed-text]', box).textContent = record ? 'Signed by ' + record.name + ' on ' + record.date : '';
+      btn.textContent = record ? 'Review Signed Agreement' : 'Review & E-Sign Partner Agreement';
+      note.textContent = message || '';
+      note.hidden = !message;
+      if (record || !message) { box.removeAttribute('data-invalid'); }
+      fitFrame();
+    }
+
+    function watchSignedFields(form, read) {
+      [nameField(form), 'companyName'].forEach(function (name) {
+        form.elements[name].addEventListener('input', function () {
+          var record = read();
+          if (!record) { return; }
+          if (val(form, nameField(form)) !== record.name || val(form, 'companyName') !== record.company) {
+            if (form === referForm) { referSigned = null; } else { signed = null; }
+            renderAgreement(form, null, 'Your name or company changed after signing. Please review and sign the agreement again.');
+          }
+        });
+      });
+    }
+
+    /* ============================ PATH 1 — REFER A COUPLE ============================ */
     var referBusy = false;
-    $('[data-asp-terms]', referForm).setAttribute('href', REFERRAL_TERMS_URL);
+    var REFER_RULES = [
+      ['partnerName', 'text', 'Please enter your name.'],
+      ['companyName', 'text', 'Please enter your business or company.'],
+      ['partnerEmail', 'email', 'Please enter your email.'],
+      ['clientName', 'text', 'Please enter the couple’s name(s).'],
+      ['clientEmail', 'email', 'Please enter the couple’s email.']
+    ];
+    watchSignedFields(referForm, function () { return referSigned; });
+    $('[data-asp-sign]', referForm).addEventListener('click', function () {
+      showNote(referForm, '');
+      if (!validate(referForm, REFER_RULES)) {
+        renderAgreement(referForm, referSigned, 'Please complete the fields above before signing.');
+        return;
+      }
+      renderAgreement(referForm, referSigned, '');
+      signForm = referForm;
+      openModal();
+    });
 
     referForm.addEventListener('submit', function (event) {
       event.preventDefault();
       if (referBusy) { return; }
       showNote(referForm, '');
-      var ok = validate(referForm, [
-        ['partnerName', 'text', 'Please enter your name.'],
-        ['companyName', 'text', 'Please enter your business or company.'],
-        ['partnerEmail', 'email', 'Please enter your email.'],
-        ['clientName', 'text', 'Please enter the couple’s name(s).'],
-        ['clientEmail', 'email', 'Please enter the couple’s email.'],
-        ['termsAccepted', 'check', 'Please agree to the Referral Terms.']
-      ]);
-      if (!ok) { return; }
+      if (!validate(referForm, REFER_RULES)) { return; }
+      if (!referSigned) {
+        $('[data-asp-agree]', referForm).setAttribute('data-invalid', 'true');
+        renderAgreement(referForm, null, 'Please review and sign the Partner Referral Agreement.');
+        try { $('[data-asp-sign]', referForm).focus(); } catch (err) { /* ignore */ }
+        return;
+      }
       var body = {
         partnerName: val(referForm, 'partnerName'),
         companyName: val(referForm, 'companyName'),
         partnerEmail: val(referForm, 'partnerEmail'),
         clientName: val(referForm, 'clientName'),
         clientEmail: val(referForm, 'clientEmail'),
-        referralProgram: 'public_10',
-        termsAccepted: true,
-        referralSource: 'website'
+        signaturePngBase64: referSigned.dataUrl
       };
       var phone = val(referForm, 'clientPhone');
       if (phone) { body.clientPhone = phone; }
 
       referBusy = true;
       setBusy(referForm, true, 'Sending…');
-      postJson('/api/partner-referrals', body).then(function (result) {
+      postJson('/api/referral-partners/refer-couple', body).then(function (result) {
         referBusy = false;
         setBusy(referForm, false);
-        if (!result.ok) { showNote(referForm, friendlyError(result)); fitFrame(); return; }
-        var referView = $('[data-asp-view="refer"]');
-        var referDoneText = $('.asp-done-text', referView);
-        if (referDoneText && !referDoneText.getAttribute('data-asp-default')) {
-          referDoneText.setAttribute('data-asp-default', referDoneText.innerHTML);
-        }
-        if (referDoneText) referDoneText.innerHTML = referDoneText.getAttribute('data-asp-default') || referDoneText.innerHTML;
-        if (result.data && result.data.partnerNotice && referDoneText) {
-          referDoneText.textContent = result.data.partnerNotice;
-          showDone('refer');
+        if (!result.ok || (!result.data.reused && !result.data.referralLink)) {
+          showNote(referForm, friendlyError(result,
+            'This email is already connected to an Aurora Sonnet partnership. Please email ' + CONTACT_EMAIL + ' and we’ll help you.'));
+          fitFrame();
           return;
         }
-        if (REFER_THANK_YOU_URL) {
-          var ref = String(result.data.referralReference || '').trim();
-          var dest = REFER_THANK_YOU_URL + (ref ? '?ref=' + encodeURIComponent(ref) : '');
-          try { pageWindow.location.assign(dest); return; } catch (err) { /* fall back to inline confirmation */ }
-        }
         var view = $('[data-asp-view="refer"]');
-        $('[data-asp-fill="clientName"]', view).textContent = body.clientName;
-        $('[data-asp-fill="partnerEmail"]', view).textContent = body.partnerEmail;
+        $all('[data-asp-fill="partnerEmail"]', view).forEach(function (el) { el.textContent = body.partnerEmail; });
+        var reused = !!result.data.reused;
+        $('[data-asp-done="new"]', view).hidden = reused;
+        $('[data-asp-done="existing"]', view).hidden = !reused;
+        if (!reused) { $('[data-asp-link]', view).value = result.data.referralLink; }
+        var credit = result.data.referralReference
+          ? 'We received your referral for ' + body.clientName + '. Your referral reference number is ' + result.data.referralReference + '.'
+          : '';
+        $all('[data-asp-credit]', view).forEach(function (el) {
+          el.textContent = credit;
+          el.hidden = !credit;
+        });
+        var notice = $('[data-asp-notice]', view);
+        notice.textContent = result.data.partnerNotice || '';
+        notice.hidden = !result.data.partnerNotice;
         showDone('refer');
       });
     });
     $('[data-asp-again="refer"]').addEventListener('click', function () {
       var keep = { partnerName: val(referForm, 'partnerName'), companyName: val(referForm, 'companyName'), partnerEmail: val(referForm, 'partnerEmail') };
+      var keptSignature = referSigned;
       resetView('refer');
       Object.keys(keep).forEach(function (k) { referForm.elements[k].value = keep[k]; });
+      referSigned = keptSignature;
+      renderAgreement(referForm, referSigned, '');
       try { referForm.elements.clientName.focus(); } catch (err) { /* ignore */ }
     });
 
     /* ============================ PATH 2 — BECOME A PARTNER ============================ */
-    var partnerForm = $('[data-asp-form="partner"]');
-    var agreeBox = $('[data-asp-agree]', partnerForm);
-    var signBtn = $('[data-asp-sign]', partnerForm);
-    var agreeNote = $('[data-asp-agree-note]', partnerForm);
     var businessSelect = partnerForm.elements.businessType;
-    var signed = null; // { name, company, date, dataUrl }
     var partnerBusy = false;
 
     businessSelect.addEventListener('change', function () { businessSelect.classList.toggle('asp-is-empty', !businessSelect.value); });
-
-    function renderAgreement(message) {
-      agreeBox.classList.toggle('asp-is-signed', !!signed);
-      $('[data-asp-signed-text]', agreeBox).textContent = signed ? 'Signed by ' + signed.name + ' on ' + signed.date : '';
-      signBtn.textContent = signed ? 'Review Signed Agreement' : 'Review & E-Sign Partner Agreement';
-      agreeNote.textContent = message || '';
-      agreeNote.hidden = !message;
-      if (signed || !message) { agreeBox.removeAttribute('data-invalid'); }
-      fitFrame();
-    }
-
-    ['fullName', 'companyName'].forEach(function (name) {
-      partnerForm.elements[name].addEventListener('input', function () {
-        if (!signed) { return; }
-        if (val(partnerForm, 'fullName') !== signed.name || val(partnerForm, 'companyName') !== signed.company) {
-          signed = null;
-          renderAgreement('Your name or company changed after signing. Please review and sign the agreement again.');
-        }
-      });
-    });
+    watchSignedFields(partnerForm, function () { return signed; });
 
     var PARTNER_RULES = [
       ['fullName', 'text', 'Please enter your full name.'],
@@ -767,13 +816,14 @@
       ['businessType', 'text', 'Please select your type of business.']
     ];
 
-    signBtn.addEventListener('click', function () {
+    $('[data-asp-sign]', partnerForm).addEventListener('click', function () {
       showNote(partnerForm, '');
       if (!validate(partnerForm, PARTNER_RULES)) {
-        renderAgreement('Please complete the fields above before signing.');
+        renderAgreement(partnerForm, signed, 'Please complete the fields above before signing.');
         return;
       }
-      renderAgreement('');
+      renderAgreement(partnerForm, signed, '');
+      signForm = partnerForm;
       openModal();
     });
 
@@ -783,9 +833,9 @@
       showNote(partnerForm, '');
       if (!validate(partnerForm, PARTNER_RULES)) { return; }
       if (!signed) {
-        agreeBox.setAttribute('data-invalid', 'true');
-        renderAgreement('Please review and sign the Partner Referral Agreement.');
-        try { signBtn.focus(); } catch (err) { /* ignore */ }
+        $('[data-asp-agree]', partnerForm).setAttribute('data-invalid', 'true');
+        renderAgreement(partnerForm, null, 'Please review and sign the Partner Referral Agreement.');
+        try { $('[data-asp-sign]', partnerForm).focus(); } catch (err) { /* ignore */ }
         return;
       }
       var body = {
@@ -819,20 +869,21 @@
       });
     });
 
-    var copyBtn = $('[data-asp-copy]');
-    copyBtn.addEventListener('click', function () {
-      var input = $('[data-asp-link]');
-      var text = input.value;
-      function done() {
-        copyBtn.textContent = 'Copied';
-        setTimeout(function () { copyBtn.textContent = 'Copy'; }, 1800);
-      }
-      function fallback() {
-        try { input.focus(); input.select(); input.setSelectionRange(0, text.length); if (document.execCommand('copy')) { done(); } } catch (err) { /* ignore */ }
-      }
-      if (navigator.clipboard && navigator.clipboard.writeText) {
-        navigator.clipboard.writeText(text).then(done, fallback);
-      } else { fallback(); }
+    $all('[data-asp-copy]').forEach(function (copyBtn) {
+      copyBtn.addEventListener('click', function () {
+        var input = copyBtn.parentNode.querySelector('[data-asp-link]');
+        var text = input.value;
+        function done() {
+          copyBtn.textContent = 'Copied';
+          setTimeout(function () { copyBtn.textContent = 'Copy'; }, 1800);
+        }
+        function fallback() {
+          try { input.focus(); input.select(); input.setSelectionRange(0, text.length); if (document.execCommand('copy')) { done(); } } catch (err) { /* ignore */ }
+        }
+        if (navigator.clipboard && navigator.clipboard.writeText) {
+          navigator.clipboard.writeText(text).then(done, fallback);
+        } else { fallback(); }
+      });
     });
 
     /* ============================ AGREEMENT / E-SIGN MODAL ============================ */
@@ -1000,8 +1051,8 @@
     function openModal() {
       if (!modal) { modal = buildModal(); }
       lastFocus = document.activeElement;
-      modal.querySelector('#asp-m-name').value = val(partnerForm, 'fullName');
-      modal.querySelector('[data-m="company"]').textContent = val(partnerForm, 'companyName');
+      modal.querySelector('#asp-m-name').value = val(signForm, nameField(signForm));
+      modal.querySelector('[data-m="company"]').textContent = val(signForm, 'companyName');
       modal.querySelector('[data-m="date"]').textContent = todayLong();
       mError('name', '');
       mError('sig', '');
@@ -1037,12 +1088,14 @@
       }
       var dataUrl = pad.toDataUrl();
       if (!dataUrl) { mError('sig', 'We couldn’t capture your signature. Please try signing again.'); return; }
-      partnerForm.elements.fullName.value = name;
-      setError(partnerForm.elements.fullName, '');
-      signed = { name: name, company: val(partnerForm, 'companyName'), date: todayLong(), dataUrl: dataUrl };
+      var field = signForm.elements[nameField(signForm)];
+      field.value = name;
+      setError(field, '');
+      var record = { name: name, company: val(signForm, 'companyName'), date: todayLong(), dataUrl: dataUrl };
+      if (signForm === referForm) { referSigned = record; } else { signed = record; }
       closeModal();
-      renderAgreement('');
-      showNote(partnerForm, '');
+      renderAgreement(signForm, record, '');
+      showNote(signForm, '');
     }
 
     pageWindow.addEventListener('resize', function () { if (modalOpen && pad) { pad.resize(); } });

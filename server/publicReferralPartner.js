@@ -5,6 +5,8 @@
 import { randomBytes } from 'node:crypto'
 import { nyBusinessDateString } from './businessDays.js'
 import db, {
+  appendPartnerReferralNote,
+  createInquiryInTransaction,
   createPartnerReferral,
   findFirstPartnerReferralByClientEmail,
   getPartnerReferral,
@@ -16,7 +18,7 @@ import db, {
   listClientContactIndex,
   listPartnerReferralContactIndex,
 } from './db.js'
-import { classifyCoupleContacts } from './referralDuplicate.js'
+import { classifyCoupleContacts, referralCreditDecision } from './referralDuplicate.js'
 import { decodeSignatureImage, publicPartnerAgreementHtml, renderPublicPartnerAgreementPdf } from './publicPartnerAgreementPdf.js'
 import { PUBLIC_PARTNER_AGREEMENT_TERMS, PUBLIC_PARTNER_AGREEMENT_VERSION } from './referralPartnershipTerms.js'
 
@@ -87,7 +89,7 @@ export async function submitPublicPartnerApplication(input, meta = {}) {
   if (!partnerName) return { error: 'Full name is required.', status: 400 }
   if (!EMAIL_RE.test(partnerEmail)) return { error: 'A valid email is required.', status: 400 }
   if (!companyName) return { error: 'Business / company name is required.', status: 400 }
-  if (!businessType) return { error: 'Type of business is required.', status: 400 }
+  if (!businessType && !meta.allowBlankBusinessType) return { error: 'Type of business is required.', status: 400 }
   if (!signature) return { error: 'A signature image is required to sign the agreement.', status: 400 }
 
   const existing = getReferralPartnershipByPartnerEmail(partnerEmail)
@@ -137,7 +139,7 @@ export async function submitPublicPartnerApplication(input, meta = {}) {
       partnerEmail,
       partnerPhone: partnerPhone || null,
       companyName,
-      businessType,
+      businessType: businessType || null,
       referralToken,
       createdAt: signedAt,
       updatedAt: signedAt,
@@ -174,6 +176,16 @@ export async function submitPublicPartnerApplication(input, meta = {}) {
     createdAt: signedAt,
     updatedAt: signedAt,
   })
+    if (typeof meta.beforeCommit === 'function') {
+      meta.beforeCommit({
+        partnershipId,
+        agreementId,
+        referralToken,
+        partnerName,
+        partnerEmail,
+        companyName,
+      })
+    }
   })
 
   try {
@@ -181,8 +193,14 @@ export async function submitPublicPartnerApplication(input, meta = {}) {
   } catch (err) {
     if (!/unique|constraint/i.test(String(err?.message || ''))) throw err
     const raced = getReferralPartnershipByPartnerEmail(partnerEmail)
-    if (raced?.status === 'active' && raced.referralToken) return partnershipResult(raced, { reused: true })
-    return { error: 'A partnership already exists for this email.', status: 409 }
+    if (raced?.status === 'active' && raced.referralToken && raced.activeAgreementId) {
+      const agreement = getReferralPartnershipAgreementById(raced.activeAgreementId)
+      if (agreement?.termsJson?.termsKind === 'public_partner_agreement') {
+        return partnershipResult(raced, { reused: true })
+      }
+    }
+    if (raced) return { error: 'A partnership already exists for this email.', status: 409 }
+    throw err
   }
 
   return partnershipResult(
@@ -194,6 +212,71 @@ export async function submitPublicPartnerApplication(input, meta = {}) {
     },
     { reused: false }
   )
+}
+
+/**
+ * Saves the couple on an existing public partner account.
+ * Runs in one transaction. A duplicate does not create a second referral.
+ */
+export function savePublicCoupleReferral({
+  partnerName,
+  partnerEmail,
+  companyName,
+  referralToken,
+  clientName,
+  clientEmail,
+  clientPhone,
+}) {
+  return db.transaction(() => {
+    const match = classifyIncomingCouple({ email: clientEmail, phone: clientPhone, name: clientName })
+    const decision = referralCreditDecision(match)
+    if (decision.action !== 'credit') {
+      const today = new Date().toISOString().slice(0, 10)
+      const adminNote =
+        decision.action === 'already_registered'
+          ? 'Refer a Couple submission received. Not credited: couple already registered with Aurora Sonnet.'
+          : 'Refer a Couple submission received. Needs admin review before referral credit.'
+      const recorded = createInquiryInTransaction({
+        name: clientName,
+        email: clientEmail,
+        phone: clientPhone || undefined,
+        today,
+        weddingDate: today,
+        value: 0,
+        title: 'Referral submission',
+        clientName,
+        dueDate: today,
+        notes: [
+          `Submitted by ${partnerName} <${partnerEmail}>.`,
+          `Couple email ${clientEmail}.`,
+          clientPhone ? `Couple phone ${clientPhone}.` : '',
+          adminNote,
+        ].filter(Boolean).join('\n'),
+        existingClientId: decision.action === 'already_registered' ? match.clientId : undefined,
+      })
+      if (match.kind === 'existing_referral' && match.referralId) {
+        appendPartnerReferralNote(
+          match.referralId,
+          `Inquiry ${recorded.projectId} recorded from a Refer a Couple submission. Existing attribution kept. No additional referral credit.`
+        )
+      }
+      return { partnerNotice: decision.partnerNotice, referralReference: null, referralId: null }
+    }
+    const created = createPartnerReferral({
+      partnerName,
+      partnerEmail,
+      companyName: companyName || null,
+      clientName,
+      clientEmail,
+      clientPhone: clientPhone || null,
+      partnerToken: referralToken,
+    })
+    return {
+      partnerNotice: null,
+      referralReference: created.referralReference,
+      referralId: created.id,
+    }
+  })()
 }
 
 /**

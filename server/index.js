@@ -171,6 +171,7 @@ import {
 import {
   attributeInquiryToReferralPartner,
   classifyIncomingCouple,
+  savePublicCoupleReferral,
   submitPublicPartnerApplication,
 } from './publicReferralPartner.js'
 import { partnerLinkAdminNote, referralCreditDecision } from './referralDuplicate.js'
@@ -438,7 +439,7 @@ app.use((req, res, next) => {
   const origin = req.headers.origin
   const isStateGet = req.method === 'GET' && req.path === '/api/state'
   const isReferralPartnerPublic =
-    (req.method === 'POST' && req.path === '/api/referral-partners/apply') ||
+    (req.method === 'POST' && (req.path === '/api/referral-partners/apply' || req.path === '/api/referral-partners/refer-couple')) ||
     (req.method === 'GET' && req.path.startsWith('/api/referral-partners/by-token/'))
   const isPublicEndpoint =
     isReferralPartnerPublic || publicEndpoints.some((p) => req.path === p || req.path.startsWith(p + '?'))
@@ -1517,6 +1518,58 @@ async function sendPublicPartnerLinkEmail(to, data) {
   })
 }
 
+/** One partner email for Refer a Couple: account link, plus the couple result. Not sent in addition to the welcome email. */
+async function sendReferCouplePartnerEmail(to, data) {
+  const mailFrom = smtpFromAddress()
+  if (!reminderTransporter || !mailFrom) return
+  const recipient = String(to || '').trim()
+  if (!recipient || !data?.referralLink) return
+  const first = inquiryFirstNameFromFullName(data.partnerName)
+  const greeting = first ? `Dear ${first},` : 'Hello,'
+  const clientName = String(data.clientName || '').trim() || 'the couple'
+  const ref = String(data.referralReference || '').trim()
+  const lines = [greeting, '']
+  if (!data.reused) {
+    lines.push(
+      'Welcome to the Aurora Sonnet referral partner program. Your Partner Referral Agreement is signed and your partnership is active. A copy of your signed agreement is attached for your records.',
+      ''
+    )
+  }
+  lines.push(
+    'Your partner link:',
+    data.referralLink,
+    '',
+    'Share this link with couples. When they contact Aurora Sonnet through it, the referral is credited to you automatically.'
+  )
+  if (data.portalLink) {
+    lines.push(
+      '',
+      'Access Your Partner Portal (track your referrals and earnings):',
+      data.portalLink,
+      '',
+      'This sign-in link works once and expires in 72 hours. Afterwards, use Partner Login on aurorasonnet.com.'
+    )
+  } else if (data.reused) {
+    lines.push('', 'To review your referrals, use Partner Login on aurorasonnet.com.')
+  }
+  lines.push('')
+  if (data.partnerNotice) {
+    lines.push(String(data.partnerNotice))
+  } else if (ref) {
+    lines.push(`We received your referral for ${clientName}. Your referral reference number is ${ref}.`)
+  }
+  lines.push('', 'Warmly,', 'Lisa Dubocquet', 'Aurora Sonnet LLC', 'aurorasonnet.com')
+  await reminderTransporter.sendMail({
+    from: mailFrom,
+    to: recipient,
+    subject: data.reused ? (ref ? `We received your referral — ${ref}` : 'We received your referral') : 'Welcome to the Aurora Sonnet partner program',
+    text: lines.join('\n'),
+    ...(!data.reused && data.signedPdf
+      ? { attachments: [{ filename: 'Aurora-Sonnet-Partner-Referral-Agreement-signed.pdf', content: data.signedPdf, contentType: 'application/pdf' }] }
+      : {}),
+  })
+}
+
 /** Agency notification when someone signs the public Partner Referral Agreement on the website. */
 async function sendPublicPartnerAgencyNotification(data) {
   if (!reminderTransporter || !INQUIRY_NOTIFY_EMAIL) return
@@ -1528,7 +1581,7 @@ async function sendPublicPartnerAgencyNotification(data) {
     `Email: ${data.partnerEmail}`,
     ...(data.partnerPhone ? [`Phone: ${data.partnerPhone}`] : []),
     `Business / company: ${data.companyName}`,
-    `Type of business: ${data.businessType}`,
+    ...(data.businessType ? [`Type of business: ${data.businessType}`] : []),
     '',
     `Partner link: ${data.referralLink}`,
     `Partnership ID (internal): ${data.partnershipId}`,
@@ -4448,6 +4501,129 @@ app.post('/api/referral-partners/apply', async (req, res) => {
   } catch (err) {
     logError('DB', 'Failed to submit public partner application', err)
     res.status(500).json({ error: 'Failed to submit partner application' })
+  }
+})
+
+app.post('/api/referral-partners/refer-couple', async (req, res) => {
+  try {
+    const body = req.body || {}
+    const clientName = String(body.clientName || '').trim()
+    const clientEmail = String(body.clientEmail || '').trim()
+    const clientPhone = String(body.clientPhone || '').trim() || null
+    if (!clientName || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(clientEmail)) {
+      return res.status(400).json({ error: 'A couple name and valid email are required.' })
+    }
+    let couple = null
+    const result = await submitPublicPartnerApplication(
+      {
+        fullName: body.partnerName || body.fullName,
+        email: body.partnerEmail || body.email,
+        phone: body.phone || body.partnerPhone,
+        companyName: body.companyName,
+        signaturePngBase64: body.signaturePngBase64 || body.signature,
+      },
+      {
+        ip: getClientKey(req),
+        userAgent: req.headers['user-agent'],
+        allowBlankBusinessType: true,
+        beforeCommit(saved) {
+          couple = savePublicCoupleReferral({
+            partnerName: saved.partnerName,
+            partnerEmail: saved.partnerEmail,
+            companyName: saved.companyName,
+            referralToken: saved.referralToken,
+            clientName,
+            clientEmail,
+            clientPhone,
+          })
+        },
+      }
+    )
+    if (result.error) return res.status(result.status || 400).json({ error: result.error })
+    const partnerEmail = String(body.partnerEmail || body.email || '').trim()
+    if (result.reused) {
+      const existing = getReferralPartnershipByReferralToken(result.referralToken)
+      couple = savePublicCoupleReferral({
+        partnerName: existing?.partnerName || String(body.partnerName || body.fullName || '').trim(),
+        partnerEmail: existing?.partnerEmail || partnerEmail,
+        companyName: existing?.companyName || String(body.companyName || '').trim() || null,
+        referralToken: result.referralToken,
+        clientName,
+        clientEmail,
+        clientPhone,
+      })
+    }
+    const partnerName = String(body.partnerName || body.fullName || '').trim()
+    const companyName = String(body.companyName || '').trim() || null
+    const referralReference = couple?.referralReference || null
+    const partnerNotice = couple?.partnerNotice || null
+    if (partnerNotice) {
+      sendPartnerReferralAgencyNotification('uncredited', {
+        partnerName,
+        partnerEmail,
+        companyName,
+        clientName,
+        clientEmail,
+        clientPhone,
+        partnerNotice,
+      }).catch((err) => logError('SMTP', 'Uncredited refer-a-couple agency email', err))
+    } else if (couple?.referralId) {
+      sendPartnerReferralAgencyNotification(couple.referralId, {
+        partnerName,
+        partnerEmail,
+        companyName,
+        clientName,
+        clientEmail,
+        clientPhone,
+        referralReference,
+        termsLabel: getPartnerReferral(couple.referralId)?.agreementTermsSnapshot?.label || null,
+      }).catch((err) => logError('SMTP', 'Refer-a-couple agency email', err))
+    }
+
+    let signedPdf = null
+    let portalLink = null
+    if (!result.reused) {
+      try {
+        signedPdf = getReferralPartnershipAgreementPdf(result.agreementId, 'signed')
+      } catch (pdfErr) {
+        logError('DB', 'Load signed partner agreement for refer-a-couple email', pdfErr)
+      }
+      try {
+        portalLink = partnerPortalVerifyUrl(createPortalLoginToken(result.partnershipId, PORTAL_WELCOME_TOKEN_TTL_MS))
+      } catch (tokenErr) {
+        logError('DB', 'Create partner portal welcome link', tokenErr)
+      }
+      sendPublicPartnerAgencyNotification({
+        partnerName,
+        partnerEmail,
+        companyName,
+        businessType: null,
+        referralLink: result.referralLink,
+        partnershipId: result.partnershipId,
+        signedPdf,
+      }).catch((err) => logError('SMTP', 'Refer-a-couple partner notification', err))
+    }
+    sendReferCouplePartnerEmail(partnerEmail, {
+      partnerName,
+      referralLink: result.referralLink,
+      portalLink,
+      signedPdf,
+      clientName,
+      referralReference,
+      partnerNotice,
+      reused: !!result.reused,
+    }).catch((err) => logError('SMTP', 'Refer-a-couple partner email', err))
+
+    res.status(result.reused ? 200 : 201).json({
+      reused: !!result.reused,
+      status: result.status,
+      ...(result.reused ? {} : { referralLink: result.referralLink }),
+      ...(referralReference ? { referralReference } : {}),
+      ...(partnerNotice ? { partnerNotice } : {}),
+    })
+  } catch (err) {
+    logError('DB', 'Failed to submit refer-a-couple', err)
+    res.status(500).json({ error: 'Failed to submit referral' })
   }
 })
 

@@ -35,6 +35,7 @@ const PUBLIC_API_EXACT = new Set([
   'POST /api/create-checkout-session',
   'POST /api/partner-referrals',
   'POST /api/referral-partners/apply',
+  'POST /api/referral-partners/refer-couple',
   // External outreach cron — session bypass; OUTREACH_CRON_SECRET enforced in handler.
   'GET /api/outreach-sequence/tick',
   'POST /api/outreach-sequence/tick',
