@@ -29,6 +29,7 @@ import PartnershipOutreach from './pages/PartnershipOutreach'
 import PartnerReferrals from './pages/PartnerReferrals'
 import OutreachToday from './pages/OutreachToday'
 import OutreachScoreboard from './pages/OutreachScoreboard'
+import AreaTabs from './components/AreaTabs'
 
 function RequireAuthLayout() {
   const { authenticated, loading } = useAuth()
@@ -80,6 +81,33 @@ export default function App() {
         <Route path="inquire-combined" element={<InquireCombined />} />
         <Route path="inquire-general" element={<InquireGeneral />} />
         <Route path="music-selection" element={<WeddingMusicSelection />} />
+        <Route path="bookings-hub" element={<AreaTabs tabs={[
+          { to: '/bookings-hub', label: 'Pipeline', end: true },
+          { to: '/bookings-hub/clients', label: 'Clients' },
+          { to: '/bookings-hub/proposals', label: 'Proposals' },
+        ]} />}>
+          <Route index element={<Projects />} />
+          <Route path="clients" element={<Clients />} />
+          <Route path="proposals" element={<Proposals />} />
+        </Route>
+        <Route path="marketing" element={<AreaTabs tabs={[
+          { to: '/marketing', label: 'Field', end: true },
+          { to: '/marketing/prospects', label: 'Prospects' },
+          { to: '/marketing/scoreboard', label: 'Scoreboard' },
+        ]} />}>
+          <Route index element={<OutreachToday />} />
+          <Route path="prospects" element={<PartnershipOutreach />} />
+          <Route path="scoreboard" element={<OutreachScoreboard />} />
+        </Route>
+        <Route path="finances" element={<AreaTabs tabs={[
+          { to: '/finances', label: 'Invoices', end: true },
+          { to: '/finances/expenses', label: 'Expenses' },
+          { to: '/finances/targets', label: 'Targets' },
+        ]} />}>
+          <Route index element={<Invoices />} />
+          <Route path="expenses" element={<Bookkeeping />} />
+          <Route path="targets" element={<MonthlyTargets />} />
+        </Route>
       </Route>
     </Routes>
   )

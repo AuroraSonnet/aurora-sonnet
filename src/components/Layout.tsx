@@ -7,50 +7,34 @@ import { getInquiryApiBaseUrl } from '../utils/inquiryApiUrl'
 import UndoBar from './UndoBar'
 import styles from './Layout.module.css'
 
-const leadFormRoutes = ['/inquire', '/inquire-duo', '/inquire-combined', '/inquire-general']
-
-const leadForms = [
-  { to: '/inquire', label: 'Solo' },
-  { to: '/inquire-duo', label: 'Duo' },
-  { to: '/inquire-combined', label: 'Solo + Duo' },
-  { to: '/inquire-general', label: 'General' },
-]
-
 const nav = [
-  { to: '/', label: 'Dashboard', icon: '◉' },
-  { to: '/bookings', label: 'Bookings', icon: '▷' },
-  { to: '/clients', label: 'Clients', icon: '◇' },
-  { to: '/proposals', label: 'Proposals', icon: '◆' },
-  { to: '/partner-referrals', label: 'Partner Referrals', icon: '⇄' },
-  { to: '/partnership-outreach', label: 'Partnership Outreach', icon: '🤝' },
-  { to: '/outreach-today', label: 'Outreach Today', icon: '☀' },
-  { to: '/outreach-scoreboard', label: 'Outreach Scoreboard', icon: '🏆' },
-  { to: '/contracts', label: 'Contracts', icon: '▣' },
-  { to: '/invoices', label: 'Invoices', icon: '◎' },
-  { to: '/calendar', label: 'Calendar', icon: '📅' },
-  { to: '/experiences', label: 'Experiences', icon: '✦' },
-  { to: '/music-selection', label: 'Repertoire', icon: '♪' },
-  { to: '/newsletter', label: 'Newsletter', icon: '✉' },
-  { to: '/bookkeeping', label: 'Bookkeeping', icon: '◈' },
-  { to: '/monthly-targets', label: 'Monthly Targets', icon: '◌' },
-  { to: '/automations', label: 'Automations', icon: '⚡' },
-  { to: '/settings', label: 'Settings', icon: '⚙' },
+  { to: '/', label: 'Dashboard', icon: '◉', match: ['/'] },
+  { to: '/bookings-hub', label: 'Bookings', icon: '▷', match: ['/bookings-hub', '/bookings', '/clients', '/proposals'] },
+  { to: '/partner-referrals', label: 'Partners', icon: '⇄', match: ['/partner-referrals'] },
+  { to: '/marketing', label: 'Marketing', icon: '☀', match: ['/marketing', '/outreach-today', '/partnership-outreach', '/outreach-scoreboard'] },
+  { to: '/contracts', label: 'Contracts', icon: '▣', match: ['/contracts', '/templates'] },
+  { to: '/finances', label: 'Finances', icon: '◎', match: ['/finances', '/invoices', '/bookkeeping', '/monthly-targets'] },
+  { to: '/calendar', label: 'Calendar', icon: '📅', match: ['/calendar'] },
+  { to: '/settings', label: 'Settings', icon: '⚙', match: ['/settings', '/experiences', '/newsletter', '/automations', '/inquire', '/inquire-duo', '/inquire-combined', '/inquire-general', '/music-selection'] },
 ]
-const navBeforeLeadForms = 14 // Dashboard through Repertoire, then Lead forms
+
+function navItemActive(pathname: string, item: { to: string; match: string[] }): boolean {
+  if (item.to === '/') return pathname === '/'
+  return item.match.some((prefix) => pathname === prefix || pathname.startsWith(`${prefix}/`))
+}
 
 export default function Layout() {
   const location = useLocation()
   const { actions } = useApp()
   const { logout, username } = useAuth()
-  const isInLeadForms = leadFormRoutes.some((r) => location.pathname === r)
-  const [leadFormsOpen, setLeadFormsOpen] = useState(isInLeadForms)
+  const [menuOpen, setMenuOpen] = useState(false)
   const [refreshing, setRefreshing] = useState(false)
   const [refreshedAt, setRefreshedAt] = useState<number | null>(null)
   const hasAutoSynced = useRef(false)
 
   useEffect(() => {
-    if (isInLeadForms) setLeadFormsOpen(true)
-  }, [isInLeadForms])
+    setMenuOpen(false)
+  }, [location.pathname])
 
   const handleRefresh = async () => {
     if (refreshing) return
@@ -117,61 +101,33 @@ export default function Layout() {
         <div className={styles.logo}>
           <span className={styles.logoIcon}>Aurora Sonnet</span>
         </div>
-        <nav className={styles.nav}>
-          {nav.slice(0, navBeforeLeadForms).map(({ to, label, icon }) => (
+        <button
+          type="button"
+          className={styles.menuBtn}
+          aria-expanded={menuOpen}
+          aria-controls="admin-nav"
+          onClick={() => setMenuOpen((open) => !open)}
+        >
+          {menuOpen ? 'Close' : 'Menu'}
+        </button>
+        <nav id="admin-nav" className={menuOpen ? `${styles.nav} ${styles.navOpen}` : styles.nav}>
+          {nav.map((item) => (
             <NavLink
-              key={to}
-              to={to}
-              end={to === '/'}
-              className={({ isActive }) =>
-                isActive ? `${styles.navLink} ${styles.navLinkActive}` : styles.navLink
+              key={item.to}
+              to={item.to}
+              end={item.to === '/'}
+              className={() =>
+                navItemActive(location.pathname, item)
+                  ? `${styles.navLink} ${styles.navLinkActive}`
+                  : styles.navLink
               }
             >
-              <span className={styles.navIcon}>{icon}</span>
-              {label}
-            </NavLink>
-          ))}
-          <div className={styles.navGroup}>
-            <button
-              type="button"
-              className={`${styles.navGroupLabel} ${leadFormsOpen ? styles.navGroupLabelOpen : ''} ${isInLeadForms ? styles.navLinkActive : ''}`}
-              onClick={() => setLeadFormsOpen((o) => !o)}
-              aria-expanded={leadFormsOpen}
-            >
-              <span className={styles.navIcon}>✉</span>
-              Lead forms
-            </button>
-            {leadFormsOpen && (
-              <div className={styles.navGroupItems}>
-                {leadForms.map(({ to, label }) => (
-                  <NavLink
-                    key={to}
-                    to={to}
-                    className={({ isActive }) =>
-                      isActive ? `${styles.navLink} ${styles.navLinkSub} ${styles.navLinkActive}` : `${styles.navLink} ${styles.navLinkSub}`
-                    }
-                  >
-                    {label}
-                  </NavLink>
-                ))}
-              </div>
-            )}
-          </div>
-          {nav.slice(navBeforeLeadForms).map(({ to, label, icon }) => (
-            <NavLink
-              key={to}
-              to={to}
-              end={to === '/'}
-              className={({ isActive }) =>
-                isActive ? `${styles.navLink} ${styles.navLinkActive}` : styles.navLink
-              }
-            >
-              <span className={styles.navIcon}>{icon}</span>
-              {label}
+              <span className={styles.navIcon}>{item.icon}</span>
+              {item.label}
             </NavLink>
           ))}
         </nav>
-        <div className={styles.sidebarFooter}>
+        <div className={menuOpen ? `${styles.sidebarFooter} ${styles.footerOpen}` : styles.sidebarFooter}>
           <button
             type="button"
             className={styles.refreshBtn}
