@@ -1,6 +1,6 @@
 import { useMemo, useState, useEffect, useCallback, type CSSProperties } from 'react'
 import { useApp } from '../context/AppContext'
-import { apiCreatePartnerReferral, apiDeletePartnerReferral, apiUpdatePartnerReferral, apiAcceptPartnerReferralDecision, apiRejectPartnerReferralDecision, apiGeneratePartnerReferralCommissionStatement, apiRecordPartnerReferralCommissionStatementDelivery, partnerReferralCommissionStatementUrl, type PartnerReferral, type PartnerReferralExpenseLine } from '../api/db'
+import { apiCreatePartnerReferral, apiDeletePartnerReferral, apiUpdatePartnerReferral, apiAcceptPartnerReferralDecision, apiRejectPartnerReferralDecision, apiGeneratePartnerReferralCommissionStatement, apiRecordPartnerReferralCommissionStatementDelivery, apiListReferralProjects, partnerReferralCommissionStatementUrl, type PartnerReferral, type PartnerReferralExpenseLine, type ReferralProjectLink, type ReferralProjectReviewItem } from '../api/db'
 import { getInquiryApiBaseUrl } from '../utils/inquiryApiUrl'
 import styles from './PartnerReferrals.module.css'
 
@@ -283,6 +283,19 @@ function buildPayload(
   }
 }
 
+const LEGACY_COMMISSION_PAYLOAD_KEYS = [
+  'bookingAmount',
+  'expenseLineItems',
+  'travelExpenseAmount',
+  'hotelExpenseAmount',
+  'payoutStatus',
+  'commissionableOverrideAmount',
+  'payoutOverrideAmount',
+]
+
+const LINK_STATE_LABELS: Record<string, string> = { pending: 'Pending', earned: 'Earned', paid: 'Paid' }
+const LINK_PAYOUT_LABELS: Record<string, string> = { none: 'Not paid', pending: 'Payment scheduled', completed: 'Paid' }
+
 export default function PartnerReferrals() {
   const { state, actions } = useApp()
   const rows = useMemo(() => [...(state.partnerReferrals ?? [])].sort(compareReferrals), [state.partnerReferrals])
@@ -350,7 +363,7 @@ export default function PartnerReferrals() {
       if (referralStatusEligibleForBookingPayout(r.referralStatus)) cur.booked += 1
       const ps = String(r.payoutStatus || 'none').toLowerCase()
       const payout = Number.isFinite(r.payoutAmount) ? r.payoutAmount : 0
-      if (ps === 'paid') cur.paidPayoutSum += payout
+      if (ps === 'paid' || ps === 'completed') cur.paidPayoutSum += payout
       else if (ps === 'pending' && payout > 0) cur.pendingPayoutSum += payout
       m.set(key, cur)
     }
@@ -416,6 +429,26 @@ export default function PartnerReferrals() {
   const [decisionBusy, setDecisionBusy] = useState(false)
   const [saving, setSaving] = useState(false)
   const [formError, setFormError] = useState('')
+  const [projectLinks, setProjectLinks] = useState<ReferralProjectLink[]>([])
+  const [linkReview, setLinkReview] = useState<ReferralProjectReviewItem[]>([])
+
+  const loadProjectLinks = useCallback(() => {
+    void apiListReferralProjects().then((res) => {
+      if (!res.ok) return
+      setProjectLinks(res.data.links)
+      setLinkReview(res.data.review)
+    })
+  }, [])
+
+  useEffect(() => {
+    loadProjectLinks()
+  }, [loadProjectLinks, state.partnerReferrals])
+
+  const projectsById = useMemo(() => {
+    const m: Record<string, { title: string; weddingDate?: string }> = {}
+    for (const p of state.projects ?? []) m[p.id] = p
+    return m
+  }, [state.projects])
 
   useEffect(() => {
     if (!editor) return
@@ -438,6 +471,9 @@ export default function PartnerReferrals() {
       setVenueId('')
       setReferringContactId('')
       setLinkedProjectId('')
+      setStatementPaymentDate('')
+      setStatementPaymentMethod('')
+      setStatementPaymentReference('')
       setFormError('')
       return
     }
@@ -460,6 +496,9 @@ export default function PartnerReferrals() {
     setVenueId(r.venueId ?? '')
     setReferringContactId(r.referringContactId ?? '')
     setLinkedProjectId(r.linkedProjectId ?? r.linkedLeadId ?? '')
+    setStatementPaymentDate(r.commissionPaymentDate ?? '')
+    setStatementPaymentMethod(r.commissionPaymentMethod ?? '')
+    setStatementPaymentReference(r.commissionPaymentReference ?? '')
     setFormError('')
   }, [editor])
 
@@ -553,6 +592,14 @@ export default function PartnerReferrals() {
     setExpenseLines((prev) => prev.map((l) => (l.id === id ? { ...l, ...patch } : l)))
   }, [])
 
+  const editLinks = useMemo(
+    () => (editor?.type === 'edit' ? projectLinks.filter((l) => l.referralId === editor.row.id) : []),
+    [editor, projectLinks]
+  )
+  const paidRecordLocked =
+    editor?.type === 'edit' && ['paid', 'completed'].includes(String(editor.row.payoutStatus || '').toLowerCase())
+  const legacyLocked = editLinks.length > 0 || paidRecordLocked
+
   const validateForm = useCallback((): string | null => {
     const pn = partnerName.trim()
     const pe = partnerEmail.trim()
@@ -599,10 +646,19 @@ export default function PartnerReferrals() {
         referringContactId,
         linkedProjectId,
       })
+      if (legacyLocked) {
+        for (const k of LEGACY_COMMISSION_PAYLOAD_KEYS) delete payload[k]
+      }
+      if (editor.type === 'edit' && !paidRecordLocked) {
+        payload.commissionPaymentDate = statementPaymentDate.trim() || null
+        payload.commissionPaymentMethod = statementPaymentMethod.trim() || null
+        payload.commissionPaymentReference = statementPaymentReference.trim() || null
+      }
       if (editor.type === 'new') {
         dlog('request:start', { op: 'create' })
+        const { linkedProjectId: _omitProjectId, ...createPayload } = payload
         const result = await apiCreatePartnerReferral({
-          ...payload,
+          ...createPayload,
           referralSource: 'crm',
           skipPartnerConfirmation: true,
         })
@@ -655,6 +711,11 @@ export default function PartnerReferrals() {
     venueId,
     referringContactId,
     linkedProjectId,
+    legacyLocked,
+    paidRecordLocked,
+    statementPaymentDate,
+    statementPaymentMethod,
+    statementPaymentReference,
     actions,
     dlog,
     saving,
@@ -707,6 +768,26 @@ export default function PartnerReferrals() {
         </div>
       </header>
 
+      {linkReview.length > 0 ? (
+        <details className={styles.sectionHint} style={{ marginBottom: '1rem' }}>
+          <summary>
+            {linkReview.length} referral{linkReview.length === 1 ? '' : 's'} need review for booking links or earlier commission records
+          </summary>
+          <ul>
+            {linkReview.map((item) => (
+              <li key={item.referralId}>
+                <strong>{item.referralReference || item.referralId}</strong> · {item.clientName} · {item.partnerName}
+                <ul>
+                  {item.reasons.map((r) => (
+                    <li key={r.code}>{r.detail}</li>
+                  ))}
+                </ul>
+              </li>
+            ))}
+          </ul>
+        </details>
+      ) : null}
+
       <div className={styles.listToolbar} aria-label="Search and partner summaries">
         <label className={styles.searchField}>
           <span className={styles.searchLabel}>Search</span>
@@ -740,10 +821,10 @@ export default function PartnerReferrals() {
                     <span className={styles.vendorChipK}>Booked</span> {v.booked}
                   </span>
                   <span>
-                    <span className={styles.vendorChipK}>Pending payouts</span> {formatUsd(v.pendingPayoutSum)}
+                    <span className={styles.vendorChipK}>Original record pending payouts</span> {formatUsd(v.pendingPayoutSum)}
                   </span>
                   <span>
-                    <span className={styles.vendorChipK}>Payout paid</span> {formatUsd(v.paidPayoutSum)}
+                    <span className={styles.vendorChipK}>Original record payouts paid</span> {formatUsd(v.paidPayoutSum)}
                   </span>
                 </div>
               </div>
@@ -765,8 +846,8 @@ export default function PartnerReferrals() {
               <th className={styles.colVenue}>Venue</th>
               <th className={styles.colStatus}>Decision</th>
               <th className={styles.colStatus}>Status</th>
-              <th className={styles.colMoney}>Booking</th>
-              <th className={styles.colMoney}>Payout</th>
+              <th className={styles.colMoney} title="From the original referral record, not current per-booking commission">Original booking</th>
+              <th className={styles.colMoney} title="From the original referral record, not current per-booking commission">Original payout</th>
               <th className={styles.colActions}>Actions</th>
             </tr>
           </thead>
@@ -905,7 +986,7 @@ export default function PartnerReferrals() {
                   </dd>
                 </div>
                 <div>
-                  <dt>Booking</dt>
+                  <dt>Original record booking</dt>
                   <dd>{formatUsd(r.bookingAmount)}</dd>
                 </div>
                 <div>
@@ -920,7 +1001,7 @@ export default function PartnerReferrals() {
                   </dd>
                 </div>
                 <div>
-                  <dt>Payout</dt>
+                  <dt>Original record payout</dt>
                   <dd>{formatUsd(r.payoutAmount)}</dd>
                 </div>
               </dl>
@@ -1093,15 +1174,18 @@ export default function PartnerReferrals() {
                       ))}
                   </select>
                 </label>
-                <label className={styles.formField}>
-                  Linked project id
-                  <input
-                    className={styles.input}
-                    value={linkedProjectId}
-                    onChange={(e) => setLinkedProjectId(e.target.value)}
-                    placeholder="e.g. p12"
-                  />
-                </label>
+                {isEdit ? (
+                  <label className={styles.formField}>
+                    Original inquiry project id
+                    <input
+                      className={styles.input}
+                      value={linkedProjectId}
+                      onChange={(e) => setLinkedProjectId(e.target.value)}
+                      placeholder="e.g. p12"
+                    />
+                    <span className={styles.hint}>Record only. Link bookings for commission from each booking’s edit screen.</span>
+                  </label>
+                ) : null}
               </div>
               {isEdit && editRow ? (
                 <p className={styles.summaryFoot}>
@@ -1162,7 +1246,7 @@ export default function PartnerReferrals() {
 
               {isEdit && editRow ? (
                 <>
-                  <p className={styles.formSectionLabel}>Commission statement</p>
+                  <p className={styles.formSectionLabel}>Commission statement (original referral record)</p>
                   <p className={styles.sectionHint}>
                     {editRow.hasCommissionStatement
                       ? `Generated ${editRow.commissionStatementGeneratedAt?.slice(0, 10) || ''}${editRow.commissionStatementDeliveredAt ? ` · Delivered ${editRow.commissionStatementDeliveredAt.slice(0, 10)}` : ' · Delivery not recorded'}`
@@ -1171,17 +1255,22 @@ export default function PartnerReferrals() {
                   <div className={styles.formGrid}>
                     <label className={styles.formField}>
                       Payment date
-                      <input className={styles.input} type="date" value={statementPaymentDate} onChange={(e) => setStatementPaymentDate(e.target.value)} />
+                      <input className={styles.input} type="date" value={statementPaymentDate} readOnly={paidRecordLocked} disabled={paidRecordLocked} onChange={(e) => setStatementPaymentDate(e.target.value)} />
                     </label>
                     <label className={styles.formField}>
                       Payment method
-                      <input className={styles.input} value={statementPaymentMethod} onChange={(e) => setStatementPaymentMethod(e.target.value)} placeholder="ACH, check, …" />
+                      <input className={styles.input} value={statementPaymentMethod} readOnly={paidRecordLocked} disabled={paidRecordLocked} onChange={(e) => setStatementPaymentMethod(e.target.value)} placeholder={paidRecordLocked ? 'Not recorded' : 'ACH, check, …'} />
                     </label>
                     <label className={styles.formField}>
                       Payment reference
-                      <input className={styles.input} value={statementPaymentReference} onChange={(e) => setStatementPaymentReference(e.target.value)} />
+                      <input className={styles.input} value={statementPaymentReference} readOnly={paidRecordLocked} disabled={paidRecordLocked} onChange={(e) => setStatementPaymentReference(e.target.value)} placeholder={paidRecordLocked ? 'Not recorded' : undefined} />
                     </label>
                   </div>
+                  <p className={styles.sectionHint}>
+                    {paidRecordLocked
+                      ? 'Payment details are locked because this payout is marked Paid or Completed.'
+                      : 'Payment details save with the referral, including when you mark the payout Paid or Completed. They lock once it is.'}
+                  </p>
                   <div className={styles.formGrid}>
                     <button
                       type="button"
@@ -1243,7 +1332,50 @@ export default function PartnerReferrals() {
                 </>
               ) : null}
 
-              <p className={styles.formSectionLabel}>Status and amounts</p>
+              {isEdit && editRow ? (
+                <>
+                  <p className={styles.formSectionLabel}>Linked bookings (commission per booking)</p>
+                  {editLinks.length === 0 ? (
+                    <p className={styles.sectionHint}>
+                      No bookings linked. This referral cannot earn a commission until a booking is linked from that booking’s edit screen.
+                    </p>
+                  ) : (
+                    <ul className={styles.sectionHint}>
+                      {editLinks.map((l) => {
+                        const p = projectsById[l.projectId]
+                        return (
+                          <li key={l.id}>
+                            {p ? `${p.title}${p.weddingDate ? ` · ${p.weddingDate.slice(0, 10)}` : ''}` : `${l.projectId} (deleted)`}
+                            {' · '}
+                            {l.bookedConfirmedAt ? 'Booked' : 'Booking not confirmed'}
+                            {' · '}Eligible {l.eligibleAmount != null ? formatUsd(l.eligibleAmount) : '—'}
+                            {' · '}Commission {formatUsd(l.commissionAmount)}
+                            {l.commissionState ? ` (${LINK_STATE_LABELS[l.commissionState]})` : ''}
+                            {' · '}
+                            {LINK_PAYOUT_LABELS[l.payoutStatus] || l.payoutStatus}
+                          </li>
+                        )
+                      })}
+                    </ul>
+                  )}
+                </>
+              ) : null}
+
+              <p className={styles.formSectionLabel}>
+                Original referral record: status, amounts and payout (not current per-booking commission)
+              </p>
+              <p className={styles.sectionHint}>
+                {paidRecordLocked
+                  ? 'This original payout is marked Paid or Completed. Its amounts and payout are locked exactly as recorded; status and contact details can still be edited.'
+                  : legacyLocked
+                  ? 'Commission is tracked per linked booking above. These original-record amounts and payout are read-only history.'
+                  : 'Current commission is tracked per linked booking. These original-record amounts are kept for history and do not create or pay a commission.'}
+              </p>
+              {editRow?.legacyPaidProjectId ? (
+                <p className={styles.sectionHint}>
+                  Original paid commission covered booking {editRow.legacyPaidProjectId}. That booking can never earn a second commission.
+                </p>
+              ) : null}
               <div className={styles.formGrid}>
                 <label className={styles.formField}>
                   Referral status
@@ -1263,13 +1395,14 @@ export default function PartnerReferrals() {
                   </select>
                 </label>
                 <label className={styles.formField}>
-                  Payout status
+                  Original record payout status
                   <select
                     className={styles.select}
                     value={payoutStatus}
+                    disabled={legacyLocked}
                     onChange={(e) => setPayoutStatus(e.target.value)}
                   >
-                    {PAYOUT_STATUS_OPTIONS.map((o) => (
+                    {PAYOUT_STATUS_OPTIONS.filter((o) => isEdit || (o.value !== 'paid' && o.value !== 'completed')).map((o) => (
                       <option key={o.value} value={o.value}>
                         {o.label}
                       </option>
@@ -1282,21 +1415,23 @@ export default function PartnerReferrals() {
                   )}
                 </label>
                 <label className={styles.formField}>
-                  Booking amount (USD, whole dollars)
+                  Original record booking amount (USD, whole dollars)
                   <input
                     className={styles.input}
                     type="text"
                     inputMode="numeric"
                     value={bookingAmount}
+                    disabled={legacyLocked}
                     onChange={(e) => setBookingAmount(e.target.value)}
                     autoComplete="off"
                   />
                 </label>
               </div>
 
+              <fieldset disabled={legacyLocked} style={{ border: 0, padding: 0, margin: 0, minWidth: 0 }}>
               <div className={styles.expenseSection}>
-                <div className={styles.sectionLabel}>Expenses</div>
-                <p className={styles.sectionHint}>Deduct from booking before commission. Add as many lines as you need.</p>
+                <div className={styles.sectionLabel}>Original record expenses</div>
+                <p className={styles.sectionHint}>Deducted from the original record booking amount only. Add as many lines as you need.</p>
                 <div className={styles.expenseToolbar}>
                   <button type="button" className={styles.addLineBtn} disabled={saving} onClick={addExpenseLine}>
                     + Add expense line
@@ -1349,27 +1484,35 @@ export default function PartnerReferrals() {
 
               <div className={styles.summaryBox}>
                 <div className={styles.summaryRow}>
-                  <span>Booking amount</span>
+                  <span>Original record booking amount</span>
                   <span className={styles.summaryValue}>{formatUsd(preview.booking)}</span>
                 </div>
                 <div className={styles.summaryRow}>
-                  <span>Total expenses</span>
+                  <span>Original record total expenses</span>
                   <span className={styles.summaryValue}>{formatUsd(preview.totalExpenses)}</span>
                 </div>
                 <div className={styles.summaryRow}>
-                  <span>Commissionable amount</span>
-                  <span className={styles.summaryValue}>{formatUsd(preview.commissionable)}</span>
+                  <span>Original record commissionable amount</span>
+                  <span className={styles.summaryValue}>
+                    {formatUsd(paidRecordLocked && editRow ? editRow.commissionableAmount : preview.commissionable)}
+                  </span>
                 </div>
                 <div className={styles.summaryRow}>
-                  <span>Payout (current status)</span>
-                  <span className={styles.summaryValue}>{formatUsd(preview.referralPayout)}</span>
+                  <span>{paidRecordLocked ? 'Original record payout (paid, locked)' : 'Original record payout (at its status)'}</span>
+                  <span className={styles.summaryValue}>
+                    {formatUsd(paidRecordLocked && editRow ? editRow.payoutAmount : preview.referralPayout)}
+                  </span>
                 </div>
-                <div className={`${styles.summaryRow} ${styles.summaryRowEstimate}`}>
-                  <span>Estimated when Booked/Paid</span>
-                  <span className={styles.summaryValue}>{formatUsd(preview.estimatedPayout)}</span>
-                </div>
+                {paidRecordLocked ? null : (
+                  <div className={`${styles.summaryRow} ${styles.summaryRowEstimate}`}>
+                    <span>Original record estimate when Booked/Paid</span>
+                    <span className={styles.summaryValue}>{formatUsd(preview.estimatedPayout)}</span>
+                  </div>
+                )}
                 <p className={styles.summaryFoot}>
-                  {preview.hasPayoutOverride
+                  {paidRecordLocked
+                    ? 'Recorded when the payout was marked Paid or Completed. Changing the referral status does not recalculate it.'
+                    : preview.hasPayoutOverride
                     ? 'Payout override is set; both amounts use that value (same rule as when saved).'
                     : preview.payoutPreviewDiffers
                       ? `Stored payout stays $0 until status is Booked or Paid. The estimate is ${preview.formulaLabel} using booking − expenses above (when applicable).`
@@ -1382,7 +1525,7 @@ export default function PartnerReferrals() {
 
               <div className={styles.formGrid}>
                 <label className={styles.formField}>
-                  Commissionable override (optional)
+                  Original record commissionable override (optional)
                   <input
                     className={styles.input}
                     type="text"
@@ -1395,7 +1538,7 @@ export default function PartnerReferrals() {
                   <span className={styles.hint}>Blank = booking − total expenses.</span>
                 </label>
                 <label className={styles.formField}>
-                  Payout override (optional)
+                  Original record payout override (optional)
                   <input
                     className={styles.input}
                     type="text"
@@ -1408,6 +1551,7 @@ export default function PartnerReferrals() {
                   <span className={styles.hint}>Blank = {preview.formulaLabel} when Booked/Paid.</span>
                 </label>
               </div>
+              </fieldset>
 
               <div className={styles.modalActions}>
                 {isEdit && editRow ? (

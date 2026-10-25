@@ -7,6 +7,12 @@ import { test } from 'node:test'
 import { initReferralPartnershipSchema } from '../server/referralPartnershipSchema.js'
 import { computePartnerReferralAmounts } from '../server/partnerReferralPayout.js'
 import { buildLegacyDefaultTermsSnapshot, buildPublicReferralProgramSnapshot } from '../server/referralPartnershipTerms.js'
+import {
+  ALREADY_REGISTERED_PARTNER_MESSAGE,
+  classifyCoupleContacts,
+  normalizeReferralPhone,
+  referralCreditDecision,
+} from '../server/referralDuplicate.js'
 
 const TINY_PNG =
   'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg=='
@@ -277,4 +283,213 @@ test('a partner token attributes only when the referrer email matches', async ()
   const viaTokenRow = db.getPartnerReferral(viaToken.id)
   assert.equal(viaTokenRow.partnershipId, signed.id)
   assert.equal(viaTokenRow.agreementSnapshotKind, 'agreement')
+})
+
+test('email identifies a couple, phone only with the same full name', () => {
+  const clients = [
+    { id: 'c1', name: 'Alex and Blair', email: 'one@example.com', phone: '2125550101' },
+    { id: 'c2', name: 'Casey and Jordan', email: 'two@example.com', phone: '+44 20 7946 0958' },
+  ]
+
+  const emailOnly = classifyCoupleContacts({
+    email: 'ONE@example.com',
+    phone: '',
+    name: 'A Different Name',
+    clients,
+    referrals: [],
+  })
+  assert.equal(emailOnly.kind, 'existing_client')
+
+  const missingPhone = classifyCoupleContacts({
+    email: 'brand-new@example.com',
+    name: 'Alex and Blair',
+    clients,
+    referrals: [],
+  })
+  assert.equal(missingPhone.kind, 'new')
+
+  const phoneAndName = classifyCoupleContacts({
+    email: 'other@example.com',
+    phone: '+1 (212) 555-0101',
+    name: 'alex  and blair',
+    clients,
+    referrals: [],
+  })
+  assert.equal(phoneAndName.kind, 'existing_client')
+  assert.equal(phoneAndName.clientId, 'c1')
+
+  const internationalPhone = classifyCoupleContacts({
+    email: 'uk-new@example.com',
+    phone: '44 20 7946 0958',
+    name: 'Casey and Jordan',
+    clients,
+    referrals: [],
+  })
+  assert.equal(internationalPhone.kind, 'existing_client')
+  assert.equal(internationalPhone.clientId, 'c2')
+
+  const nameOnly = classifyCoupleContacts({
+    email: 'third@example.com',
+    phone: '6465550199',
+    name: 'Alex and Blair',
+    clients,
+    referrals: [],
+  })
+  assert.equal(nameOnly.kind, 'new')
+
+  const phoneNameConflict = classifyCoupleContacts({
+    email: 'other@example.com',
+    phone: '212-555-0101',
+    name: 'Someone Else',
+    clients,
+    referrals: [],
+  })
+  assert.equal(phoneNameConflict.kind, 'ambiguous')
+
+  const splitRecords = classifyCoupleContacts({
+    email: 'one@example.com',
+    phone: '2125550101',
+    name: 'Alex and Blair',
+    clients: [
+      { id: 'c1', name: 'Alex and Blair', email: 'one@example.com', phone: '9175550100' },
+      { id: 'c2', name: 'Alex and Blair', email: 'two@example.com', phone: '2125550101' },
+    ],
+    referrals: [],
+  })
+  assert.equal(splitRecords.kind, 'ambiguous')
+  assert.equal(referralCreditDecision(splitRecords).action, 'needs_review')
+  assert.notEqual(referralCreditDecision(splitRecords).partnerNotice, ALREADY_REGISTERED_PARTNER_MESSAGE)
+  assert.equal(
+    referralCreditDecision(emailOnly).partnerNotice,
+    'This couple is already registered with Aurora Sonnet, so this referral can’t be credited to you. Your submission has still been received.'
+  )
+
+  const uk = '442079460958'
+  assert.equal(normalizeReferralPhone('+44 (0)20 7946 0958'), uk)
+  assert.equal(normalizeReferralPhone('+44 020 7946 0958'), uk)
+  assert.equal(normalizeReferralPhone('+44 20 7946 0958'), uk)
+  assert.equal(normalizeReferralPhone('0044 020 7946 0958'), uk)
+  assert.equal(normalizeReferralPhone('011 44 020 7946 0958'), uk)
+  assert.equal(normalizeReferralPhone('4402079460958'), uk)
+  assert.equal(normalizeReferralPhone('(440) 794-0958'), '4407940958')
+  assert.equal(normalizeReferralPhone('+44 20 7946 0958 ext 12'), '')
+  assert.equal(normalizeReferralPhone(''), '')
+  assert.equal(normalizeReferralPhone('020 7946 0958'), '02079460958')
+  assert.notEqual(normalizeReferralPhone('020 7946 0958'), uk)
+})
+
+test('a country-code phone is stored in the form used for matching', () => {
+  const inquiry = db.createInquiryInTransaction({
+    name: 'Format Couple',
+    email: 'format-couple@example.com',
+    phone: '+44 (0) 20 7946 0958',
+    today: '2026-10-24',
+    weddingDate: '2027-06-01',
+    title: 'Inquiry',
+    clientName: 'Format Couple',
+    dueDate: '2027-06-01',
+    value: 0,
+  })
+  assert.equal(db.getClientById(inquiry.clientId).phone, '442079460958')
+  const referral = db.createPartnerReferral({
+    partnerName: 'Format Partner',
+    partnerEmail: 'format-partner@example.com',
+    clientName: 'Other Couple',
+    clientEmail: 'format-referral@example.com',
+    clientPhone: '011 44 20 7946 0958',
+  })
+  assert.equal(db.getPartnerReferral(referral.id).clientPhone, '442079460958')
+})
+
+test('a known couple is not credited again from a partner link', async () => {
+  db.createClient({
+    id: 'c-known-couple',
+    name: 'Known Couple',
+    email: 'known.couple@example.com',
+    phone: '9175550144',
+    partnerName: null,
+    createdAt: '2026-01-01',
+  })
+  const signed = await partners.submitPublicPartnerApplication({
+    fullName: 'Known Link Partner',
+    email: 'known-link@partner.example',
+    companyName: 'Known Link Co',
+    businessType: 'Planner',
+    signaturePngBase64: TINY_PNG,
+  })
+  const before = db.listPartnerReferralContactIndex().length
+  const byEmail = partners.attributeInquiryToReferralPartner({
+    partnerToken: signed.referralToken,
+    clientName: 'A Different Name',
+    clientEmail: 'Known.Couple@example.com',
+    clientPhone: '555-0100',
+  })
+  assert.equal(byEmail.status, 'existing_client')
+  assert.equal(byEmail.partnerName, undefined)
+  assert.equal(byEmail.partnerEmail, undefined)
+
+  const phoneDifferentName = partners.attributeInquiryToReferralPartner({
+    partnerToken: signed.referralToken,
+    clientName: 'Phone Only Match',
+    clientEmail: 'phone-only-match@example.com',
+    clientPhone: '(917) 555-0144',
+  })
+  assert.equal(phoneDifferentName.status, 'needs_review')
+
+  const phoneSameName = partners.attributeInquiryToReferralPartner({
+    partnerToken: signed.referralToken,
+    clientName: 'Known Couple',
+    clientEmail: 'phone-and-name@example.com',
+    clientPhone: '+1 917-555-0144',
+  })
+  assert.equal(phoneSameName.status, 'existing_client')
+  assert.equal(db.listPartnerReferralContactIndex().length, before)
+
+  const fresh = partners.attributeInquiryToReferralPartner({
+    partnerToken: signed.referralToken,
+    clientName: 'Known Couple',
+    clientEmail: 'truly-new-couple@example.com',
+    clientPhone: '6465550190',
+    linkedProjectId: 'proj-known-1',
+  })
+  assert.equal(fresh.status, 'created')
+  const credited = db.getPartnerReferral(fresh.referralId)
+  const payoutBefore = credited.payoutAmount
+  const bookingBefore = credited.bookingAmount
+
+  const other = await partners.submitPublicPartnerApplication({
+    fullName: 'Second Link Partner',
+    email: 'second-link@partner.example',
+    companyName: 'Second Link Co',
+    businessType: 'Florist',
+    signaturePngBase64: TINY_PNG,
+  })
+  const differentName = partners.attributeInquiryToReferralPartner({
+    partnerToken: other.referralToken,
+    clientName: 'Someone New',
+    clientEmail: 'name-conflict@example.com',
+    clientPhone: '646-555-0190',
+  })
+  assert.equal(differentName.status, 'needs_review')
+
+  const again = partners.attributeInquiryToReferralPartner({
+    partnerToken: other.referralToken,
+    clientName: 'Known Couple',
+    clientEmail: 'another-email@example.com',
+    clientPhone: '646-555-0190',
+  })
+  assert.equal(again.status, 'already_referred')
+  assert.equal(again.referralId, fresh.referralId)
+  assert.equal(again.partnerName, undefined)
+  assert.equal(again.partnerEmail, undefined)
+  db.appendPartnerReferralNote(fresh.referralId, 'Inquiry p-extra recorded. Existing attribution kept. No additional referral credit.')
+  const after = db.getPartnerReferral(fresh.referralId)
+  assert.equal(after.payoutAmount, payoutBefore)
+  assert.equal(after.bookingAmount, bookingBefore)
+  assert.equal(after.linkedProjectId, 'proj-known-1')
+  assert.match(after.notes, /No additional referral credit/)
+  assert.equal(
+    db.listPartnerReferralContactIndex().filter((row) => row.clientPhone && String(row.clientPhone).includes('0190')).length,
+    1
+  )
 })

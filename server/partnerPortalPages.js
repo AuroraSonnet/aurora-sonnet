@@ -125,8 +125,11 @@ main{padding:clamp(48px,8vw,96px) 20px clamp(64px,9vw,112px)}
 .amount{font-variant-numeric:lining-nums;margin-top:14px;font-size:clamp(2rem,3.6vw,2.6rem);line-height:1.1}
 .earn-text{margin-top:10px;font-size:.84rem;line-height:1.5;color:var(--taupe)}
 .refs{width:100%}
-.ref{display:grid;grid-template-columns:1.6fr 1.1fr .9fr .9fr 1fr;gap:16px;align-items:center;padding:18px 0;border-top:1px solid var(--line);font-size:.95rem}
+.ref{display:grid;grid-template-columns:1.1fr .9fr 1.2fr .9fr 1.3fr .9fr;gap:16px;align-items:center;padding:14px 0;border-top:1px solid var(--line);font-size:.92rem}
 .ref-head{padding:0 0 12px;border-top:0;font-size:.66rem;font-weight:500;letter-spacing:.14em;text-transform:uppercase;color:var(--taupe)}
+.group{padding:18px 0 4px;border-top:1px solid var(--line-strong)}
+.group-head{display:flex;align-items:center;justify-content:space-between;gap:12px;padding-bottom:6px}
+.group-empty{padding:12px 0 14px;border-top:1px solid var(--line);color:var(--taupe);font-size:.9rem}
 .ref-couple{font-family:'Playfair Display',Georgia,serif;font-size:1.08rem}
 .pill{display:inline-block;padding:5px 12px;background:var(--blush-soft);border:1px solid var(--line);font-size:.74rem;letter-spacing:.06em;line-height:1.3;white-space:nowrap}
 .pill-muted{background:transparent;color:var(--taupe)}
@@ -142,10 +145,8 @@ main{padding:clamp(48px,8vw,96px) 20px clamp(64px,9vw,112px)}
   .earn .amount{grid-area:amount;margin:0;font-size:1.9rem}
   .earn .earn-text{grid-area:text;margin-top:6px}
   .ref-head{display:none}
-  .ref{grid-template-columns:1fr 1fr;gap:12px 16px;padding:20px 0}
+  .ref{grid-template-columns:1fr 1fr;gap:12px 16px;padding:16px 0}
   .ref>div::before{content:attr(data-label);display:block;margin-bottom:4px;font-size:.62rem;font-weight:500;letter-spacing:.14em;text-transform:uppercase;color:var(--taupe)}
-  .ref .ref-couple{grid-column:1/-1}
-  .ref .ref-couple::before{display:none}
 }
 @media (max-width:420px){
   main{padding:40px 18px 64px}
@@ -201,19 +202,48 @@ export function renderSignedOutPage(res) {
   })
 }
 
-function referralRow(r) {
-  const status = `<span class="pill${r.status === 'Not Booked' ? ' pill-muted' : ''}">${esc(r.status)}</span>`
-  const commission = r.commission != null ? money(r.commission) : '<span class="dim">—</span>'
-  const commissionStatus = r.commissionStatus
-    ? `<span class="pill${r.commissionStatus === 'Pending' ? ' pill-muted' : ''}">${esc(r.commissionStatus)}</span>`
-    : '<span class="dim">—</span>'
+const DASH = '<span class="dim">—</span>'
+
+function commissionCell(amount, status) {
+  if (amount == null) return DASH
+  const pill = status ? ` <span class="pill${status === 'Pending' ? ' pill-muted' : ''}">${esc(status)}</span>` : ''
+  return `${money(amount)}${pill}`
+}
+
+function projectRow(p) {
   return `
-    <div class="ref">
-      <div class="ref-couple" data-label="Couple">${esc(r.couple)}</div>
-      <div data-label="Event Date">${esc(eventDateLabel(r.eventDate))}</div>
-      <div data-label="Status">${status}</div>
-      <div data-label="Commission">${commission}</div>
-      <div data-label="Commission Status">${commissionStatus}</div>
+      <div class="ref">
+        <div data-label="Event Date">${esc(eventDateLabel(p.projectDate))}</div>
+        <div data-label="Eligible Amount">${p.eligibleAmount != null ? money(p.eligibleAmount) : DASH}</div>
+        <div data-label="Commission">${commissionCell(p.commission, p.commissionStatus)}</div>
+        <div data-label="Booking">${esc(p.bookingStatus)}</div>
+        <div data-label="Completion">${esc(p.completionStatus)}</div>
+        <div data-label="Payout">${esc(p.payoutStatus)}</div>
+      </div>`
+}
+
+function referralGroup(r) {
+  const status = `<span class="pill${r.status === 'Not Booked' ? ' pill-muted' : ''}">${esc(r.status)}</span>`
+  const projects = r.projects.map(projectRow).join('')
+  const earlier = r.earlierRecord
+    ? `
+      <div class="ref">
+        <div data-label="Event Date">${esc(eventDateLabel(r.eventDate))}</div>
+        <div data-label="Eligible Amount">${DASH}</div>
+        <div data-label="Commission">${commissionCell(r.earlierRecord.commission, r.earlierRecord.commissionStatus)}</div>
+        <div data-label="Booking">Earlier record</div>
+        <div data-label="Completion">${DASH}</div>
+        <div data-label="Payout">Paid</div>
+      </div>`
+    : ''
+  const none = !projects && !earlier ? '<p class="group-empty">Referral received. No booked performance yet.</p>' : ''
+  return `
+    <div class="group">
+      <div class="group-head">
+        <span class="ref-couple">${esc(r.couple)}</span>
+        ${status}
+      </div>
+      ${projects}${earlier}${none}
     </div>`
 }
 
@@ -232,7 +262,7 @@ export function renderDashboardPage(res, dash) {
   </section>`
     : ''
   const rows = dash.referrals.length
-    ? `<div class="ref ref-head" aria-hidden="true"><div>Couple</div><div>Event Date</div><div>Status</div><div>Commission</div><div>Commission Status</div></div>${dash.referrals.map(referralRow).join('')}`
+    ? `<div class="ref ref-head" aria-hidden="true"><div>Event Date</div><div>Eligible Amount</div><div>Commission</div><div>Booking</div><div>Completion</div><div>Payout</div></div>${dash.referrals.map(referralGroup).join('')}`
     : '<p class="empty">No referrals yet. Share your link with couples to get started.</p>'
 
   sendPortalPage(res, {

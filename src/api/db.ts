@@ -75,6 +75,8 @@ export interface PartnerReferral {
   eventCompletedAt?: string
   clientPaidInFullAt?: string
   linkedProjectId?: string
+  /** Write-once: booking whose commission was already paid on this referral record; it can never earn again. */
+  legacyPaidProjectId?: string
   referralSubmittedAt?: string
   referralDecisionDeadline?: string
   referralDecisionStatus?: 'pending' | 'accepted' | 'rejected' | 'overdue'
@@ -1696,6 +1698,88 @@ export function apiCreateOutreachRegion(name: string) {
 
 export function apiUpdateOutreachRegion(id: string, updates: Record<string, unknown>) {
   return jsonRequest<OutreachRegion>(`/outreach-regions/${id}`, { method: 'PATCH', body: JSON.stringify(updates) })
+}
+
+export type ReferralProjectLink = {
+  id: string
+  referralId: string
+  projectId: string
+  eligibleAmount: number | null
+  commissionAmount: number
+  bookedConfirmedAt: string | null
+  eventCompletedAt: string | null
+  clientPaidInFullAt: string | null
+  payoutStatus: 'none' | 'pending' | 'completed'
+  payoutStatusUpdatedAt: string | null
+  linkSource: 'admin' | 'migration' | 'intake'
+  commissionState: 'paid' | 'earned' | 'pending' | null
+  canUnlink?: boolean
+  createdAt: string
+  updatedAt: string
+}
+
+export type ReferralProjectReferralSummary = {
+  id: string
+  referralReference: string | null
+  partnerName: string
+  companyName: string | null
+  clientName: string
+  clientEmail: string
+  submissionDate: string
+  commissionEligible: boolean
+  requiresDecision: boolean
+  referralDecisionStatus: string | null
+  legacyPaidPayout: number | null
+  legacyPaidProjectId: string | null
+}
+
+export type ProjectReferralContext = {
+  kind: 'linked' | 'suggestion' | 'review' | 'none'
+  link?: ReferralProjectLink
+  referral?: ReferralProjectReferralSummary
+  context: {
+    projectValue: number | null
+    legacyPaidProject: boolean
+    invoices: { id: string; invoiceNumber?: string | null; type?: string | null; amount: number; status: string; paidAt?: string | null }[]
+  }
+}
+
+export type ReferralProjectReviewItem = {
+  referralId: string
+  referralReference: string | null
+  clientName: string
+  partnerName: string
+  reasons: { code: string; detail: string }[]
+}
+
+export function apiGetProjectReferral(projectId: string) {
+  return jsonRequest<ProjectReferralContext>(`/projects/${encodeURIComponent(projectId)}/referral`)
+}
+
+export function apiLinkProjectToReferral(projectId: string, referralId: string) {
+  return jsonRequest<ProjectReferralContext>(`/projects/${encodeURIComponent(projectId)}/referral-link`, {
+    method: 'POST',
+    body: JSON.stringify({ referralId }),
+  })
+}
+
+export function apiReferralProjectAction(
+  linkId: string,
+  action: 'confirm_booked' | 'set_amount' | 'confirm_complete_paid' | 'set_payout_status',
+  payload: Record<string, unknown> = {}
+) {
+  return jsonRequest<ProjectReferralContext>(`/referral-projects/${encodeURIComponent(linkId)}/action`, {
+    method: 'POST',
+    body: JSON.stringify({ ...payload, action }),
+  })
+}
+
+export function apiUnlinkReferralProject(linkId: string) {
+  return jsonRequest<ProjectReferralContext>(`/referral-projects/${encodeURIComponent(linkId)}`, { method: 'DELETE' })
+}
+
+export function apiListReferralProjects() {
+  return jsonRequest<{ links: ReferralProjectLink[]; review: ReferralProjectReviewItem[] }>('/referral-projects')
 }
 
 export async function apiCreatePartnerReferral(

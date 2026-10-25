@@ -700,6 +700,17 @@
         referBusy = false;
         setBusy(referForm, false);
         if (!result.ok) { showNote(referForm, friendlyError(result)); fitFrame(); return; }
+        var referView = $('[data-asp-view="refer"]');
+        var referDoneText = $('.asp-done-text', referView);
+        if (referDoneText && !referDoneText.getAttribute('data-asp-default')) {
+          referDoneText.setAttribute('data-asp-default', referDoneText.innerHTML);
+        }
+        if (referDoneText) referDoneText.innerHTML = referDoneText.getAttribute('data-asp-default') || referDoneText.innerHTML;
+        if (result.data && result.data.partnerNotice && referDoneText) {
+          referDoneText.textContent = result.data.partnerNotice;
+          showDone('refer');
+          return;
+        }
         if (REFER_THANK_YOU_URL) {
           var ref = String(result.data.referralReference || '').trim();
           var dest = REFER_THANK_YOU_URL + (ref ? '?ref=' + encodeURIComponent(ref) : '');

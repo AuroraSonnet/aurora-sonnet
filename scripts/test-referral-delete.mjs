@@ -53,6 +53,7 @@ test('deletes manual, Refer a Couple and partner-link referrals without touching
     clientEmail: 'link.couple@example.com',
     eventDate: '2027-06-01',
     linkedProjectId: 'p-del',
+    priorMatch: { kind: 'new' },
   })
   assert.equal(link.status, 'created')
 

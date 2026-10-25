@@ -4,19 +4,15 @@
  */
 import { createHash, randomBytes } from 'node:crypto'
 import db, {
-  getPartnerReferralPayableContext,
   getReferralPartnershipAgreementById,
   getReferralPartnershipById,
   getReferralPartnershipByPartnerEmail,
   listPartnerReferralsByPartnershipId,
   listReferralPartnershipAgreementsForPartnership,
+  listReferralProjectLinksWithProjects,
 } from './db.js'
-import {
-  isReferralPayoutPayable,
-  normalizeReferralStatusKey,
-  referralStatusEligibleForBookingPayout,
-} from './partnerReferralPayout.js'
-import { isReferralCommissionEligible } from './referralDecision.js'
+import { normalizeReferralStatusKey } from './partnerReferralPayout.js'
+import { legacyPayoutIsHistory, projectCommissionState } from './referralProjectCommission.js'
 import { buildPartnerReferralLink } from './publicReferralPartner.js'
 
 export const PORTAL_LOGIN_TOKEN_TTL_MS = 30 * 60 * 1000
@@ -93,51 +89,79 @@ function signedPublicAgreementFor(partnership) {
   return null
 }
 
-/** 'paid' | 'earned' | 'pending' | null, derived only from existing referral/payout fields. */
-export function partnerCommissionState(referral, context = {}) {
-  const payoutStatus = String(referral?.payoutStatus || 'none').toLowerCase()
-  if (payoutStatus === 'paid' || payoutStatus === 'completed') return 'paid'
-  if (normalizeReferralStatusKey(referral?.referralStatus) === 'closed_lost') return null
-  if (referral?.referralDecisionStatus === 'rejected') return null
-  if (!referralStatusEligibleForBookingPayout(referral?.referralStatus)) return null
-  if (!isReferralCommissionEligible(referral)) return null
-  if (!(Number(referral?.payoutAmount) > 0)) return null
-  if (payoutStatus === 'pending' || isReferralPayoutPayable(referral, context)) return 'earned'
-  return 'pending'
+const COMMISSION_STATUS_LABELS = { pending: 'Pending', earned: 'Earned', paid: 'Paid' }
+const PAYOUT_STATUS_LABELS = { none: 'Not paid', pending: 'Payment scheduled', completed: 'Paid' }
+
+function wholeUsd(v) {
+  return Math.max(0, Math.round(Number(v) || 0))
 }
 
-export function partnerReferralStatusLabel(referral) {
+/** Couple-level label. Only an admin-confirmed project booking (or a legacy paid commission) counts as Booked. */
+export function partnerReferralStatusLabel(referral, links = []) {
   const key = normalizeReferralStatusKey(referral?.referralStatus)
+  if (links.some((l) => l.bookedConfirmedAt) || legacyPayoutIsHistory(referral)) return 'Booked'
   if (key === 'closed_lost' || referral?.referralDecisionStatus === 'rejected') return 'Not Booked'
-  if (referralStatusEligibleForBookingPayout(key)) return 'Booked'
-  if (key === 'new') return 'Received'
+  if (key === 'new' || links.length === 0) return 'Received'
   return 'In Progress'
 }
 
-const COMMISSION_STATUS_LABELS = { pending: 'Pending', earned: 'Earned', paid: 'Paid' }
+function projectEntry({ link, projectDate }, referral) {
+  const state = projectCommissionState(link, referral)
+  const commission = state ? wholeUsd(link.commissionAmount) : null
+  return {
+    state,
+    entry: {
+      projectDate: projectDate || null,
+      eligibleAmount: link.bookedConfirmedAt && link.eligibleAmount != null ? wholeUsd(link.eligibleAmount) : null,
+      commission,
+      commissionStatus: state ? COMMISSION_STATUS_LABELS[state] : null,
+      bookingStatus: link.bookedConfirmedAt ? 'Booked' : 'Not yet confirmed',
+      completionStatus:
+        link.eventCompletedAt && link.clientPaidInFullAt
+          ? 'Complete, paid in full'
+          : link.bookedConfirmedAt
+            ? 'Awaiting event and final payment'
+            : 'Not started',
+      payoutStatus: PAYOUT_STATUS_LABELS[link.payoutStatus] || PAYOUT_STATUS_LABELS.none,
+    },
+  }
+}
 
-/** Only the fields a partner needs; everything else on the referral stays server-side. */
-export function summarizePartnerReferrals(referrals, contextFor = () => ({})) {
+/**
+ * One couple per referral, one entry per linked project. Commissions come only from project rows;
+ * a referral-level commission already marked paid is shown once as an earlier record.
+ * Only the fields a partner needs; contact details and project values stay server-side.
+ */
+export function summarizePartnerReferrals(referrals, projectsFor = () => []) {
   const earnings = { pending: 0, earned: 0, paid: 0 }
   const rows = referrals.map((r) => {
-    const state = partnerCommissionState(r, contextFor(r))
-    const amount = state ? Math.max(0, Math.round(Number(r.payoutAmount) || 0)) : 0
-    if (state) earnings[state] += amount
+    const items = projectsFor(r)
+    const coveredByEarlierRecord = legacyPayoutIsHistory(r) && r.legacyPaidProjectId ? r.legacyPaidProjectId : null
+    const visibleItems = items.filter((item) => !coveredByEarlierRecord || item.link?.projectId !== coveredByEarlierRecord)
+    const projects = visibleItems.map((item) => {
+      const { state, entry } = projectEntry(item, r)
+      if (state) earnings[state] += entry.commission
+      return entry
+    })
+    let earlierRecord = null
+    if (legacyPayoutIsHistory(r)) {
+      earlierRecord = { commission: wholeUsd(r.payoutAmount), commissionStatus: COMMISSION_STATUS_LABELS.paid }
+      earnings.paid += earlierRecord.commission
+    }
     return {
       couple: r.clientName,
       eventDate: r.eventDate || null,
-      status: partnerReferralStatusLabel(r),
-      commission: state ? amount : null,
-      commissionStatus: state ? COMMISSION_STATUS_LABELS[state] : null,
+      status: partnerReferralStatusLabel(r, items.map((i) => i.link)),
+      projects,
+      earlierRecord,
     }
   })
   return { earnings, referrals: rows }
 }
 
 function loadSummary(partnershipId) {
-  return summarizePartnerReferrals(
-    listPartnerReferralsByPartnershipId(partnershipId),
-    getPartnerReferralPayableContext
+  return summarizePartnerReferrals(listPartnerReferralsByPartnershipId(partnershipId), (r) =>
+    listReferralProjectLinksWithProjects(r.id)
   )
 }
 

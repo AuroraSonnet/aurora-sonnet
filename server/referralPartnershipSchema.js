@@ -132,6 +132,23 @@ export function initReferralPartnershipSchema(db) {
       createdAt TEXT NOT NULL
     );
     CREATE INDEX IF NOT EXISTS idx_venue_activity_venue ON venue_activity (venueId, createdAt DESC);
+
+    CREATE TABLE IF NOT EXISTS partner_referral_projects (
+      id TEXT PRIMARY KEY,
+      referralId TEXT NOT NULL,
+      projectId TEXT NOT NULL UNIQUE,
+      eligibleAmount INTEGER,
+      commissionAmount INTEGER NOT NULL DEFAULT 0,
+      bookedConfirmedAt TEXT,
+      eventCompletedAt TEXT,
+      clientPaidInFullAt TEXT,
+      payoutStatus TEXT NOT NULL DEFAULT 'none',
+      payoutStatusUpdatedAt TEXT,
+      linkSource TEXT NOT NULL DEFAULT 'admin',
+      createdAt TEXT NOT NULL,
+      updatedAt TEXT NOT NULL
+    );
+    CREATE INDEX IF NOT EXISTS idx_partner_referral_projects_referral ON partner_referral_projects (referralId);
   `)
 
   ensureReferralPartnershipShape(db)
@@ -167,6 +184,7 @@ export function initReferralPartnershipSchema(db) {
     'commissionPaymentMethod TEXT',
     'commissionPaymentReference TEXT',
     'termsAcceptedAt TEXT',
+    'legacyPaidProjectId TEXT',
   ]) {
     tryAlterTable(db, `ALTER TABLE partner_referrals ADD COLUMN ${col}`)
   }

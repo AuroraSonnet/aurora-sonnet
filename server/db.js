@@ -29,12 +29,29 @@ import {
   migrateVenueFollowUp1TemplateBody,
 } from './partnershipEmailTemplates.js'
 import { nyBusinessDateString } from './businessDays.js'
-import { resolveReferralDecisionStatus, requiresExplicitReferralDecision, initializeReferralDecisionFields } from './referralDecision.js'
+import {
+  resolveReferralDecisionStatus,
+  requiresExplicitReferralDecision,
+  initializeReferralDecisionFields,
+  isReferralCommissionEligible,
+} from './referralDecision.js'
 import {
   initVenuesAndVisitsSchema,
   migratePartnershipContactsToVenues,
 } from './venuesSchema.js'
 import { deriveStageAdvanceFromDebrief } from './venuePipeline.js'
+import { classifyCoupleContacts, phoneToStore } from './referralDuplicate.js'
+import { randomUUID } from 'crypto'
+import {
+  computeProjectCommission,
+  projectCommissionState,
+  validateConfirmBooked,
+  validateEligibleAmount,
+  validateConfirmCompletePaid,
+  validateProjectPayoutStatus,
+  canUnlink,
+  legacyPayoutIsHistory,
+} from './referralProjectCommission.js'
 
 export {
   computePartnerReferralAmounts,
@@ -859,6 +876,7 @@ export function getState() {
     experiences: db.prepare('SELECT * FROM experiences ORDER BY sortOrder ASC, createdAt ASC').all().map(rowToExperience),
     musicSelections: db.prepare('SELECT * FROM music_selections ORDER BY createdAt DESC').all().map(rowToMusicSelection),
     partnerReferrals: db.prepare('SELECT * FROM partner_referrals ORDER BY submissionDate DESC, updatedAt DESC').all().map(rowToPartnerReferral),
+    partnerReferralProjects: listAllReferralProjectLinks(),
     partnershipContacts: db.prepare('SELECT * FROM partnership_contacts WHERE deletedAt IS NULL ORDER BY updatedAt DESC').all().map(rowToPartnershipContact),
     outreachActivity: db.prepare('SELECT * FROM outreach_activity ORDER BY createdAt DESC').all().map(rowToOutreachActivity),
     emailTemplates: db.prepare('SELECT * FROM email_templates ORDER BY createdAt DESC').all().map(rowToEmailTemplate),
@@ -1044,6 +1062,7 @@ function rowToPartnerReferral(row) {
     commissionPaymentMethod: row.commissionPaymentMethod || undefined,
     commissionPaymentReference: row.commissionPaymentReference || undefined,
     termsAcceptedAt: row.termsAcceptedAt || undefined,
+    legacyPaidProjectId: row.legacyPaidProjectId || undefined,
     updatedAt: row.updatedAt,
   }
 }
@@ -1168,7 +1187,7 @@ export function createPartnerReferral(data) {
     data.partnerEmail,
     data.clientName,
     data.clientEmail,
-    data.clientPhone ?? null,
+    phoneToStore(data.clientPhone),
     data.eventDate ?? null,
     data.eventLocation ?? null,
     data.notes ?? null,
@@ -1207,7 +1226,80 @@ export function createPartnerReferral(data) {
     patchPartnerReferralFields(id, decisionInit)
   }
 
+  const intakeProjectId = String(data.linkedProjectId ?? data.linkedLeadId ?? '').trim()
+  if (intakeProjectId) linkReferralToProject(id, intakeProjectId, 'intake')
+
   return { id, referralReference }
+}
+
+const LEGACY_COMMISSION_FIELDS = ['bookingAmount', 'commissionableOverrideAmount', 'payoutOverrideAmount']
+const LEGACY_EXPENSE_FIELDS = ['expenseLineItems', 'travelExpenseAmount', 'hotelExpenseAmount']
+
+/** Older rows keep travel/hotel in their own columns; the admin form sends them as expense lines with both columns at 0. */
+function totalLegacyExpenses(lines, travel, hotel) {
+  const whole = (v) => Math.max(0, Math.round(Number(v) || 0))
+  return normalizeExpenseLineItems(lines).reduce((s, l) => s + l.amount, 0) + whole(travel) + whole(hotel)
+}
+
+function legacyCommissionFieldsChanged(row, updates, { includeStoredAmounts = false } = {}) {
+  const num = (v) => (v === undefined || v === null || v === '' ? null : Math.round(Number(v)))
+  const keys = includeStoredAmounts ? [...LEGACY_COMMISSION_FIELDS, 'commissionableAmount', 'payoutAmount'] : LEGACY_COMMISSION_FIELDS
+  for (const k of keys) {
+    if (updates[k] === undefined) continue
+    const cur = num(row[k])
+    const next = num(updates[k])
+    const changed = k.endsWith('OverrideAmount') ? cur !== next : (cur ?? 0) !== (next ?? 0)
+    if (changed) return true
+  }
+  if (updates.payoutStatus !== undefined && String(updates.payoutStatus) !== String(row.payoutStatus || 'none')) return true
+  if (LEGACY_EXPENSE_FIELDS.some((k) => updates[k] !== undefined)) {
+    const pick = (k, col) => (updates[k] !== undefined ? updates[k] : row[col])
+    const next = totalLegacyExpenses(
+      pick('expenseLineItems', 'expense_line_items'),
+      pick('travelExpenseAmount', 'travelExpenseAmount'),
+      pick('hotelExpenseAmount', 'hotelExpenseAmount')
+    )
+    if (next !== totalLegacyExpenses(row.expense_line_items, row.travelExpenseAmount, row.hotelExpenseAmount)) return true
+  }
+  return false
+}
+
+function isPaidPayoutStatus(status) {
+  const s = String(status || '').toLowerCase()
+  return s === 'paid' || s === 'completed'
+}
+
+export const PAID_REFERRAL_LOCK_MESSAGE =
+  'This referral’s original payout is marked Paid or Completed. Its booking amount, expenses, overrides, payout amount and payout status are locked as history and cannot be changed.'
+
+export const PAYMENT_DETAILS_LOCK_MESSAGE =
+  'The payment date, method and reference are locked once the original payout is marked Paid or Completed and cannot be changed.'
+
+const PAYMENT_DETAIL_FIELDS = ['commissionPaymentDate', 'commissionPaymentMethod', 'commissionPaymentReference']
+
+const paymentDetailValue = (v) => (v == null ? null : String(v).trim() || null)
+
+/** Payment details provided in `updates` (only keys present), normalized; blank means cleared. */
+function providedPaymentDetails(updates) {
+  const out = {}
+  for (const k of PAYMENT_DETAIL_FIELDS) {
+    if (Object.prototype.hasOwnProperty.call(updates || {}, k)) out[k] = paymentDetailValue(updates[k])
+  }
+  return out
+}
+
+/**
+ * Payment details to store for a referral. Editable while the original payout is unpaid (including in the
+ * update that first marks it Paid/Completed); once it is Paid/Completed, any different value is refused.
+ */
+export function resolvePaymentDetailsUpdate(row, updates) {
+  const provided = providedPaymentDetails(updates)
+  const stored = Object.fromEntries(PAYMENT_DETAIL_FIELDS.map((k) => [k, row[k] ?? null]))
+  if (isPaidPayoutStatus(row.payoutStatus)) {
+    if (Object.entries(provided).some(([k, v]) => v !== paymentDetailValue(stored[k]))) return { error: PAYMENT_DETAILS_LOCK_MESSAGE }
+    return { values: stored }
+  }
+  return { values: { ...stored, ...provided } }
 }
 
 export function updatePartnerReferral(id, updates) {
@@ -1217,6 +1309,17 @@ export function updatePartnerReferral(id, updates) {
   const existing = rowToPartnerReferral(row)
   const snapErr = assertAgreementSnapshotImmutable(existing, updates)
   if (snapErr) throw new Error(snapErr)
+  const paidLocked = isPaidPayoutStatus(row.payoutStatus)
+  if (paidLocked && legacyCommissionFieldsChanged(row, updates, { includeStoredAmounts: true })) {
+    throw new Error(PAID_REFERRAL_LOCK_MESSAGE)
+  }
+  const paymentDetails = resolvePaymentDetailsUpdate(row, updates)
+  if (paymentDetails.error) throw new Error(paymentDetails.error)
+  if (countReferralProjectLinks(id) > 0 && legacyCommissionFieldsChanged(row, updates)) {
+    throw new Error(
+      'This referral has linked projects. Commission amounts and payout are tracked per project; the referral-level payout fields are kept as history.'
+    )
+  }
 
   const expenseLineItemsForCompute = Object.prototype.hasOwnProperty.call(updates, 'expenseLineItems')
     ? updates.expenseLineItems
@@ -1321,7 +1424,8 @@ export function updatePartnerReferral(id, updates) {
       bookingAmount=?, travelExpenseAmount=?, hotelExpenseAmount=?, expense_line_items=?,
       commissionableAmount=?, commissionableOverrideAmount=?, payoutAmount=?, payoutOverrideAmount=?,
       payoutStatus=?, submissionDate=?, linkedVendorId=?, linkedLeadId=?, venueId=?, referringContactId=?,
-      partnershipId=?, agreementId=?, eventCompletedAt=?, clientPaidInFullAt=?, linkedProjectId=?, updatedAt=?
+      partnershipId=?, agreementId=?, eventCompletedAt=?, clientPaidInFullAt=?, linkedProjectId=?,
+      commissionPaymentDate=?, commissionPaymentMethod=?, commissionPaymentReference=?, updatedAt=?
     WHERE id=?`
   ).run(
     row.referral_reference,
@@ -1335,15 +1439,15 @@ export function updatePartnerReferral(id, updates) {
     eventLocation ?? null,
     notes ?? null,
     merged.referralStatus,
-    amounts.bookingAmount,
-    amounts.travelExpenseAmount,
-    amounts.hotelExpenseAmount,
-    JSON.stringify(amounts.expenseLineItems ?? []),
-    amounts.commissionableAmount,
-    amounts.commissionableOverrideAmount,
-    amounts.payoutAmount,
-    amounts.payoutOverrideAmount,
-    payoutStatus,
+    paidLocked ? row.bookingAmount : amounts.bookingAmount,
+    paidLocked ? row.travelExpenseAmount : amounts.travelExpenseAmount,
+    paidLocked ? row.hotelExpenseAmount : amounts.hotelExpenseAmount,
+    paidLocked ? row.expense_line_items : JSON.stringify(amounts.expenseLineItems ?? []),
+    paidLocked ? row.commissionableAmount : amounts.commissionableAmount,
+    paidLocked ? row.commissionableOverrideAmount : amounts.commissionableOverrideAmount,
+    paidLocked ? row.payoutAmount : amounts.payoutAmount,
+    paidLocked ? row.payoutOverrideAmount : amounts.payoutOverrideAmount,
+    paidLocked ? row.payoutStatus : payoutStatus,
     submissionDate,
     linkedVendorId ?? null,
     linkedLeadId ?? null,
@@ -1354,20 +1458,385 @@ export function updatePartnerReferral(id, updates) {
     eventCompletedAt ?? null,
     clientPaidInFullAt ?? null,
     linkedProjectId ?? null,
+    paymentDetails.values.commissionPaymentDate,
+    paymentDetails.values.commissionPaymentMethod,
+    paymentDetails.values.commissionPaymentReference,
     now,
     id
   )
+  if (!legacyPayoutIsHistory(existing)) stampLegacyPaidProject(id)
   return rowToPartnerReferral(db.prepare('SELECT * FROM partner_referrals WHERE id = ?').get(id))
 }
 
 export function deletePartnerReferral(id) {
-  const r = db.prepare('DELETE FROM partner_referrals WHERE id = ?').run(id)
+  const held = db
+    .prepare(`SELECT COUNT(*) AS n FROM partner_referral_projects WHERE referralId = ? AND payoutStatus IN ('pending', 'completed')`)
+    .get(id)
+  if (held.n > 0) {
+    throw new Error('This referral has a project commission that is scheduled or paid. It is kept as history and cannot be deleted.')
+  }
+  const r = db.transaction(() => {
+    db.prepare('DELETE FROM partner_referral_projects WHERE referralId = ?').run(id)
+    return db.prepare('DELETE FROM partner_referrals WHERE id = ?').run(id)
+  })()
   return r.changes > 0
 }
 
 export function getPartnerReferral(id) {
   const row = db.prepare('SELECT * FROM partner_referrals WHERE id = ?').get(id)
   return row ? rowToPartnerReferral(row) : null
+}
+
+// --- Per-project referral commissions (partner_referral_projects) ---
+
+function rowToReferralProjectLink(r) {
+  return {
+    id: r.id,
+    referralId: r.referralId,
+    projectId: r.projectId,
+    eligibleAmount: r.eligibleAmount == null ? null : r.eligibleAmount,
+    commissionAmount: r.commissionAmount || 0,
+    bookedConfirmedAt: r.bookedConfirmedAt || null,
+    eventCompletedAt: r.eventCompletedAt || null,
+    clientPaidInFullAt: r.clientPaidInFullAt || null,
+    payoutStatus: r.payoutStatus || 'none',
+    payoutStatusUpdatedAt: r.payoutStatusUpdatedAt || null,
+    linkSource: r.linkSource || 'admin',
+    createdAt: r.createdAt,
+    updatedAt: r.updatedAt,
+  }
+}
+
+function withCommissionState(link, referral) {
+  return { ...link, commissionState: projectCommissionState(link, referral) }
+}
+
+export function countReferralProjectLinks(referralId) {
+  return db.prepare('SELECT COUNT(*) AS n FROM partner_referral_projects WHERE referralId = ?').get(referralId).n
+}
+
+export function getReferralProjectLink(id) {
+  const r = db.prepare('SELECT * FROM partner_referral_projects WHERE id = ?').get(id)
+  return r ? rowToReferralProjectLink(r) : null
+}
+
+export function getReferralProjectLinkByProjectId(projectId) {
+  const r = db.prepare('SELECT * FROM partner_referral_projects WHERE projectId = ?').get(projectId)
+  return r ? rowToReferralProjectLink(r) : null
+}
+
+export function listReferralProjectLinksForReferral(referralId) {
+  return db
+    .prepare('SELECT * FROM partner_referral_projects WHERE referralId = ? ORDER BY createdAt ASC')
+    .all(referralId)
+    .map(rowToReferralProjectLink)
+}
+
+export function listAllReferralProjectLinks() {
+  const referrals = new Map()
+  return db
+    .prepare('SELECT * FROM partner_referral_projects ORDER BY createdAt ASC')
+    .all()
+    .map((r) => {
+      const link = rowToReferralProjectLink(r)
+      if (!referrals.has(link.referralId)) referrals.set(link.referralId, getPartnerReferral(link.referralId))
+      return withCommissionState(link, referrals.get(link.referralId))
+    })
+}
+
+/** Association only: never confirms a booking, sets an amount, or marks payment. Never overwrites an existing link. */
+export function linkReferralToProject(referralId, projectId, linkSource = 'admin') {
+  const pid = String(projectId || '').trim()
+  if (!getPartnerReferral(referralId)) return { error: 'Referral not found.' }
+  const project = db.prepare('SELECT id FROM projects WHERE id = ? AND deletedAt IS NULL').get(pid)
+  if (!project) return { error: 'Project not found.' }
+  const existing = getReferralProjectLinkByProjectId(pid)
+  if (existing) {
+    return existing.referralId === referralId
+      ? { link: existing, alreadyLinked: true }
+      : { error: 'This project is already linked to another referral.' }
+  }
+  const now = new Date().toISOString()
+  const id = `prp-${randomUUID()}`
+  const r = db
+    .prepare(
+      `INSERT OR IGNORE INTO partner_referral_projects (id, referralId, projectId, linkSource, createdAt, updatedAt)
+       VALUES (?, ?, ?, ?, ?, ?)`
+    )
+    .run(id, referralId, pid, linkSource, now, now)
+  if (r.changes === 0) return { error: 'This project is already linked to a referral.' }
+  return { link: getReferralProjectLink(id) }
+}
+
+export function unlinkReferralProject(id) {
+  const link = getReferralProjectLink(id)
+  if (!link) return { error: 'Link not found.' }
+  if (!canUnlink(link)) return { error: 'Only a link with nothing confirmed and no payout can be removed.' }
+  db.prepare('DELETE FROM partner_referral_projects WHERE id = ?').run(id)
+  return { ok: true }
+}
+
+function writeReferralProjectLink(link, patch) {
+  const referral = getPartnerReferral(link.referralId)
+  const next = { ...link, ...patch }
+  next.commissionAmount = computeProjectCommission(next, referral)
+  if (next.payoutStatus === 'pending' && !projectCommissionState(next, referral)) next.payoutStatus = 'none'
+  const payoutChanged = next.payoutStatus !== link.payoutStatus
+  const now = new Date().toISOString()
+  db.prepare(
+    `UPDATE partner_referral_projects SET
+      eligibleAmount=?, commissionAmount=?, bookedConfirmedAt=?, eventCompletedAt=?, clientPaidInFullAt=?,
+      payoutStatus=?, payoutStatusUpdatedAt=?, updatedAt=?
+     WHERE id=? AND payoutStatus != 'completed'`
+  ).run(
+    next.eligibleAmount,
+    next.commissionAmount,
+    next.bookedConfirmedAt,
+    next.eventCompletedAt,
+    next.clientPaidInFullAt,
+    next.payoutStatus,
+    payoutChanged ? now : link.payoutStatusUpdatedAt,
+    now,
+    link.id
+  )
+  return withCommissionState(getReferralProjectLink(link.id), referral)
+}
+
+/**
+ * @param {string} id link id
+ * @param {'confirm_booked'|'set_amount'|'confirm_complete_paid'|'set_payout_status'} action
+ */
+export function applyReferralProjectAction(id, action, payload = {}) {
+  return db.transaction(() => {
+    const link = getReferralProjectLink(id)
+    if (!link) return { error: 'Link not found.' }
+    const referral = getPartnerReferral(link.referralId)
+    const now = new Date().toISOString()
+    let err = null
+    let patch = {}
+    if (action === 'confirm_booked') {
+      err = validateConfirmBooked(link, projectHasLegacyPaidCommission(link.projectId))
+      patch = { bookedConfirmedAt: now }
+    } else if (action === 'set_amount') {
+      const raw = payload.eligibleAmount
+      const amount = raw === null || raw === '' || raw === undefined ? null : Math.round(Number(raw))
+      err = validateEligibleAmount(link, amount)
+      patch = { eligibleAmount: amount }
+    } else if (action === 'confirm_complete_paid') {
+      err = validateConfirmCompletePaid(link)
+      patch = { eventCompletedAt: link.eventCompletedAt || now, clientPaidInFullAt: link.clientPaidInFullAt || now }
+    } else if (action === 'set_payout_status') {
+      const status = String(payload.payoutStatus || '').toLowerCase()
+      err = validateProjectPayoutStatus(link, referral, status)
+      patch = { payoutStatus: status }
+    } else {
+      err = 'Unknown action.'
+    }
+    if (err) return { error: err }
+    if (action === 'set_payout_status' && patch.payoutStatus === 'completed') {
+      db.prepare(
+        `UPDATE partner_referral_projects SET payoutStatus='completed', payoutStatusUpdatedAt=?, updatedAt=? WHERE id=?`
+      ).run(now, now, id)
+      return { link: withCommissionState(getReferralProjectLink(id), referral) }
+    }
+    return { link: writeReferralProjectLink(link, patch) }
+  })()
+}
+
+function referralSummaryForAdmin(ref) {
+  if (!ref) return null
+  return {
+    id: ref.id,
+    referralReference: ref.referralReference || null,
+    partnerName: ref.partnerName,
+    companyName: ref.companyName || null,
+    clientName: ref.clientName,
+    clientEmail: ref.clientEmail,
+    submissionDate: ref.submissionDate,
+    agreementSnapshotKind: ref.agreementSnapshotKind || null,
+    commissionEligible: isReferralCommissionEligible(ref),
+    requiresDecision: requiresExplicitReferralDecision(ref.agreementTermsSnapshot),
+    referralDecisionStatus: ref.referralDecisionStatus || null,
+    legacyPaidPayout: legacyPayoutIsHistory(ref) ? ref.payoutAmount : null,
+    legacyPaidProjectId: ref.legacyPaidProjectId || null,
+  }
+}
+
+/** Suggest a referral for a project from its client's email / phone+name. Never links anything. */
+export function suggestReferralForProject(projectId) {
+  const project = db.prepare('SELECT * FROM projects WHERE id = ? AND deletedAt IS NULL').get(projectId)
+  if (!project) return { kind: 'none' }
+  const client = project.clientId
+    ? db.prepare('SELECT name, email, phone FROM clients WHERE id = ?').get(project.clientId)
+    : null
+  const match = classifyCoupleContacts({
+    email: client?.email,
+    phone: client?.phone,
+    name: client?.name || project.clientName,
+    clients: [],
+    referrals: listPartnerReferralContactIndex(),
+  })
+  if (match.kind === 'ambiguous') return { kind: 'review' }
+  if (match.kind === 'existing_referral' && match.referralId) return { kind: 'suggestion', referralId: match.referralId }
+  return { kind: 'none' }
+}
+
+/** Admin panel data for one project: its link (or suggestion), commission, and invoice context. */
+export function getProjectReferralContext(projectId) {
+  const project = db.prepare('SELECT * FROM projects WHERE id = ? AND deletedAt IS NULL').get(projectId)
+  if (!project) return null
+  const invoices = db
+    .prepare('SELECT id, invoiceNumber, type, amount, status, paidAt FROM invoices WHERE projectId = ? ORDER BY dueDate ASC')
+    .all(projectId)
+  const context = { projectValue: project.value ?? null, invoices, legacyPaidProject: projectHasLegacyPaidCommission(projectId) }
+  const link = getReferralProjectLinkByProjectId(projectId)
+  if (link) {
+    const referral = getPartnerReferral(link.referralId)
+    return {
+      kind: 'linked',
+      link: { ...withCommissionState(link, referral), canUnlink: canUnlink(link) },
+      referral: referralSummaryForAdmin(referral),
+      context,
+    }
+  }
+  const s = suggestReferralForProject(projectId)
+  if (s.kind === 'suggestion') {
+    return { kind: 'suggestion', referral: referralSummaryForAdmin(getPartnerReferral(s.referralId)), context }
+  }
+  return { kind: s.kind, context }
+}
+
+/** A referral's links with each project's date, for the partner portal (no project values or contact data). */
+export function listReferralProjectLinksWithProjects(referralId) {
+  return listReferralProjectLinksForReferral(referralId).map((link) => {
+    const p = db.prepare('SELECT weddingDate, deletedAt FROM projects WHERE id = ?').get(link.projectId)
+    return { link, projectDate: p?.weddingDate || null, projectDeleted: !p || Boolean(p.deletedAt) }
+  })
+}
+
+/** True when any referral records this project as an event whose commission was already paid on the referral itself. */
+export function projectHasLegacyPaidCommission(projectId) {
+  const pid = String(projectId || '').trim()
+  if (!pid) return false
+  return Boolean(db.prepare('SELECT 1 FROM partner_referrals WHERE legacyPaidProjectId = ? LIMIT 1').get(pid))
+}
+
+/** The project a referral-level record refers to, only when its ids agree and the project exists and is not deleted. */
+function reliableLegacyProjectId(row) {
+  const a = String(row?.linkedProjectId || '').trim()
+  const b = String(row?.linkedLeadId || '').trim()
+  if (a && b && a !== b) return null
+  const pid = a || b
+  if (!pid) return null
+  return db.prepare('SELECT id FROM projects WHERE id = ? AND deletedAt IS NULL').get(pid) ? pid : null
+}
+
+/** Write-once: records which project an already-paid referral-level commission covered. Never cleared or replaced. */
+function stampLegacyPaidProject(referralId) {
+  const row = db.prepare('SELECT * FROM partner_referrals WHERE id = ?').get(referralId)
+  if (!row || row.legacyPaidProjectId) return
+  if (!legacyPayoutIsHistory(rowToPartnerReferral(row))) return
+  const pid = reliableLegacyProjectId(row)
+  if (!pid) return
+  db.prepare('UPDATE partner_referrals SET legacyPaidProjectId = ? WHERE id = ? AND legacyPaidProjectId IS NULL').run(pid, referralId)
+}
+
+const LEGACY_PAID_PROJECT_KEY = 'partner_referral_legacy_paid_project_v1'
+
+/** One-time: protect the project of every referral whose referral-level commission is already paid. */
+export function protectLegacyPaidProjectsOnce() {
+  if (getAppSetting(LEGACY_PAID_PROJECT_KEY)) return { skipped: true }
+  db.transaction(() => {
+    for (const r of db.prepare('SELECT id FROM partner_referrals WHERE legacyPaidProjectId IS NULL').all()) {
+      stampLegacyPaidProject(r.id)
+    }
+    setAppSetting(LEGACY_PAID_PROJECT_KEY, new Date().toISOString())
+  })()
+  return { ok: true }
+}
+
+const REFERRAL_PROJECTS_BACKFILL_KEY = 'partner_referral_projects_backfill_v1'
+
+/**
+ * One-time, idempotent: link a referral to a project only when linkedProjectId / linkedLeadId identify
+ * exactly one non-deleted project (both set must agree). Association only; legacy amounts, dates and
+ * payout stay on the parent referral. Guarded so a link the admin removes is not re-created.
+ */
+export function backfillReferralProjectLinksOnce() {
+  if (getAppSetting(REFERRAL_PROJECTS_BACKFILL_KEY)) return { skipped: true }
+  let linked = 0
+  db.transaction(() => {
+    const rows = db
+      .prepare('SELECT id, linkedProjectId, linkedLeadId FROM partner_referrals ORDER BY submissionDate ASC, rowid ASC')
+      .all()
+    for (const r of rows) {
+      const a = String(r.linkedProjectId || '').trim()
+      const b = String(r.linkedLeadId || '').trim()
+      if (a && b && a !== b) continue
+      const pid = a || b
+      if (!pid) continue
+      if (!db.prepare('SELECT id FROM projects WHERE id = ? AND deletedAt IS NULL').get(pid)) continue
+      if (getReferralProjectLinkByProjectId(pid)) continue
+      const res = linkReferralToProject(r.id, pid, 'migration')
+      if (res.link && !res.alreadyLinked) linked++
+    }
+    setAppSetting(REFERRAL_PROJECTS_BACKFILL_KEY, new Date().toISOString())
+  })()
+  return { linked }
+}
+
+/** Referrals needing admin review for project links or legacy commission data. Computed on demand. */
+export function listReferralProjectLinkReview() {
+  const out = []
+  const referrals = db.prepare('SELECT * FROM partner_referrals ORDER BY submissionDate ASC, rowid ASC').all()
+  for (const row of referrals) {
+    const ref = rowToPartnerReferral(row)
+    const links = listReferralProjectLinksForReferral(ref.id)
+    const a = String(row.linkedProjectId || '').trim()
+    const b = String(row.linkedLeadId || '').trim()
+    const legacyId = a || b
+    const reasons = []
+    if (a && b && a !== b) {
+      reasons.push({ code: 'legacy_link_mismatch', detail: `Project id ${a} and lead id ${b} disagree.` })
+    } else if (legacyId && !links.some((l) => l.projectId === legacyId)) {
+      const p = db.prepare('SELECT id, deletedAt FROM projects WHERE id = ?').get(legacyId)
+      const claim = getReferralProjectLinkByProjectId(legacyId)
+      if (!p) reasons.push({ code: 'legacy_link_missing_project', detail: `Project ${legacyId} does not exist.` })
+      else if (p.deletedAt) reasons.push({ code: 'legacy_link_deleted_project', detail: `Project ${legacyId} is deleted.` })
+      else if (claim && claim.referralId !== ref.id) {
+        reasons.push({ code: 'legacy_link_project_claimed', detail: `Project ${legacyId} is linked to referral ${claim.referralId}.` })
+      }
+    }
+    const legacyPayout = String(row.payoutStatus || 'none').toLowerCase()
+    if (Number(row.payoutAmount) > 0 && legacyPayout !== 'paid' && legacyPayout !== 'completed') {
+      reasons.push({
+        code: 'legacy_commission_unconfirmed',
+        detail: `Original record shows a $${row.payoutAmount} commission (payout: ${legacyPayout}). It is not payable until confirmed on a linked project.`,
+      })
+    }
+    for (const l of links) {
+      const p = db.prepare('SELECT deletedAt FROM projects WHERE id = ?').get(l.projectId)
+      if (!p || p.deletedAt) {
+        reasons.push({ code: 'linked_project_removed', detail: `Linked project ${l.projectId} was deleted. Its commission record is kept.` })
+      }
+    }
+    if (legacyPayoutIsHistory(ref) && !row.legacyPaidProjectId) {
+      reasons.push({
+        code: 'legacy_paid_no_project',
+        detail: 'A paid commission is recorded on the original referral, but no reliable project id identifies which booking it covered. No booking is blocked automatically; check before confirming any booking for this couple.',
+      })
+    }
+    if (reasons.length) {
+      out.push({
+        referralId: ref.id,
+        referralReference: ref.referralReference || null,
+        clientName: ref.clientName,
+        partnerName: ref.partnerName,
+        reasons,
+      })
+    }
+  }
+  return out
 }
 
 const PARTNER_REFERRAL_PATCH_FIELDS = [
@@ -1669,6 +2138,48 @@ export function findFirstPartnerReferralByClientEmail(email) {
     )
     .get(key)
   return row ? rowToPartnerReferral(row) : null
+}
+
+export function listClientContactIndex() {
+  return db
+    .prepare('SELECT id, name, email, phone FROM clients WHERE deletedAt IS NULL')
+    .all()
+}
+
+export function listPartnerReferralContactIndex() {
+  return db
+    .prepare(
+      `SELECT id, clientName, clientEmail, clientPhone, partnershipId, submissionDate, rowid
+       FROM partner_referrals`
+    )
+    .all()
+}
+
+/** Notes only. Does not change attribution, booking amount, or payout. */
+export function appendPartnerReferralNote(id, line) {
+  const text = String(line || '').trim()
+  if (!text) return null
+  const row = db.prepare('SELECT notes FROM partner_referrals WHERE id = ?').get(id)
+  if (!row) return null
+  const prev = row.notes ? String(row.notes).trim() : ''
+  const next = prev ? `${prev}\n${text}` : text
+  db.prepare('UPDATE partner_referrals SET notes = ?, updatedAt = ? WHERE id = ?').run(
+    next,
+    new Date().toISOString(),
+    id
+  )
+  return getPartnerReferral(id)
+}
+
+export function appendProjectNote(id, line) {
+  const text = String(line || '').trim()
+  if (!text) return
+  const row = db.prepare('SELECT notes FROM projects WHERE id = ?').get(id)
+  if (!row) return
+  const prev = row.notes ? String(row.notes).trim() : ''
+  if (prev.includes(text)) return
+  const next = prev ? `${prev}\n${text}` : text
+  db.prepare('UPDATE projects SET notes = ? WHERE id = ?').run(next, id)
 }
 
 export function insertReferralPartnership(p) {
@@ -3466,13 +3977,19 @@ export const createInquiryInTransaction = db.transaction((data) => {
   let clientId
   if (existing) {
     clientId = existing.id
-  } else {
+  } else if (data.existingClientId) {
+    const pinned = db
+      .prepare('SELECT id FROM clients WHERE id = ? AND deletedAt IS NULL')
+      .get(data.existingClientId)
+    if (pinned) clientId = pinned.id
+  }
+  if (!clientId) {
     const cRow = db.prepare("SELECT MAX(CAST(SUBSTR(id, 2) AS INTEGER)) AS maxId FROM clients").get()
     const cMax = typeof cRow?.maxId === 'number' ? cRow.maxId : 0
     clientId = `c${cMax + 1}`
     db.prepare(
       'INSERT INTO clients (id, name, email, phone, partnerName, createdAt) VALUES (?, ?, ?, ?, ?, ?)'
-    ).run(clientId, data.name, data.email, data.phone ?? null, null, data.today)
+    ).run(clientId, data.name, data.email, phoneToStore(data.phone), null, data.today)
   }
   const pRow = db.prepare("SELECT MAX(CAST(SUBSTR(id, 2) AS INTEGER)) AS maxId FROM projects").get()
   const pMax = typeof pRow?.maxId === 'number' ? pRow.maxId : 0
@@ -3985,5 +4502,7 @@ migrateScheduledSendActiveIndexExcludeSent(db)
 initVenuesAndVisitsSchema(db)
 migratePartnershipContactsToVenues(db, dataDir)
 initReferralPartnershipSchema(db)
+protectLegacyPaidProjectsOnce()
+backfillReferralProjectLinksOnce()
 
 export default db

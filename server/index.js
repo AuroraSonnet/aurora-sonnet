@@ -17,6 +17,8 @@ import {
   restoreProject,
   getDeletedClientIds,
   createInquiryInTransaction,
+  appendPartnerReferralNote,
+  appendProjectNote,
   createProject,
   updateProject,
   deleteProject,
@@ -104,6 +106,14 @@ import {
   updateOutreachRegion,
   getDailyVisitTarget,
   setAppSetting,
+  getProjectReferralContext,
+  suggestReferralForProject,
+  linkReferralToProject,
+  listAllReferralProjectLinks,
+  listReferralProjectLinkReview,
+  applyReferralProjectAction,
+  getReferralProjectLink,
+  unlinkReferralProject,
 } from './db.js'
 import {
   tryEnrollVenueAfterFirstOutreach,
@@ -160,8 +170,10 @@ import {
 } from './partnerReferralDecisions.js'
 import {
   attributeInquiryToReferralPartner,
+  classifyIncomingCouple,
   submitPublicPartnerApplication,
 } from './publicReferralPartner.js'
+import { partnerLinkAdminNote, referralCreditDecision } from './referralDuplicate.js'
 import {
   PORTAL_WELCOME_TOKEN_TTL_MS,
   consumePortalLoginToken,
@@ -1363,6 +1375,45 @@ async function sendPartnerReferralPartnerConfirmation(partnerEmail, data) {
   const clientName = String(data.clientName || '').trim() || 'your referred client'
   const first = inquiryFirstNameFromFullName(data.partnerName)
   const greeting = first ? `Dear ${first},` : 'Hello,'
+  if (data.partnerNotice) {
+    const noticeText = [
+      greeting,
+      '',
+      String(data.partnerNotice),
+      '',
+      'Warmly,',
+      'Lisa Dubocquet',
+      'Aurora Sonnet LLC',
+      'aurorasonnet.com',
+    ].join('\n')
+    console.log('[PARTNER-REFERRAL-PARTNER-EMAIL] sendMail attempt', { from: mailFrom, to, uncredited: true })
+    try {
+      const info = await reminderTransporter.sendMail({
+        from: mailFrom,
+        to,
+        subject: 'We received your referral',
+        text: noticeText,
+      })
+      console.log('[PARTNER-REFERRAL-PARTNER-EMAIL] sendMail resolved', {
+        to,
+        uncredited: true,
+        messageId: info && info.messageId,
+        response: info && info.response,
+        accepted: info && info.accepted,
+        rejected: info && info.rejected,
+      })
+    } catch (err) {
+      console.error('[PARTNER-REFERRAL-PARTNER-EMAIL] sendMail threw', {
+        to,
+        responseCode: err && err.responseCode,
+        response: err && err.response,
+        command: err && err.command,
+        message: err && err.message,
+      })
+      logError('SMTP', 'Failed to send partner referral confirmation email', err)
+    }
+    return
+  }
   const eventDateTrim = data.eventDate ? String(data.eventDate).trim() : ''
   const subject = `We received your referral — ${ref}`
   const lines = [
@@ -1502,14 +1553,19 @@ async function sendPartnerReferralAgencyNotification(referralId, data) {
     return
   }
   const ref = String(data.referralReference || '').trim() || '—'
-  const subject =
-    ref !== '—'
+  const uncredited = Boolean(data.partnerNotice)
+  const subject = uncredited
+    ? `Partner submission not credited: ${data.partnerName} → ${data.clientName}`
+    : ref !== '—'
       ? `New partner referral — Referral Reference: ${ref}`
       : `New partner referral: ${data.partnerName} → ${data.clientName}`
   const lines = [
-    data.source === 'partner_link'
-      ? 'A client inquired through a partner referral link. The referral was attributed to the partner automatically.'
-      : 'A new partner referral was submitted via the website form.',
+    uncredited
+      ? 'A Refer a Couple submission was saved. Referral credit was not applied.'
+      : data.source === 'partner_link'
+        ? 'A client inquired through a partner referral link. The referral was attributed to the partner automatically.'
+        : 'A new partner referral was submitted via the website form.',
+    ...(uncredited ? ['', data.partnerNotice] : []),
     '',
     `Referral Reference: ${ref}`,
     ...(data.termsLabel ? [`Terms: ${data.termsLabel}`] : []),
@@ -2127,6 +2183,7 @@ app.post('/api/inquiry', async (req, res) => {
 
     let referralAttribution = null
     const partnerToken = String(body.partnerToken || body.partner || '').trim()
+    const coupleMatch = partnerToken ? classifyIncomingCouple({ email, phone, name }) : null
 
     const { clientId, projectId } = createInquiryInTransaction({
       name,
@@ -2143,6 +2200,10 @@ app.post('/api/inquiry', async (req, res) => {
       notes: inquiryMessage,
       requestedArtist: requestedArtist || undefined,
       performanceMoment: performanceMoment.length > 0 ? performanceMoment : undefined,
+      existingClientId:
+        coupleMatch && (coupleMatch.kind === 'existing_client' || coupleMatch.kind === 'existing_referral')
+          ? coupleMatch.clientId
+          : undefined,
     })
 
     if (partnerToken) {
@@ -2155,10 +2216,32 @@ app.post('/api/inquiry', async (req, res) => {
           eventDate: String(body.weddingDate || '').trim() || null,
           eventLocation: venue || null,
           linkedProjectId: projectId,
+          priorMatch: coupleMatch,
         })
       } catch (attrErr) {
         logError('DB', 'Partner link attribution failed', attrErr)
         referralAttribution = { status: 'error' }
+      }
+      const heldNote = partnerLinkAdminNote(referralAttribution?.status)
+      if (heldNote) {
+        const partnershipRef = referralAttribution.linkPartnershipId || referralAttribution.partnershipId
+        appendProjectNote(
+          projectId,
+          [
+            partnershipRef ? `${heldNote} Partner link partnership ${partnershipRef}.` : heldNote,
+            `Submitted email ${email}.`,
+            phone ? `Submitted phone ${phone}.` : '',
+          ].filter(Boolean).join(' ')
+        )
+        if (
+          (referralAttribution.status === 'existing' || referralAttribution.status === 'already_referred') &&
+          referralAttribution.referralId
+        ) {
+          appendPartnerReferralNote(
+            referralAttribution.referralId,
+            `Inquiry ${projectId} recorded. Existing attribution kept. No additional referral credit.`
+          )
+        }
       }
       if (referralAttribution?.status === 'created') {
         const notifyPayload = {
@@ -2185,6 +2268,7 @@ app.post('/api/inquiry', async (req, res) => {
 
     // Fire-and-forget email so the form response isn't blocked by slow SMTP
     console.log('[AGENCY-EMAIL] before sendInquiryNotification (scheduling)')
+    const heldNote = partnerLinkAdminNote(referralAttribution?.status)
     sendInquiryNotification({
       name,
       email,
@@ -2194,7 +2278,7 @@ app.post('/api/inquiry', async (req, res) => {
       weddingDate,
       venue,
       packageId,
-      message: inquiryMessage,
+      message: [inquiryMessage, heldNote].filter(Boolean).join('\n\n') || undefined,
       requestedArtist,
       performanceMoment: performanceMoment.length > 0 ? performanceMoment.join(', ') : undefined,
     })
@@ -2556,6 +2640,66 @@ app.patch('/api/projects/:id', (req, res) => {
   } catch (err) {
     logError('DB', 'Failed to update project', err)
     res.status(500).json({ error: 'Failed to update project' })
+  }
+})
+
+app.get('/api/projects/:id/referral', (req, res) => {
+  try {
+    const ctx = getProjectReferralContext(req.params.id)
+    if (!ctx) return res.status(404).json({ error: 'Project not found' })
+    res.json(ctx)
+  } catch (err) {
+    logError('DB', 'Failed to load project referral', err)
+    res.status(500).json({ error: 'Failed to load project referral' })
+  }
+})
+
+app.post('/api/projects/:id/referral-link', (req, res) => {
+  try {
+    const referralId = String(req.body?.referralId || '').trim()
+    const suggestion = suggestReferralForProject(req.params.id)
+    if (suggestion.kind !== 'suggestion' || suggestion.referralId !== referralId) {
+      return res.status(409).json({ error: 'This referral is no longer the suggested match for this project.' })
+    }
+    const result = linkReferralToProject(referralId, req.params.id, 'admin')
+    if (result.error) return res.status(409).json({ error: result.error })
+    res.json(getProjectReferralContext(req.params.id))
+  } catch (err) {
+    logError('DB', 'Failed to link project to referral', err)
+    res.status(500).json({ error: 'Failed to link project to referral' })
+  }
+})
+
+app.get('/api/referral-projects', (_req, res) => {
+  try {
+    res.json({ links: listAllReferralProjectLinks(), review: listReferralProjectLinkReview() })
+  } catch (err) {
+    logError('DB', 'Failed to list referral projects', err)
+    res.status(500).json({ error: 'Failed to list referral projects' })
+  }
+})
+
+app.post('/api/referral-projects/:id/action', (req, res) => {
+  try {
+    const { action, ...payload } = req.body || {}
+    const result = applyReferralProjectAction(req.params.id, String(action || ''), payload)
+    if (result.error) return res.status(400).json({ error: result.error })
+    res.json(getProjectReferralContext(result.link.projectId) || { link: result.link })
+  } catch (err) {
+    logError('DB', 'Failed to update referral project', err)
+    res.status(500).json({ error: 'Failed to update referral project' })
+  }
+})
+
+app.delete('/api/referral-projects/:id', (req, res) => {
+  try {
+    const link = getReferralProjectLink(req.params.id)
+    const result = unlinkReferralProject(req.params.id)
+    if (result.error) return res.status(400).json({ error: result.error })
+    res.json(getProjectReferralContext(link.projectId) || { ok: true })
+  } catch (err) {
+    logError('DB', 'Failed to unlink referral project', err)
+    res.status(500).json({ error: 'Failed to unlink referral project' })
   }
 })
 
@@ -4050,6 +4194,54 @@ app.delete('/api/expenses/:id', (req, res) => {
   }
 })
 
+function applyAdminReferralCreateFields(b, payload) {
+  if (b.referralStatus != null && String(b.referralStatus).trim()) {
+    payload.referralStatus = String(b.referralStatus).trim()
+  }
+  if (b.payoutStatus != null && String(b.payoutStatus).trim()) {
+    const requestedPayout = String(b.payoutStatus).trim()
+    if (['paid', 'completed'].includes(requestedPayout.toLowerCase())) {
+      return 'A new referral cannot start with a payout of Paid or Completed. Create it first, then record payment through the payout workflow.'
+    }
+    payload.payoutStatus = requestedPayout
+  }
+  if (b.submissionDate != null && String(b.submissionDate).trim()) {
+    payload.submissionDate = String(b.submissionDate).trim()
+  }
+  if (b.bookingAmount != null && b.bookingAmount !== '') {
+    const n = Math.round(Number(b.bookingAmount))
+    if (Number.isFinite(n)) payload.bookingAmount = Math.max(0, n)
+  }
+  if (Array.isArray(b.expenseLineItems)) {
+    payload.expenseLineItems = b.expenseLineItems
+  }
+  if (b.travelExpenseAmount != null && b.travelExpenseAmount !== '') {
+    const n = Math.round(Number(b.travelExpenseAmount))
+    if (Number.isFinite(n)) payload.travelExpenseAmount = Math.max(0, n)
+  }
+  if (b.hotelExpenseAmount != null && b.hotelExpenseAmount !== '') {
+    const n = Math.round(Number(b.hotelExpenseAmount))
+    if (Number.isFinite(n)) payload.hotelExpenseAmount = Math.max(0, n)
+  }
+  if (Object.prototype.hasOwnProperty.call(b, 'commissionableOverrideAmount')) {
+    const v = b.commissionableOverrideAmount
+    if (v === null || v === undefined || v === '') payload.commissionableOverrideAmount = null
+    else {
+      const n = Math.round(Number(v))
+      if (Number.isFinite(n)) payload.commissionableOverrideAmount = Math.max(0, n)
+    }
+  }
+  if (Object.prototype.hasOwnProperty.call(b, 'payoutOverrideAmount')) {
+    const v = b.payoutOverrideAmount
+    if (v === null || v === undefined || v === '') payload.payoutOverrideAmount = null
+    else {
+      const n = Math.round(Number(v))
+      if (Number.isFinite(n)) payload.payoutOverrideAmount = Math.max(0, n)
+    }
+  }
+  return null
+}
+
 app.post('/api/partner-referrals', (req, res) => {
   try {
     const b = req.body || {}
@@ -4073,45 +4265,11 @@ app.post('/api/partner-referrals', (req, res) => {
       eventLocation: String(b.eventLocation || '').trim() || null,
       notes: String(b.notes || '').trim() || null,
     }
-    if (b.referralStatus != null && String(b.referralStatus).trim()) {
-      payload.referralStatus = String(b.referralStatus).trim()
-    }
-    if (b.payoutStatus != null && String(b.payoutStatus).trim()) {
-      payload.payoutStatus = String(b.payoutStatus).trim()
-    }
-    if (b.submissionDate != null && String(b.submissionDate).trim()) {
-      payload.submissionDate = String(b.submissionDate).trim()
-    }
-    if (b.bookingAmount != null && b.bookingAmount !== '') {
-      const n = Math.round(Number(b.bookingAmount))
-      if (Number.isFinite(n)) payload.bookingAmount = Math.max(0, n)
-    }
-    if (Array.isArray(b.expenseLineItems)) {
-      payload.expenseLineItems = b.expenseLineItems
-    }
-    if (b.travelExpenseAmount != null && b.travelExpenseAmount !== '') {
-      const n = Math.round(Number(b.travelExpenseAmount))
-      if (Number.isFinite(n)) payload.travelExpenseAmount = Math.max(0, n)
-    }
-    if (b.hotelExpenseAmount != null && b.hotelExpenseAmount !== '') {
-      const n = Math.round(Number(b.hotelExpenseAmount))
-      if (Number.isFinite(n)) payload.hotelExpenseAmount = Math.max(0, n)
-    }
-    if (Object.prototype.hasOwnProperty.call(b, 'commissionableOverrideAmount')) {
-      const v = b.commissionableOverrideAmount
-      if (v === null || v === undefined || v === '') payload.commissionableOverrideAmount = null
-      else {
-        const n = Math.round(Number(v))
-        if (Number.isFinite(n)) payload.commissionableOverrideAmount = Math.max(0, n)
-      }
-    }
-    if (Object.prototype.hasOwnProperty.call(b, 'payoutOverrideAmount')) {
-      const v = b.payoutOverrideAmount
-      if (v === null || v === undefined || v === '') payload.payoutOverrideAmount = null
-      else {
-        const n = Math.round(Number(v))
-        if (Number.isFinite(n)) payload.payoutOverrideAmount = Math.max(0, n)
-      }
+    // Public route: anonymous callers get only the fields above; status and payout stay at the server defaults.
+    const isAdmin = Boolean(req.session?.authenticated)
+    if (isAdmin) {
+      const adminFieldError = applyAdminReferralCreateFields(b, payload)
+      if (adminFieldError) return res.status(400).json({ error: adminFieldError })
     }
     const referralProgram = String(b.referralProgram || '').trim()
     const partnerToken = String(b.partnerToken || '').trim()
@@ -4128,18 +4286,65 @@ app.post('/api/partner-referrals', (req, res) => {
       payload.termsAcceptedAt = new Date().toISOString()
     }
     if (partnerToken) payload.partnerToken = partnerToken
-    if (b.venueId != null && String(b.venueId).trim()) payload.venueId = String(b.venueId).trim()
-    if (b.referringContactId != null && String(b.referringContactId).trim()) {
-      payload.referringContactId = String(b.referringContactId).trim()
-    }
-    if (b.id != null && String(b.id).trim()) {
-      if (getPartnerReferral(String(b.id).trim())) {
-        return res.status(409).json({ error: 'Referral id already exists' })
+    if (referralProgram === 'public_10') {
+      const match = classifyIncomingCouple({ email: clientEmail, phone: payload.clientPhone, name: clientName })
+      const decision = referralCreditDecision(match)
+      if (decision.action !== 'credit') {
+        const today = new Date().toISOString().slice(0, 10)
+        const adminNote =
+          decision.action === 'already_registered'
+            ? 'Refer a Couple submission received. Not credited: couple already registered with Aurora Sonnet.'
+            : 'Refer a Couple submission received. Needs admin review before referral credit.'
+        const recorded = createInquiryInTransaction({
+          name: clientName,
+          email: clientEmail,
+          phone: payload.clientPhone || undefined,
+          today,
+          weddingDate: payload.eventDate || today,
+          venue: payload.eventLocation || undefined,
+          value: 0,
+          title: 'Referral submission',
+          clientName,
+          dueDate: payload.eventDate || today,
+          notes: [
+            payload.notes,
+            `Submitted by ${partnerName} <${partnerEmail}>.`,
+            `Couple email ${clientEmail}.`,
+            payload.clientPhone ? `Couple phone ${payload.clientPhone}.` : '',
+            adminNote,
+          ].filter(Boolean).join('\n'),
+          existingClientId: decision.action === 'already_registered' ? match.clientId : undefined,
+        })
+        if (match.kind === 'existing_referral' && match.referralId) {
+          appendPartnerReferralNote(
+            match.referralId,
+            `Inquiry ${recorded.projectId} recorded from a Refer a Couple submission. Existing attribution kept. No additional referral credit.`
+          )
+        }
+        const uncreditedPayload = { ...payload, partnerNotice: decision.partnerNotice }
+        sendPartnerReferralAgencyNotification('uncredited', uncreditedPayload).catch((err) => {
+          logError('SMTP', 'Uncredited partner referral agency email (non-blocking)', err)
+        })
+        sendPartnerReferralPartnerConfirmation(partnerEmail, uncreditedPayload).catch((err) => {
+          logError('SMTP', 'Uncredited partner referral confirmation (non-blocking)', err)
+        })
+        return res.json({ recorded: true, projectId: recorded.projectId, partnerNotice: decision.partnerNotice })
       }
-      payload.id = String(b.id).trim()
-    } else if (b.skipPartnerConfirmation === true) {
-      // CRM / Electron manual create: avoid pref-* collision with Render (separate DBs reuse the same id sequence).
-      payload.id = `pref-crm-${Date.now()}-${Math.random().toString(36).slice(2, 10)}`
+    }
+    if (isAdmin) {
+      if (b.venueId != null && String(b.venueId).trim()) payload.venueId = String(b.venueId).trim()
+      if (b.referringContactId != null && String(b.referringContactId).trim()) {
+        payload.referringContactId = String(b.referringContactId).trim()
+      }
+      if (b.id != null && String(b.id).trim()) {
+        if (getPartnerReferral(String(b.id).trim())) {
+          return res.status(409).json({ error: 'Referral id already exists' })
+        }
+        payload.id = String(b.id).trim()
+      } else if (b.skipPartnerConfirmation === true) {
+        // CRM / Electron manual create: avoid pref-* collision with Render (separate DBs reuse the same id sequence).
+        payload.id = `pref-crm-${Date.now()}-${Math.random().toString(36).slice(2, 10)}`
+      }
     }
     const created = createPartnerReferral(payload)
     // Partner confirmation: send for all public/website creates (id pref-<n>). Omit only for CRM path above
@@ -4414,6 +4619,7 @@ app.delete('/api/partner-referrals/:id', (req, res) => {
     if (!ok) return res.status(404).json({ error: 'Partner referral not found' })
     res.json({ ok: true })
   } catch (err) {
+    if (err?.message?.includes('kept as history')) return res.status(409).json({ error: err.message })
     logError('DB', 'Failed to delete partner referral', err)
     res.status(500).json({ error: 'Failed to delete partner referral' })
   }
