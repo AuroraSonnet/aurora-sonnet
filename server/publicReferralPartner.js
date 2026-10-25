@@ -7,12 +7,16 @@ import { nyBusinessDateString } from './businessDays.js'
 import db, {
   createPartnerReferral,
   findFirstPartnerReferralByClientEmail,
+  getPartnerReferral,
   getReferralPartnershipAgreementById,
   getReferralPartnershipByPartnerEmail,
   getReferralPartnershipByReferralToken,
   insertReferralPartnership,
   insertReferralPartnershipAgreement,
+  listClientContactIndex,
+  listPartnerReferralContactIndex,
 } from './db.js'
+import { classifyCoupleContacts } from './referralDuplicate.js'
 import { decodeSignatureImage, publicPartnerAgreementHtml, renderPublicPartnerAgreementPdf } from './publicPartnerAgreementPdf.js'
 import { PUBLIC_PARTNER_AGREEMENT_TERMS, PUBLIC_PARTNER_AGREEMENT_VERSION } from './referralPartnershipTerms.js'
 
@@ -26,6 +30,33 @@ function clean(value, max) {
 
 function normalizeEmail(value) {
   return clean(value, 120).toLowerCase()
+}
+
+export function classifyIncomingCouple({ email, phone, name }) {
+  return classifyCoupleContacts({
+    email,
+    phone,
+    name,
+    clients: listClientContactIndex(),
+    referrals: listPartnerReferralContactIndex(),
+  })
+}
+
+function referralMatchResult(existing, partnership) {
+  if (existing.partnershipId && existing.partnershipId === partnership.id) {
+    return {
+      status: 'existing',
+      referralId: existing.id,
+      referralReference: existing.referralReference || null,
+      partnershipId: partnership.id,
+    }
+  }
+  return {
+    status: 'already_referred',
+    referralId: existing.id,
+    referralReference: existing.referralReference || null,
+    linkPartnershipId: partnership.id,
+  }
 }
 
 export function buildPartnerReferralLink(token) {
@@ -166,8 +197,9 @@ export async function submitPublicPartnerApplication(input, meta = {}) {
 }
 
 /**
- * A client arrived through a partner's link (inquiry or other approved intake).
- * Creates one partner_referrals row attributed to that partner, or returns the earlier referral.
+ * A client arrived through a partner's link.
+ * Creates one referral when the couple is new. An existing referral or client does not get a second credit.
+ * Pass priorMatch from before the inquiry insert so the new client row is not treated as pre-existing.
  */
 export function attributeInquiryToReferralPartner({
   partnerToken,
@@ -177,6 +209,7 @@ export function attributeInquiryToReferralPartner({
   eventDate,
   eventLocation,
   linkedProjectId,
+  priorMatch,
 }) {
   const token = String(partnerToken || '').trim()
   const partnership = getReferralPartnershipByReferralToken(token)
@@ -194,22 +227,20 @@ export function attributeInquiryToReferralPartner({
   const email = normalizeEmail(clientEmail)
   if (!name || !EMAIL_RE.test(email)) return { status: 'invalid_client' }
 
-  const existing = findFirstPartnerReferralByClientEmail(email)
-  if (existing) {
-    if (existing.partnershipId && existing.partnershipId === partnership.id) {
-      return {
-        status: 'existing',
-        referralId: existing.id,
-        referralReference: existing.referralReference || null,
-        partnershipId: partnership.id,
-      }
-    }
-    return {
-      status: 'already_referred',
-      referralId: existing.id,
-      referralReference: existing.referralReference || null,
-    }
+  const match = priorMatch || classifyIncomingCouple({ email, phone: clientPhone, name })
+  if (match.kind === 'ambiguous') {
+    return { status: 'needs_review', linkPartnershipId: partnership.id }
   }
+  if (match.kind === 'existing_client') {
+    return { status: 'existing_client', clientId: match.clientId || null, linkPartnershipId: partnership.id }
+  }
+  if (match.kind === 'existing_referral' && match.referralId) {
+    const matched = getPartnerReferral(match.referralId)
+    if (matched) return referralMatchResult(matched, partnership)
+  }
+
+  const existing = findFirstPartnerReferralByClientEmail(email)
+  if (existing) return referralMatchResult(existing, partnership)
 
   const created = createPartnerReferral({
     partnerName: partnership.partnerName,
@@ -217,7 +248,7 @@ export function attributeInquiryToReferralPartner({
     partnerEmail: partnership.partnerEmail,
     clientName: name,
     clientEmail: email,
-    clientPhone: clean(clientPhone, 40) || null,
+    clientPhone: String(clientPhone ?? '').trim() || null,
     eventDate: clean(eventDate, 40) || null,
     eventLocation: clean(eventLocation, 200) || null,
     notes: 'Attributed from partner referral link.',

@@ -14,6 +14,7 @@ import type { Project } from '../data/mock'
 import { ALL_PACKAGES, getPackageOrDuoPrice } from '../data/packages'
 import { getInquiryReplyBody } from '../utils/emailSignature'
 import { getRequestedArtistLabel } from '../utils/artistLabels'
+import ReferralCommissionPanel from '../components/ReferralCommissionPanel'
 import styles from './Projects.module.css'
 
 const defaultStages = [
@@ -704,6 +705,7 @@ export default function Projects() {
                   />
                 </label>
               </div>
+            <ReferralCommissionPanel projectId={editingProject.id} />
             <nav className={styles.editLinks} aria-label="Related pages">
               <Link to={`/clients/${editingProject.clientId}`} className={styles.editLink} onClick={() => setEditingProject(null)}>
                 View client

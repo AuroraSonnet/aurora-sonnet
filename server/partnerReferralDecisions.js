@@ -22,6 +22,7 @@ import {
   getPartnerReferral,
   patchPartnerReferralFields,
   listPartnerReferralsNeedingDecision,
+  resolvePaymentDetailsUpdate,
 } from './db.js'
 
 export function listReferralDecisionsForOutreach({ approachingDays = 2 } = {}) {
@@ -104,12 +105,18 @@ export function adjustPartnerReferralDecisionDeadline(referralId, { actor, newDe
 export async function generatePartnerReferralCommissionStatement(referralId, paymentMeta = {}) {
   const referral = getPartnerReferral(referralId)
   if (!referral) return { ok: false, error: 'Referral not found' }
+  const requested = {}
+  if (paymentMeta.paymentDate != null) requested.commissionPaymentDate = paymentMeta.paymentDate
+  if (paymentMeta.paymentMethod != null) requested.commissionPaymentMethod = paymentMeta.paymentMethod
+  if (paymentMeta.paymentReference != null) requested.commissionPaymentReference = paymentMeta.paymentReference
+  const paymentDetails = resolvePaymentDetailsUpdate(referral, requested)
+  if (paymentDetails.error) return { ok: false, error: paymentDetails.error }
   const org = getAuroraOrganizationSettings()
   const merged = {
     ...referral,
-    commissionPaymentDate: paymentMeta.paymentDate ?? referral.commissionPaymentDate,
-    commissionPaymentMethod: paymentMeta.paymentMethod ?? referral.commissionPaymentMethod,
-    commissionPaymentReference: paymentMeta.paymentReference ?? referral.commissionPaymentReference,
+    commissionPaymentDate: paymentDetails.values.commissionPaymentDate ?? undefined,
+    commissionPaymentMethod: paymentDetails.values.commissionPaymentMethod ?? undefined,
+    commissionPaymentReference: paymentDetails.values.commissionPaymentReference ?? undefined,
   }
   const data = buildCommissionStatementData(merged, org)
   const pdfBuffer = await renderCommissionStatementPdf(data)
@@ -119,9 +126,7 @@ export async function generatePartnerReferralCommissionStatement(referralId, pay
     commissionStatementGeneratedAt: now,
     commissionStatementBlob: pdfBuffer,
     commissionStatementDataJson: JSON.stringify(data),
-    commissionPaymentDate: paymentMeta.paymentDate ?? referral.commissionPaymentDate ?? null,
-    commissionPaymentMethod: paymentMeta.paymentMethod ?? referral.commissionPaymentMethod ?? null,
-    commissionPaymentReference: paymentMeta.paymentReference ?? referral.commissionPaymentReference ?? null,
+    ...paymentDetails.values,
   })
   return { ok: true, referral: getPartnerReferral(referralId), statementNumber: data.statementNumber }
 }
