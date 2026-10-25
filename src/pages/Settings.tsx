@@ -1,4 +1,5 @@
 import { useState, useEffect } from 'react'
+import { Link } from 'react-router-dom'
 import { useApp } from '../context/AppContext'
 import { getStripeSettings, saveStripeSettings } from '../api/stripe'
 import { savePublicAppUrl } from '../api/db'
@@ -310,6 +311,27 @@ export default function Settings() {
         <p className={styles.muted} style={{ marginTop: '2rem', fontSize: '0.875rem' }}>
           App version {typeof __APP_VERSION__ !== 'undefined' ? __APP_VERSION__ : '—'}
         </p>
+      </section>
+
+      <section className={styles.card}>
+        <h2>More</h2>
+        <p className={styles.hint}>Tools that used to sit in the sidebar. Same pages as before.</p>
+        <ul className={styles.moreList}>
+          <li><Link to="/experiences">Packages</Link></li>
+          <li><Link to="/music-selection">Repertoire</Link></li>
+          <li><Link to="/newsletter">Newsletter</Link></li>
+          <li>
+            Forms
+            <span className={styles.moreSub}>
+              <Link to="/inquire">Solo</Link>
+              <Link to="/inquire-duo">Duo</Link>
+              <Link to="/inquire-combined">Solo + Duo</Link>
+              <Link to="/inquire-general">General</Link>
+            </span>
+          </li>
+          <li><Link to="/automations">Automations</Link></li>
+          <li><Link to="/monthly-targets">Monthly Targets</Link></li>
+        </ul>
       </section>
     </div>
   )

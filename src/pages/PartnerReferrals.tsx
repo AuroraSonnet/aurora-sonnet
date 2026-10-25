@@ -1,4 +1,4 @@
-import { useMemo, useState, useEffect, useCallback, type CSSProperties } from 'react'
+import { useMemo, useState, useEffect, useCallback } from 'react'
 import { useApp } from '../context/AppContext'
 import { apiCreatePartnerReferral, apiDeletePartnerReferral, apiUpdatePartnerReferral, apiAcceptPartnerReferralDecision, apiRejectPartnerReferralDecision, apiGeneratePartnerReferralCommissionStatement, apiRecordPartnerReferralCommissionStatementDelivery, apiListReferralProjects, partnerReferralCommissionStatementUrl, type PartnerReferral, type PartnerReferralExpenseLine, type ReferralProjectLink, type ReferralProjectReviewItem } from '../api/db'
 import { getInquiryApiBaseUrl } from '../utils/inquiryApiUrl'
@@ -146,23 +146,6 @@ function compareReferrals(a: PartnerReferral, b: PartnerReferral): number {
   return String(b.updatedAt || '').localeCompare(String(a.updatedAt || ''))
 }
 
-function partnerKeyForReferral(r: PartnerReferral): string {
-  const email = String(r.partnerEmail ?? '')
-    .trim()
-    .toLowerCase()
-  if (email) return `email:${email}`
-  const name = String(r.partnerName ?? '')
-    .trim()
-    .toLowerCase()
-  return `name:${name || 'unknown'}`
-}
-
-function hashHue(input: string): number {
-  let h = 0
-  for (let i = 0; i < input.length; i++) h = (h * 31 + input.charCodeAt(i)) >>> 0
-  return h % 360
-}
-
 function matchesPartnerSearch(r: PartnerReferral, q: string): boolean {
   const t = q.trim().toLowerCase()
   if (!t) return true
@@ -299,78 +282,10 @@ const LINK_PAYOUT_LABELS: Record<string, string> = { none: 'Not paid', pending: 
 export default function PartnerReferrals() {
   const { state, actions } = useApp()
   const rows = useMemo(() => [...(state.partnerReferrals ?? [])].sort(compareReferrals), [state.partnerReferrals])
-  const venuesById = useMemo(() => {
-    const m: Record<string, { companyName: string }> = {}
-    for (const v of state.venues ?? []) m[v.id] = v
-    return m
-  }, [state.venues])
-  const contactsById = useMemo(() => {
-    const m: Record<string, { name?: string; email?: string }> = {}
-    for (const c of state.venueContacts ?? []) m[c.id] = c
-    return m
-  }, [state.venueContacts])
-  const agreementsById = useMemo(() => {
-    const m: Record<string, { version: number; status: string }> = {}
-    for (const a of state.referralPartnershipAgreements ?? []) m[a.id] = a
-    return m
-  }, [state.referralPartnershipAgreements])
 
   const [listQuery, setListQuery] = useState('')
   const [listRefreshing, setListRefreshing] = useState(false)
   const filteredRows = useMemo(() => rows.filter((r) => matchesPartnerSearch(r, listQuery)), [rows, listQuery])
-
-  const partnerKeyCounts = useMemo(() => {
-    const m = new Map<string, number>()
-    for (const r of filteredRows) {
-      const k = partnerKeyForReferral(r)
-      m.set(k, (m.get(k) ?? 0) + 1)
-    }
-    return m
-  }, [filteredRows])
-
-  type VendorSummary = {
-    key: string
-    label: string
-    subtitle?: string
-    referrals: number
-    booked: number
-    pendingPayoutSum: number
-    paidPayoutSum: number
-  }
-
-  const vendorSummaries = useMemo(() => {
-    const m = new Map<
-      string,
-      { label: string; subtitle?: string; referrals: number; booked: number; pendingPayoutSum: number; paidPayoutSum: number }
-    >()
-    for (const r of filteredRows) {
-      const key = partnerKeyForReferral(r)
-      const cur =
-        m.get(key) ?? {
-          label: String(r.partnerName ?? '').trim() || 'Partner',
-          subtitle: (() => {
-            const email = String(r.partnerEmail ?? '').trim()
-            const co = String(r.companyName ?? '').trim()
-            if (email && co) return `${email} · ${co}`
-            return email || co || undefined
-          })(),
-          referrals: 0,
-          booked: 0,
-          pendingPayoutSum: 0,
-          paidPayoutSum: 0,
-        }
-      cur.referrals += 1
-      if (referralStatusEligibleForBookingPayout(r.referralStatus)) cur.booked += 1
-      const ps = String(r.payoutStatus || 'none').toLowerCase()
-      const payout = Number.isFinite(r.payoutAmount) ? r.payoutAmount : 0
-      if (ps === 'paid' || ps === 'completed') cur.paidPayoutSum += payout
-      else if (ps === 'pending' && payout > 0) cur.pendingPayoutSum += payout
-      m.set(key, cur)
-    }
-    const out: VendorSummary[] = Array.from(m.entries()).map(([key, v]) => ({ key, ...v }))
-    out.sort((a, b) => b.referrals - a.referrals || a.label.localeCompare(b.label))
-    return out
-  }, [filteredRows])
 
   const refreshReferralsList = useCallback(async () => {
     if (listRefreshing) return
@@ -748,7 +663,6 @@ export default function PartnerReferrals() {
       <header className={styles.header}>
         <div className={styles.headerMain}>
           <h1>Partner Referrals</h1>
-          <p className={styles.subtitle}>Partner-sourced bookings and payout tracking.</p>
         </div>
         <div className={styles.headerActions}>
           {getInquiryApiBaseUrl().startsWith('http') ? (
@@ -788,7 +702,7 @@ export default function PartnerReferrals() {
         </details>
       ) : null}
 
-      <div className={styles.listToolbar} aria-label="Search and partner summaries">
+      <div className={styles.listToolbar} aria-label="Search referrals">
         <label className={styles.searchField}>
           <span className={styles.searchLabel}>Search</span>
           <input
@@ -796,7 +710,7 @@ export default function PartnerReferrals() {
             type="search"
             value={listQuery}
             onChange={(e) => setListQuery(e.target.value)}
-            placeholder="Partner name, email, company, client, or reference…"
+            placeholder="Partner, couple, or reference…"
             autoComplete="off"
           />
         </label>
@@ -805,142 +719,47 @@ export default function PartnerReferrals() {
         </div>
       </div>
 
-      {vendorSummaries.length > 0 ? (
-        <div className={styles.vendorSummaryStrip} aria-label="Vendor summaries for visible referrals">
-          {vendorSummaries.slice(0, 14).map((v) => {
-            const hue = hashHue(v.key)
-            return (
-              <div key={v.key} className={styles.vendorChip} style={{ ['--vendor-hue' as string]: String(hue) }}>
-                <div className={styles.vendorChipTitle}>{v.label}</div>
-                {v.subtitle ? <div className={styles.vendorChipSub}>{v.subtitle}</div> : null}
-                <div className={styles.vendorChipStats}>
-                  <span>
-                    <span className={styles.vendorChipK}>Refs</span> {v.referrals}
-                  </span>
-                  <span>
-                    <span className={styles.vendorChipK}>Booked</span> {v.booked}
-                  </span>
-                  <span>
-                    <span className={styles.vendorChipK}>Original record pending payouts</span> {formatUsd(v.pendingPayoutSum)}
-                  </span>
-                  <span>
-                    <span className={styles.vendorChipK}>Original record payouts paid</span> {formatUsd(v.paidPayoutSum)}
-                  </span>
-                </div>
-              </div>
-            )
-          })}
-          {vendorSummaries.length > 14 ? (
-            <div className={styles.vendorChipMore}>+{vendorSummaries.length - 14} more partners in this view</div>
-          ) : null}
+      {rows.length === 0 ? (
+        <div className={styles.emptyState}>
+          <p className={styles.emptyTitle}>No referrals yet</p>
+          <p className={styles.emptyCopy}>Partner referrals will show up here. Add one, or they will arrive from the website form.</p>
         </div>
-      ) : null}
-
-      <div className={`${styles.tableWrap} ${styles.desktopTable}`}>
-        <table className={styles.table}>
-          <thead>
-            <tr>
-              <th className={styles.colRef}>Reference</th>
-              <th className={styles.colPartner}>Partner</th>
-              <th className={styles.colClient}>Client</th>
-              <th className={styles.colVenue}>Venue</th>
-              <th className={styles.colStatus}>Decision</th>
-              <th className={styles.colStatus}>Status</th>
-              <th className={styles.colMoney} title="From the original referral record, not current per-booking commission">Original booking</th>
-              <th className={styles.colMoney} title="From the original referral record, not current per-booking commission">Original payout</th>
-              <th className={styles.colActions}>Actions</th>
-            </tr>
-          </thead>
-          <tbody>
-            {rows.length === 0 ? (
+      ) : filteredRows.length === 0 ? (
+        <div className={styles.emptyState}>
+          <p className={styles.emptyTitle}>No matches</p>
+          <p className={styles.emptyCopy}>Nothing in this list matches that search.</p>
+        </div>
+      ) : (
+        <div className={styles.tableWrap}>
+          <table className={styles.table}>
+            <thead>
               <tr>
-                <td colSpan={9} className={styles.emptyCell}>
-                  No partner referrals yet. Use Add referral or the website form to create one.
-                </td>
+                <th className={styles.colRef}>Reference</th>
+                <th className={styles.colClient}>Couple</th>
+                <th className={styles.colPartner}>Referring Partner</th>
+                <th className={styles.colStatus}>Status</th>
+                <th className={styles.colActions}>Actions</th>
               </tr>
-            ) : filteredRows.length === 0 ? (
-              <tr>
-                <td colSpan={9} className={styles.emptyCell}>
-                  No referrals match your search. Clear the search box to see all referrals.
-                </td>
-              </tr>
-            ) : (
-              filteredRows.map((r) => {
-                const pk = partnerKeyForReferral(r)
-                const dup = (partnerKeyCounts.get(pk) ?? 0) > 1
-                const hue = hashHue(pk)
-                return (
-                  <tr
-                    key={r.id}
-                    className={dup ? styles.partnerDupRow : undefined}
-                    style={dup ? ({ ['--partner-hue' as string]: String(hue) } as CSSProperties) : undefined}
-                  >
-                  <td
-                    className={r.referralReference?.trim() ? styles.refCode : styles.refCell}
-                    title={r.referralReference?.trim() ? String(r.referralReference) : `Record id: ${r.id}`}
-                  >
+            </thead>
+            <tbody>
+              {filteredRows.map((r) => (
+                <tr key={r.id}>
+                  <td data-label="Reference" className={r.referralReference?.trim() ? styles.refCode : styles.refCell}>
                     {r.referralReference?.trim() || r.id}
                   </td>
-                  <td className={styles.partnerCell}>
-                    <div className={styles.partnerNameRow}>
-                      <span className={styles.strong}>{r.partnerName}</span>
-                      {dup ? <span className={styles.partnerDupBadge}>Same partner</span> : null}
-                    </div>
-                    <div className={styles.partnerEmail} title={r.partnerEmail}>
-                      {r.partnerEmail}
-                    </div>
-                    {r.companyName?.trim() ? (
-                      <div className={styles.partnerCompany} title={r.companyName}>
-                        {r.companyName}
-                      </div>
-                    ) : null}
-                  </td>
-                  <td className={styles.colClient} title={r.clientName}>
+                  <td data-label="Couple" className={styles.colClient}>
                     {r.clientName}
                   </td>
-                  <td className={styles.colVenue} title={r.venueId || ''}>
-                    {r.venueId ? venuesById[r.venueId]?.companyName || r.venueId : '—'}
-                    {r.referringContactId ? (
-                      <div className={styles.partnerEmail}>
-                        {contactsById[r.referringContactId]?.name || contactsById[r.referringContactId]?.email || 'Contact linked'}
-                      </div>
-                    ) : null}
-                    {r.agreementSnapshotKind ? (
-                      <div className={styles.partnerCompany}>
-                        {r.agreementSnapshotKind === 'legacy_default'
-                          ? 'Legacy default terms'
-                          : `Agreement v${agreementsById[r.agreementId || '']?.version ?? '?'}`}
-                      </div>
-                    ) : null}
+                  <td data-label="Referring Partner" className={styles.partnerCell}>
+                    <span className={styles.strong}>{r.partnerName}</span>
                   </td>
-                  <td className={styles.colStatus}>
-                    {r.referralDecisionStatus ? (
-                      <span className={styles.statusPill} data-referral-status={r.referralDecisionStatus === 'accepted' ? 'won' : r.referralDecisionStatus === 'rejected' ? 'lost' : 'pipeline'}>
-                        {DECISION_STATUS_LABELS[r.referralDecisionStatus] || r.referralDecisionStatus}
-                      </span>
-                    ) : (
-                      '—'
-                    )}
-                    {r.referralDecisionDeadline ? (
-                      <div className={styles.partnerEmail}>Due {r.referralDecisionDeadline}</div>
-                    ) : null}
-                  </td>
-                  <td className={styles.colStatus}>
-                    <span
-                      className={styles.statusPill}
-                      data-referral-status={referralStatusVariant(r.referralStatus)}
-                    >
+                  <td data-label="Status" className={styles.colStatus}>
+                    <span className={styles.statusPill} data-referral-status={referralStatusVariant(r.referralStatus)}>
                       {referralStatusLabel(r.referralStatus)}
                     </span>
                   </td>
-                  <td className={styles.money}>{formatUsd(r.bookingAmount)}</td>
-                  <td className={styles.money}>{formatUsd(r.payoutAmount)}</td>
-                  <td className={styles.actionsCell}>
-                    <button
-                      type="button"
-                      className={styles.rowActionEdit}
-                      onClick={() => setEditor({ type: 'edit', row: r })}
-                    >
+                  <td data-label="Actions" className={styles.actionsCell}>
+                    <button type="button" className={styles.rowActionEdit} onClick={() => setEditor({ type: 'edit', row: r })}>
                       <span className={styles.rowActionEditIcon} aria-hidden>
                         ✎
                       </span>
@@ -948,76 +767,11 @@ export default function PartnerReferrals() {
                     </button>
                   </td>
                 </tr>
-                )
-              })
-            )}
-          </tbody>
-        </table>
-      </div>
-
-      <div className={styles.mobileCards} aria-label="Partner referrals list">
-        {rows.length === 0 ? (
-          <div className={styles.emptyCard}>No partner referrals yet. Use Add referral or the website form.</div>
-        ) : filteredRows.length === 0 ? (
-          <div className={styles.emptyCard}>No referrals match your search.</div>
-        ) : (
-          filteredRows.map((r) => {
-            const pk = partnerKeyForReferral(r)
-            const dup = (partnerKeyCounts.get(pk) ?? 0) > 1
-            const hue = hashHue(pk)
-            return (
-            <article
-              key={r.id}
-              className={`${styles.card}${dup ? ` ${styles.partnerDupCard}` : ''}`}
-              style={dup ? ({ ['--partner-hue' as string]: String(hue) } as CSSProperties) : undefined}
-            >
-              <div className={styles.cardTitle}>{r.clientName}</div>
-              <div className={styles.cardMeta}>
-                <span className={styles.strong}>{r.partnerName}</span>
-                {dup ? <span className={styles.partnerDupBadge}>Same partner</span> : null}
-                <div className={styles.cardPartnerEmail}>{r.partnerEmail}</div>
-                {r.companyName?.trim() ? <div className={styles.cardPartnerCompany}>{r.companyName}</div> : null}
-              </div>
-              <dl className={styles.cardDl}>
-                <div>
-                  <dt>Reference</dt>
-                  <dd className={r.referralReference?.trim() ? styles.refCode : styles.refCell}>
-                    {r.referralReference?.trim() || r.id}
-                  </dd>
-                </div>
-                <div>
-                  <dt>Original record booking</dt>
-                  <dd>{formatUsd(r.bookingAmount)}</dd>
-                </div>
-                <div>
-                  <dt>Status</dt>
-                  <dd>
-                    <span
-                      className={styles.statusPill}
-                      data-referral-status={referralStatusVariant(r.referralStatus)}
-                    >
-                      {referralStatusLabel(r.referralStatus)}
-                    </span>
-                  </dd>
-                </div>
-                <div>
-                  <dt>Original record payout</dt>
-                  <dd>{formatUsd(r.payoutAmount)}</dd>
-                </div>
-              </dl>
-              <div className={styles.cardActions}>
-                <button type="button" className={styles.rowActionEdit} onClick={() => setEditor({ type: 'edit', row: r })}>
-                  <span className={styles.rowActionEditIcon} aria-hidden>
-                    ✎
-                  </span>
-                  Edit
-                </button>
-              </div>
-            </article>
-            )
-          })
-        )}
-      </div>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      )}
 
       {editor ? (
         <div
