@@ -27,6 +27,7 @@ import AcceptProposal from './pages/AcceptProposal'
 import WeddingMusicSelection from './pages/WeddingMusicSelection'
 import PartnershipOutreach from './pages/PartnershipOutreach'
 import PartnerReferrals from './pages/PartnerReferrals'
+import { PartnerAccountDetail, PartnerAccountsList } from './pages/PartnerAccounts'
 import OutreachToday from './pages/OutreachToday'
 import OutreachScoreboard from './pages/OutreachScoreboard'
 import AreaTabs from './components/AreaTabs'
@@ -64,7 +65,15 @@ export default function App() {
         <Route path="newsletter" element={<Newsletter />} />
         <Route path="bookings" element={<Projects />} />
         <Route path="proposals" element={<Proposals />} />
-        <Route path="partner-referrals" element={<PartnerReferrals />} />
+        <Route path="partner-referrals" element={<Navigate to="/partners" replace />} />
+        <Route path="partners" element={<AreaTabs tabs={[
+          { to: '/partners', label: 'Couple Referrals', end: true },
+          { to: '/partners/accounts', label: 'Partner Accounts' },
+        ]} />}>
+          <Route index element={<PartnerReferrals />} />
+          <Route path="accounts" element={<PartnerAccountsList />} />
+          <Route path="accounts/:id" element={<PartnerAccountDetail />} />
+        </Route>
         <Route path="partnership-outreach" element={<PartnershipOutreach />} />
         <Route path="outreach-today" element={<OutreachToday />} />
         <Route path="outreach-scoreboard" element={<OutreachScoreboard />} />

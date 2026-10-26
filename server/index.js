@@ -185,6 +185,8 @@ import {
   resolvePortalAccessById,
 } from './partnerPortal.js'
 import { renderContinuePage, renderDashboardPage, renderSignedOutPage } from './partnerPortalPages.js'
+import { getSignedPublicPartnerAccount, listSignedPublicPartnerAccounts } from './partnerAccounts.js'
+import { partnerMediaKitFile } from './partnerMediaKit.js'
 import { normalizeMessageId, resolveManualOutreachRecipient, applyOutreachTestRoutingToMail } from './outreachMailer.js'
 import { accelerateAndSendNextTestFollowUp, accelerateTestFollowUpScheduleOnly } from './outreachTestAccel.js'
 import {
@@ -4741,6 +4743,26 @@ app.get('/api/partner-portal/agreement.pdf', requirePortalPartner, (req, res) =>
   res.setHeader('Content-Disposition', `${disposition}; filename="Aurora-Sonnet-Partner-Referral-Agreement.pdf"`)
   res.setHeader('X-Content-Type-Options', 'nosniff')
   res.send(Buffer.from(pdf))
+})
+
+app.get('/api/partner-accounts', (_req, res) => {
+  res.json({ accounts: listSignedPublicPartnerAccounts() })
+})
+
+app.get('/api/partner-accounts/:id', (req, res) => {
+  const account = getSignedPublicPartnerAccount(req.params.id)
+  if (!account) return res.status(404).json({ error: 'Partner account not found.' })
+  res.json(account)
+})
+
+app.get('/api/partner-portal/media-kit/:fileId', requirePortalPartner, (req, res) => {
+  const file = partnerMediaKitFile(req.params.fileId)
+  if (!file) return res.status(404).json({ error: 'File not found.' })
+  const disposition = req.query.download === '1' ? 'attachment' : 'inline'
+  res.setHeader('Content-Type', file.contentType)
+  res.setHeader('Content-Disposition', `${disposition}; filename="${file.downloadName}"`)
+  res.setHeader('X-Content-Type-Options', 'nosniff')
+  res.send(file.bytes)
 })
 
 app.get('/partner/verify', (req, res) => renderContinuePage(res))

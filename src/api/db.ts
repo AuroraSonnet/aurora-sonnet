@@ -177,6 +177,39 @@ export interface AppState {
   config?: { publicAppUrl?: string }
 }
 
+export interface PartnerAccountSummary {
+  id: string
+  partnerName: string
+  companyName: string | null
+  partnerEmail: string
+  accountStatus: string
+  agreementStatus: string
+  referralLink: string | null
+}
+
+export interface PartnerAccountCouple {
+  reference: string | null
+  couple: string
+  status: string
+}
+
+export interface PartnerAccountDetail extends PartnerAccountSummary {
+  couples: PartnerAccountCouple[]
+}
+
+export async function fetchPartnerAccounts(): Promise<PartnerAccountSummary[]> {
+  const res = await apiFetch(`${API}/partner-accounts`)
+  if (!res.ok) throw new Error('Could not load partner accounts.')
+  const body = await res.json()
+  return Array.isArray(body?.accounts) ? body.accounts : []
+}
+
+export async function fetchPartnerAccount(id: string): Promise<PartnerAccountDetail> {
+  const res = await apiFetch(`${API}/partner-accounts/${encodeURIComponent(id)}`)
+  if (!res.ok) throw new Error('Could not load this account.')
+  return res.json()
+}
+
 export async function fetchState(): Promise<AppState | null> {
   try {
     const res = await apiFetch(`${API}/state`)

@@ -1,5 +1,6 @@
 /** Server-rendered Partner Portal pages (Continue + Dashboard). Data comes from partnerPortal.js only. */
 import { randomBytes } from 'node:crypto'
+import { listPartnerMediaKitFiles } from './partnerMediaKit.js'
 
 const SITE_URL = 'https://aurorasonnet.com'
 
@@ -136,6 +137,12 @@ main{padding:clamp(48px,8vw,96px) 20px clamp(64px,9vw,112px)}
 .dim{color:var(--taupe)}
 .empty{padding:26px 0 6px;border-top:1px solid var(--line);color:var(--taupe);font-size:.95rem}
 .foot{display:flex;justify-content:center;margin-top:clamp(36px,5vw,52px)}
+.kit{list-style:none;margin:18px 0 0;padding:0;display:grid;gap:22px}
+.kit li{display:grid;gap:8px;padding-top:18px;border-top:1px solid var(--line)}
+.kit img{width:100%;max-height:240px;object-fit:contain;background:#f7f3ee;border:1px solid var(--line)}
+.kit-name{margin:0;font-weight:600}
+.kit-file{margin:0;color:var(--taupe);font-size:.85rem;overflow-wrap:anywhere}
+.kit .btn{justify-self:start;text-decoration:none}
 
 @media (max-width:760px){
   .dash-head{flex-direction:column;align-items:flex-start;gap:14px}
@@ -286,6 +293,14 @@ export function renderDashboardPage(res, dash) {
   <section class="panel section">
     <h2 class="cap">Your Referrals</h2>
     <div class="refs">${rows}</div>
+  </section>
+  <section class="panel section" aria-label="Media Kit">
+    <h2 class="cap">Media Kit</h2>
+    <p class="earn-text">The same files for every partner.</p>
+    <ul class="kit">${listPartnerMediaKitFiles().map((file) => {
+      const src = `/api/partner-portal/media-kit/${encodeURIComponent(file.id)}`
+      return `<li><img src="${esc(src)}" alt="${esc(file.label)}"><p class="kit-name">${esc(file.label)}</p><p class="kit-file">${esc(file.downloadName)}</p><a class="btn btn-ghost" href="${esc(src)}?download=1">Download</a></li>`
+    }).join('')}</ul>
   </section>
   <div class="foot">
     <a class="btn btn-ghost" href="/api/partner-portal/agreement.pdf" target="_blank" rel="noopener">View Signed Agreement</a>
