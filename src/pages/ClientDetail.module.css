@@ -152,6 +152,7 @@
 
 .confirmActions .dangerBtn {
   padding: 0.5rem 1rem;
+  margin-right: auto;
 }
 
 .editForm label {
