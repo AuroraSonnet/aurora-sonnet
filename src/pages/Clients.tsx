@@ -3,7 +3,7 @@ import { Link, useNavigate } from 'react-router-dom'
 import { useApp } from '../context/AppContext'
 import { useUndo } from '../context/UndoContext'
 import { apiDeleteClient, apiDeleteClientOnRemote, apiDeleteAllClients, apiDeleteAllClientsOnRemote, apiRestoreAllClients, apiRestoreAllClientsOnRemote } from '../api/db'
-import { getInquiryApiBaseUrl } from '../utils/inquiryApiUrl'
+import { getInquiryApiBaseUrl, inquiryApiIsThisApp } from '../utils/inquiryApiUrl'
 import { addDeletedClientId, addDeletedClientIds, clearDeletedClientIds } from '../utils/syncFilters'
 import styles from './Clients.module.css'
 
@@ -23,6 +23,7 @@ export default function Clients() {
   const [search, setSearch] = useState('')
   const [sortBy, setSortBy] = useState<'name-az' | 'name-za' | 'recent'>('name-az')
   const [deletingAll, setDeletingAll] = useState(false)
+  const [deletingId, setDeletingId] = useState<string | null>(null)
   const [restoringAll, setRestoringAll] = useState(false)
 
   const filteredClients = useMemo(() => {
@@ -70,6 +71,25 @@ export default function Clients() {
       setForm({ name: '', email: '', phone: '', partnerName: '' })
     } catch (err) {
       setAddError(err instanceof Error ? err.message : 'Could not add client')
+    }
+  }
+
+  const handleDeleteClient = async (client: { id: string; name: string }) => {
+    const label = client.name || 'this contact'
+    if (!window.confirm(`Delete ${label} and their bookings? You can restore them later. A partner referral is not deleted.`)) return
+    setDeletingId(client.id)
+    try {
+      const ok = await apiDeleteClient(client.id)
+      if (!ok) {
+        window.alert('Could not delete this contact.')
+        return
+      }
+      const base = getInquiryApiBaseUrl()
+      if (base && !inquiryApiIsThisApp(base, window.location.origin)) await apiDeleteClientOnRemote(base, client.id)
+      addDeletedClientId(client.id)
+      actions.removeClientLocally(client.id)
+    } finally {
+      setDeletingId(null)
     }
   }
 
@@ -295,6 +315,14 @@ export default function Clients() {
             </Link>
             <span className={styles.email}>{c.email}</span>
             <div className={styles.rowActions}>
+              <button
+                type="button"
+                className={styles.deleteBtn}
+                disabled={deletingId === c.id}
+                onClick={() => void handleDeleteClient(c)}
+              >
+                {deletingId === c.id ? 'Deleting…' : 'Delete'}
+              </button>
               <button
                 type="button"
                 className={styles.menuBtn}

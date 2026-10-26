@@ -1,7 +1,9 @@
 import { useState, useEffect } from 'react'
 import { useParams, Link, useNavigate } from 'react-router-dom'
 import { useApp, type MusicSelection } from '../context/AppContext'
-import { getInquiryApiBaseUrl } from '../utils/inquiryApiUrl'
+import { apiDeleteClient, apiDeleteClientOnRemote } from '../api/db'
+import { getInquiryApiBaseUrl, inquiryApiIsThisApp } from '../utils/inquiryApiUrl'
+import { addDeletedClientId } from '../utils/syncFilters'
 import { getPackageLabel } from '../data/packages'
 import { getRequestedArtistLabel } from '../utils/artistLabels'
 import { getInquiryReplyBody } from '../utils/emailSignature'
@@ -133,6 +135,7 @@ export default function ClientDetail() {
   const [editForm, setEditForm] = useState({ name: '', email: '', phone: '', partnerName: '' })
   const [editError, setEditError] = useState<string | null>(null)
   const [saving, setSaving] = useState(false)
+  const [deleting, setDeleting] = useState(false)
   const [editingSelectionId, setEditingSelectionId] = useState<string | null>(null)
   const [editLabelValue, setEditLabelValue] = useState('')
   const [editLabelError, setEditLabelError] = useState<string | null>(null)
@@ -186,6 +189,26 @@ export default function ClientDetail() {
       cancelled = true
     }
   }, [client, clientMusicSelections.length])
+
+  const handleDeleteClient = async () => {
+    if (!id || !client) return
+    if (!window.confirm(`Delete ${client.name || 'this contact'} and their bookings? You can restore them later. A partner referral is not deleted.`)) return
+    setDeleting(true)
+    try {
+      const ok = await apiDeleteClient(id)
+      if (!ok) {
+        setEditError('Could not delete this contact.')
+        return
+      }
+      const base = getInquiryApiBaseUrl()
+      if (base && !inquiryApiIsThisApp(base, window.location.origin)) await apiDeleteClientOnRemote(base, id)
+      addDeletedClientId(id)
+      actions.removeClientLocally(id)
+      navigate('/clients')
+    } finally {
+      setDeleting(false)
+    }
+  }
 
   const handleSaveEdit = async (e: React.FormEvent) => {
     e.preventDefault()
@@ -368,10 +391,13 @@ export default function ClientDetail() {
               </label>
               {editError && <p className={styles.error} role="alert">{editError}</p>}
               <div className={styles.confirmActions}>
-                <button type="button" className={styles.cancelBtn} onClick={() => setShowEdit(false)} disabled={saving}>
+                <button type="button" className={styles.dangerBtn} onClick={() => void handleDeleteClient()} disabled={saving || deleting}>
+                  {deleting ? 'Deleting…' : 'Delete'}
+                </button>
+                <button type="button" className={styles.cancelBtn} onClick={() => setShowEdit(false)} disabled={saving || deleting}>
                   Cancel
                 </button>
-                <button type="submit" className={styles.primBtn} disabled={saving}>
+                <button type="submit" className={styles.primBtn} disabled={saving || deleting}>
                   {saving ? 'Saving…' : 'Save'}
                 </button>
               </div>
