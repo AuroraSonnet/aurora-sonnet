@@ -1,0 +1,197 @@
+.page {
+  width: 100%;
+  max-width: 76rem;
+  margin: 0 auto;
+}
+
+.header {
+  margin-bottom: 1.25rem;
+}
+
+.header h1 {
+  font-size: 1.75rem;
+  margin: 0 0 0.25rem;
+}
+
+.sub {
+  margin: 0;
+  color: var(--text-secondary);
+  font-size: 0.95rem;
+}
+
+.back {
+  display: inline-flex;
+  align-items: center;
+  min-height: 44px;
+  margin-bottom: 0.75rem;
+  color: var(--text-secondary);
+  font-size: 0.85rem;
+  font-weight: 600;
+  text-decoration: none;
+}
+
+.back:hover {
+  color: var(--accent);
+}
+
+.error {
+  margin: 0 0 1rem;
+  color: var(--danger, #8a3b32);
+}
+
+.empty {
+  margin: 0;
+  color: var(--text-secondary);
+}
+
+.list,
+.couples {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  background: var(--bg-card);
+}
+
+.list > li,
+.couples li {
+  padding: 0.9rem 1rem;
+  border-top: 1px solid var(--border);
+}
+
+.list > li:first-child,
+.couples li:first-child {
+  border-top: 0;
+}
+
+.row,
+.couples li {
+  display: grid;
+  grid-template-columns: 1.3fr 1fr 1.4fr auto;
+  gap: 0.75rem 1rem;
+  align-items: center;
+}
+
+.list > li .linkRow {
+  margin-top: 0.75rem;
+}
+
+.name {
+  font-weight: 600;
+  color: inherit;
+  text-decoration: none;
+}
+
+.name:hover {
+  color: var(--accent);
+}
+
+.meta,
+.ref {
+  color: var(--text-secondary);
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+
+.status {
+  justify-self: end;
+  font-size: 0.85rem;
+  font-weight: 600;
+}
+
+.agreement {
+  font-weight: 500;
+  color: var(--text-secondary);
+}
+
+.facts {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 0.75rem;
+  margin: 0 0 1.5rem;
+}
+
+.facts div {
+  padding: 0.9rem 1rem;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  background: var(--bg-card);
+}
+
+.facts dt {
+  margin-bottom: 0.25rem;
+  color: var(--text-secondary);
+  font-size: 0.75rem;
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
+
+.facts dd {
+  margin: 0;
+  overflow-wrap: anywhere;
+}
+
+.section {
+  margin-top: 1.5rem;
+}
+
+.section h2 {
+  margin: 0 0 0.75rem;
+  font-size: 1rem;
+}
+
+.linkRow {
+  display: flex;
+  gap: 0.5rem;
+}
+
+.linkRow input {
+  flex: 1;
+  min-width: 0;
+  padding: 0.65rem 0.75rem;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  background: var(--bg-card);
+  color: inherit;
+  font: inherit;
+}
+
+.linkRow button {
+  min-width: 6.5rem;
+  min-height: 44px;
+  padding: 0.5rem 1rem;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  background: var(--bg-card);
+  color: inherit;
+  font: inherit;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.linkRow button:hover {
+  border-color: var(--accent);
+  color: var(--accent);
+}
+
+.couples li {
+  grid-template-columns: 8rem 1fr auto;
+}
+
+@media (max-width: 720px) {
+  .row,
+  .couples li,
+  .facts {
+    grid-template-columns: 1fr;
+  }
+
+  .status {
+    justify-self: start;
+  }
+
+  .linkRow {
+    flex-direction: column;
+  }
+}

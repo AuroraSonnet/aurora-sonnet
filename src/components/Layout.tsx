@@ -10,7 +10,7 @@ import styles from './Layout.module.css'
 const nav = [
   { to: '/', label: 'Dashboard', icon: '◉', match: ['/'] },
   { to: '/bookings-hub', label: 'Bookings', icon: '▷', match: ['/bookings-hub', '/bookings', '/clients', '/proposals'] },
-  { to: '/partner-referrals', label: 'Partners', icon: '⇄', match: ['/partner-referrals'] },
+  { to: '/partners', label: 'Partners', icon: '⇄', match: ['/partners', '/partner-referrals'] },
   { to: '/marketing', label: 'Marketing', icon: '☀', match: ['/marketing', '/outreach-today', '/partnership-outreach', '/outreach-scoreboard'] },
   { to: '/contracts', label: 'Contracts', icon: '▣', match: ['/contracts', '/templates'] },
   { to: '/finances', label: 'Finances', icon: '◎', match: ['/finances', '/invoices', '/bookkeeping', '/monthly-targets'] },
