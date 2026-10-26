@@ -4057,6 +4057,16 @@ export function restoreProject(id) {
   db.prepare('UPDATE projects SET deletedAt = NULL WHERE id = ?').run(id)
 }
 
+/** A sync copy stores the source id in cloudProjectId. That source, or an earlier copy of it, is already stored. */
+export function findStoredProjectCopy(sourceId) {
+  const key = String(sourceId || '').trim()
+  if (!key) return null
+  const row = db
+    .prepare('SELECT id FROM projects WHERE deletedAt IS NULL AND (id = ? OR cloudProjectId = ?) LIMIT 1')
+    .get(key, key)
+  return row?.id || null
+}
+
 export function createProject(project) {
   const perfMoment = Array.isArray(project.performanceMoment)
     ? (project.performanceMoment.length > 0 ? project.performanceMoment.join(', ') : null)

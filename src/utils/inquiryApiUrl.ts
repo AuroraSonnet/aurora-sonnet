@@ -18,3 +18,12 @@ export function getInquiryApiBaseUrl(): string {
 export function getInquiryApiUrlKey(): string {
   return STORAGE_KEY
 }
+
+/** True when the inquiry URL is this page's own server. Syncing it would copy every booking onto itself. */
+export function inquiryApiIsThisApp(base: string, pageOrigin: string): boolean {
+  try {
+    return new URL(base).origin === new URL(pageOrigin).origin
+  } catch {
+    return false
+  }
+}

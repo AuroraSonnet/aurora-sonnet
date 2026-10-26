@@ -52,7 +52,7 @@ import {
   type VenueActivity,
 } from '../api/db'
 import { playNewInquirySound, prepareInquirySoundContext } from '../utils/sound'
-import { getInquiryApiBaseUrl } from '../utils/inquiryApiUrl'
+import { getInquiryApiBaseUrl, inquiryApiIsThisApp } from '../utils/inquiryApiUrl'
 import { isTestEmail, getDeletedClientIds } from '../utils/syncFilters'
 
 const STORAGE_KEY = 'aurora_sonnet_data'
@@ -783,6 +783,25 @@ export function AppProvider({ children }: { children: ReactNode }) {
     prepareInquirySoundContext() // unlock audio on this click so chime can play after sync
     const base = getInquiryApiBaseUrl()
     if (!base) return { ok: false, message: 'Set Inquiry API URL in Settings (e.g. https://aurora-sonnet-1.onrender.com) and save.' }
+    if (typeof window !== 'undefined' && inquiryApiIsThisApp(base, window.location.origin)) {
+      const local = await fetchState()
+      if (local) {
+        setUseApi(true)
+        setState((prev) =>
+          mergeStateFromApiTrusted(
+            prev,
+            local as AppState & { automations?: Automation[]; contractTemplates?: DocumentTemplate[]; invoiceTemplates?: DocumentTemplate[]; pipelineStages?: PipelineStage[] }
+          )
+        )
+      }
+      return {
+        ok: true,
+        message: 'Reloaded this server. Bookings were not copied.',
+        created: 0,
+        serverClients: local?.clients?.length ?? 0,
+        serverProjects: local?.projects?.length ?? 0,
+      }
+    }
     try {
       // Prefer proxy so the Mac app avoids CORS (request goes to local server, server fetches Render).
       let res = await fetch(`/api/proxy-remote-state?base=${encodeURIComponent(base)}`)
@@ -936,7 +955,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
         const clientExists = localClientsSnapshot.some((c) => c.id === localClientId)
         if (!clientExists) continue
         const existingMatch =
-          localProjectsSnapshot.find((x) => x.cloudProjectId === p.id) ||
+          localProjectsSnapshot.find((x) => x.id === p.id || x.cloudProjectId === p.id) ||
           localProjectsSnapshot.find(
             (x) =>
               x.clientId === localClientId &&
@@ -999,32 +1018,6 @@ export function AppProvider({ children }: { children: ReactNode }) {
             saveState(next)
             return next
           })
-        } else {
-          const newProject = {
-            ...p,
-            id: newId,
-            clientId: localClientId,
-            clientName: p.clientName,
-            title: p.title,
-            stage: p.stage,
-            value: p.value,
-            weddingDate: p.weddingDate,
-            venue: p.venue,
-            packageType: p.packageType,
-            dueDate,
-            createdAt,
-            notes: p.notes,
-            requestedArtist: (p as { requestedArtist?: string }).requestedArtist,
-            performanceMoment: (p as { performanceMoment?: string }).performanceMoment,
-            cloudProjectId: p.id,
-          }
-          setState((prev) => {
-            const next = { ...prev, projects: [...prev.projects, newProject] }
-            saveState(next)
-            return next
-          })
-          localProjectsSnapshot = [...localProjectsSnapshot, newProject]
-          created++
         }
       }
       // NOTE: Do NOT delete local clients missing from Render — they may have been created

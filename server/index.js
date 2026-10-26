@@ -20,6 +20,7 @@ import {
   appendPartnerReferralNote,
   appendProjectNote,
   createProject,
+  findStoredProjectCopy,
   updateProject,
   deleteProject,
   createProposal,
@@ -2672,6 +2673,8 @@ app.post('/api/projects', (req, res) => {
     const p = req.body
     if (!p.id || !p.clientId || !p.clientName || !p.title || !p.stage || p.value == null || !p.weddingDate || !p.dueDate)
       return res.status(400).json({ error: 'Missing fields' })
+    const copiedFrom = findStoredProjectCopy(p.cloudProjectId)
+    if (copiedFrom) return res.status(409).json({ error: 'This booking is already saved.', id: copiedFrom })
     createProject(p)
     res.json({ id: p.id })
   } catch (err) {
