@@ -15,6 +15,7 @@ import db, {
   getReferralPartnershipByReferralToken,
   insertReferralPartnership,
   insertReferralPartnershipAgreement,
+  linkReferralToProject,
   listClientContactIndex,
   listPartnerReferralContactIndex,
 } from './db.js'
@@ -44,7 +45,9 @@ export function classifyIncomingCouple({ email, phone, name }) {
   })
 }
 
-function referralMatchResult(existing, partnership) {
+function referralMatchResult(existing, partnership, linkedProjectId) {
+  const projectId = String(linkedProjectId || '').trim()
+  if (projectId) linkReferralToProject(existing.id, projectId, 'intake')
   if (existing.partnershipId && existing.partnershipId === partnership.id) {
     return {
       status: 'existing',
@@ -319,11 +322,11 @@ export function attributeInquiryToReferralPartner({
   }
   if (match.kind === 'existing_referral' && match.referralId) {
     const matched = getPartnerReferral(match.referralId)
-    if (matched) return referralMatchResult(matched, partnership)
+    if (matched) return referralMatchResult(matched, partnership, linkedProjectId)
   }
 
   const existing = findFirstPartnerReferralByClientEmail(email)
-  if (existing) return referralMatchResult(existing, partnership)
+  if (existing) return referralMatchResult(existing, partnership, linkedProjectId)
 
   const created = createPartnerReferral({
     partnerName: partnership.partnerName,
