@@ -11,7 +11,7 @@ import db, {
   listReferralPartnershipAgreementsForPartnership,
   listReferralProjectLinksWithProjects,
 } from './db.js'
-import { bookingStatusLabel } from '../src/utils/bookingStatusLabel.ts'
+import { bookingStatusLabel } from '../src/utils/bookingStatusLabel.js'
 import { normalizeReferralStatusKey } from './partnerReferralPayout.js'
 import { legacyPayoutIsHistory, projectCommissionState } from './referralProjectCommission.js'
 import { buildPartnerReferralLink } from './publicReferralPartner.js'

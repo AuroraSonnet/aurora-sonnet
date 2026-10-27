@@ -1,6 +1,6 @@
 /** Booking label shared by Couple Referrals, Partner Accounts, and the partner portal. Display only. */
 
-function statusKey(raw: unknown): string {
+function statusKey(raw) {
   let s = String(raw ?? '')
     .toLowerCase()
     .trim()
@@ -9,15 +9,7 @@ function statusKey(raw: unknown): string {
   return s
 }
 
-export function bookingStatusLabel(
-  referral: {
-    referralStatus?: string | null
-    referralDecisionStatus?: string | null
-    payoutStatus?: string | null
-    payoutAmount?: number | null
-  } | null | undefined,
-  links: { bookedConfirmedAt?: string | null }[] = []
-): string {
+export function bookingStatusLabel(referral, links = []) {
   const key = statusKey(referral?.referralStatus)
   const payout = String(referral?.payoutStatus ?? '').toLowerCase()
   const legacyPaid = (payout === 'paid' || payout === 'completed') && Number(referral?.payoutAmount) > 0

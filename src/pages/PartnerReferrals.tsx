@@ -1,7 +1,7 @@
 import { useMemo, useState, useEffect, useCallback } from 'react'
 import { useApp } from '../context/AppContext'
 import { apiCreatePartnerReferral, apiDeletePartnerReferral, apiUpdatePartnerReferral, apiAcceptPartnerReferralDecision, apiRejectPartnerReferralDecision, apiGeneratePartnerReferralCommissionStatement, apiRecordPartnerReferralCommissionStatementDelivery, apiListReferralProjects, partnerReferralCommissionStatementUrl, type PartnerReferral, type PartnerReferralExpenseLine, type ReferralProjectLink, type ReferralProjectReviewItem } from '../api/db'
-import { bookingStatusLabel } from '../utils/bookingStatusLabel'
+import { bookingStatusLabel } from '../utils/bookingStatusLabel.js'
 import { getInquiryApiBaseUrl } from '../utils/inquiryApiUrl'
 import styles from './PartnerReferrals.module.css'
 
