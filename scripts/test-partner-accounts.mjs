@@ -1,6 +1,7 @@
 import assert from 'node:assert/strict'
 import { spawn } from 'node:child_process'
-import { mkdtempSync, rmSync } from 'node:fs'
+import { createHash } from 'node:crypto'
+import { mkdtempSync, readFileSync, rmSync } from 'node:fs'
 import { createServer } from 'node:net'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
@@ -217,11 +218,55 @@ test.before(async () => {
     ['Casey Nolan']
   )
   assert.equal(avery.couples[0].reference, coupleA.referralReference)
+  assert.equal(avery.couples[0].recordStatus, 'New')
   assert.equal(avery.couples[0].status, 'New')
   assert.ok(avery.referralLink.includes(a.referralToken))
   assert.equal(Object.hasOwn(avery, 'referralToken'), false)
 
+  const unassigned = db.createPartnerReferral({
+    partnerName: 'Avery Quinn',
+    partnerEmail: 'avery@example.com',
+    companyName: 'Quinn Events',
+    clientName: 'Mina Cole',
+    clientEmail: 'mina-unassigned@example.com',
+    clientPhone: '2125550199',
+  })
+  assert.equal(unassigned.partnershipId ?? null, null)
+  assert.equal(
+    accounts.getSignedPublicPartnerAccount(a.partnershipId).couples.some((row) => row.couple === 'Mina Cole'),
+    false
+  )
+  const booked = db.createPartnerReferral({
+    partnerName: 'Not Avery',
+    partnerEmail: 'not-avery@example.com',
+    clientName: 'Blair Hale',
+    clientEmail: 'blair-booked@example.com',
+    clientPhone: '2125550188',
+  })
+  const assignedBooked = accounts.assignReferralToSignedPartner(booked.id, a.partnershipId)
+  assert.equal(assignedBooked.referral.id, booked.id)
+  const stamped = new Date().toISOString()
+  db.default.prepare(
+    `INSERT INTO projects (id, clientId, clientName, title, stage, value, weddingDate, dueDate, createdAt)
+     VALUES ('proj-blair', 'client-blair', 'Blair Hale', 'Blair wedding', 'inquiry', 0, '2027-06-01', '2027-06-01', ?)`
+  ).run(stamped)
+  db.default.prepare(
+    `INSERT INTO partner_referral_projects
+      (id, referralId, projectId, commissionAmount, bookedConfirmedAt, payoutStatus, linkSource, createdAt, updatedAt)
+     VALUES ('prp-blair', ?, 'proj-blair', 0, ?, 'none', 'admin', ?, ?)`
+  ).run(booked.id, stamped, stamped, stamped)
+  const blairRow = accounts.getSignedPublicPartnerAccount(a.partnershipId).couples.find((row) => row.couple === 'Blair Hale')
+  assert.equal(blairRow.recordStatus, 'New')
+  assert.equal(blairRow.status, 'Booked')
+
   const portal = await import('../server/partnerPortal.js')
+  assert.equal(
+    portal.partnerReferralStatusLabel(
+      db.getPartnerReferral(booked.id),
+      db.listReferralProjectLinksWithProjects(booked.id).map((item) => item.link)
+    ),
+    blairRow.status
+  )
   fixture = {
     averyId: a.partnershipId,
     robinId: b.partnershipId,
@@ -230,8 +275,11 @@ test.before(async () => {
     averyToken: a.referralToken,
     robinToken: b.referralToken,
     averyRef: coupleA.referralReference,
+    minaId: unassigned.id,
+    blairId: booked.id,
     loginA: portal.createPortalLoginToken(a.partnershipId),
     loginAPage: portal.createPortalLoginToken(a.partnershipId),
+    loginAAssign: portal.createPortalLoginToken(a.partnershipId),
     loginB: portal.createPortalLoginToken(b.partnershipId),
   }
   db.default.close()
@@ -332,7 +380,12 @@ test('admin partner accounts stay behind admin login and exclude other records',
   assert.equal(account.partnerEmail, 'avery@example.com')
   assert.equal(account.accountStatus, 'Active')
   assert.equal(account.agreementStatus, 'Signed')
-  assert.deepEqual(account.couples, [{ reference: fixture.averyRef, couple: 'Casey Nolan', status: 'New' }])
+  assert.deepEqual(
+    account.couples.find((row) => row.couple === 'Casey Nolan'),
+    { reference: fixture.averyRef, couple: 'Casey Nolan', recordStatus: 'New', status: 'New' }
+  )
+  assert.equal(account.couples.find((row) => row.couple === 'Blair Hale').status, 'Booked')
+  assert.equal(account.couples.some((row) => row.couple === 'Mina Cole'), false)
   assert.equal(account.referralLink.includes('/partner'), false)
   assert.equal(JSON.stringify(account).includes('Jordan Hale'), false)
 
@@ -409,4 +462,67 @@ test('each partner sees only their portal and the same media kit', async () => {
     assert.equal(averyFile.disposition.includes(filename), true)
     assert.deepEqual(averyFile.buf, robinFile.buf)
   }
+  const monogram = await hit('/api/partner-portal/media-kit/as-monogram?download=1', { cookie: averyCookie })
+  const supplied = readFileSync(fileURLToPath(new URL('../assets/partner-media-kit/Aurora-Sonnet-monogram.png', import.meta.url)))
+  assert.deepEqual(monogram.buf, supplied)
+  assert.equal(createHash('sha256').update(monogram.buf).digest('hex'), '988d229175a949f1653e28e5bbb8abff43718f905dd7868653672857d2ea3390')
+})
+
+test('explicit assignment shows the same referral and clearing it leaves the referral unassigned', async () => {
+  const login = await hit('/api/login', {
+    method: 'POST',
+    body: { username: ADMIN_USERNAME, password: ADMIN_PASSWORD },
+  })
+  const adminCookie = cookieHeader(login.setCookie, 'aurora_sid')
+  const before = JSON.parse((await hit(`/api/partner-accounts/${fixture.averyId}`, { cookie: adminCookie })).text)
+  const beforeCount = before.couples.length
+  assert.equal(before.couples.some((row) => row.couple === 'Mina Cole'), false)
+
+  const rejected = await hit(`/api/partner-referrals/${fixture.minaId}`, {
+    method: 'PATCH',
+    cookie: adminCookie,
+    body: { partnershipId: 'avery@example.com' },
+  })
+  assert.equal(rejected.status, 400)
+  const afterReject = JSON.parse((await hit(`/api/partner-accounts/${fixture.averyId}`, { cookie: adminCookie })).text)
+  assert.equal(afterReject.couples.some((row) => row.couple === 'Mina Cole'), false)
+
+  const assigned = await hit(`/api/partner-referrals/${fixture.minaId}`, {
+    method: 'PATCH',
+    cookie: adminCookie,
+    body: { partnershipId: fixture.averyId },
+  })
+  assert.equal(assigned.status, 200)
+  assert.equal(JSON.parse(assigned.text).id, fixture.minaId)
+  const account = JSON.parse((await hit(`/api/partner-accounts/${fixture.averyId}`, { cookie: adminCookie })).text)
+  const mina = account.couples.filter((row) => row.couple === 'Mina Cole')
+  assert.equal(mina.length, 1)
+  assert.equal(mina[0].status, 'New')
+  assert.equal(account.couples.length, beforeCount + 1)
+  assert.equal(account.couples.find((row) => row.couple === 'Blair Hale').status, 'Booked')
+  assert.equal(account.couples.find((row) => row.couple === 'Casey Nolan').status, 'New')
+
+  const partnerLogin = await hit('/api/partner-portal/verify', {
+    method: 'POST',
+    body: { token: fixture.loginAAssign },
+  })
+  const partnerCookie = cookieHeader(partnerLogin.setCookie, 'aurora_partner_sid')
+  const page = await hit('/partner', { cookie: partnerCookie })
+  assert.equal(page.text.includes('Mina Cole'), true)
+  assert.equal(page.text.includes('Blair Hale'), true)
+  assert.equal(page.text.includes('Record</b>New'), true)
+  assert.equal(page.text.includes('Booking</b>Booked'), true)
+
+  const cleared = await hit(`/api/partner-referrals/${fixture.minaId}`, {
+    method: 'PATCH',
+    cookie: adminCookie,
+    body: { partnershipId: null },
+  })
+  assert.equal(cleared.status, 200)
+  assert.equal(JSON.parse(cleared.text).id, fixture.minaId)
+  assert.equal(JSON.parse(cleared.text).partnershipId ?? null, null)
+  const afterClear = JSON.parse((await hit(`/api/partner-accounts/${fixture.averyId}`, { cookie: adminCookie })).text)
+  assert.equal(afterClear.couples.some((row) => row.couple === 'Mina Cole'), false)
+  const portalAfter = await hit('/partner', { cookie: partnerCookie })
+  assert.equal(portalAfter.text.includes('Mina Cole'), false)
 })

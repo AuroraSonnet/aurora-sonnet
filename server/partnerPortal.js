@@ -11,6 +11,7 @@ import db, {
   listReferralPartnershipAgreementsForPartnership,
   listReferralProjectLinksWithProjects,
 } from './db.js'
+import { bookingStatusLabel } from '../src/utils/bookingStatusLabel.ts'
 import { normalizeReferralStatusKey } from './partnerReferralPayout.js'
 import { legacyPayoutIsHistory, projectCommissionState } from './referralProjectCommission.js'
 import { buildPartnerReferralLink } from './publicReferralPartner.js'
@@ -96,13 +97,28 @@ function wholeUsd(v) {
   return Math.max(0, Math.round(Number(v) || 0))
 }
 
-/** Couple-level label. Only an admin-confirmed project booking (or a legacy paid commission) counts as Booked. */
-export function partnerReferralStatusLabel(referral, links = []) {
+/** Stored referral-record field. This is not the booking confirmation. */
+const RECORD_STATUS_LABELS = {
+  new: 'New',
+  under_review: 'Under Review',
+  contacted: 'Contacted',
+  booked: 'Booked',
+  closed_lost: 'Closed Lost',
+  paid: 'Paid',
+  pending: 'New (legacy)',
+  confirmed: 'Booked (legacy)',
+}
+
+export function referralRecordStatusLabel(referral) {
   const key = normalizeReferralStatusKey(referral?.referralStatus)
-  if (links.some((l) => l.bookedConfirmedAt) || legacyPayoutIsHistory(referral)) return 'Booked'
-  if (key === 'closed_lost' || referral?.referralDecisionStatus === 'rejected') return 'Not Booked'
-  if (key === 'new' || links.length === 0) return 'Received'
-  return 'In Progress'
+  if (RECORD_STATUS_LABELS[key]) return RECORD_STATUS_LABELS[key]
+  if (!key) return 'New'
+  return key.replace(/_/g, ' ').replace(/\b\w/g, (c) => c.toUpperCase())
+}
+
+/** Couple-level booking label. Only an admin-confirmed project booking (or a legacy paid commission) counts as Booked. */
+export function partnerReferralStatusLabel(referral, links = []) {
+  return bookingStatusLabel(referral, links)
 }
 
 function projectEntry({ link, projectDate }, referral) {
@@ -151,6 +167,7 @@ export function summarizePartnerReferrals(referrals, projectsFor = () => []) {
     return {
       couple: r.clientName,
       eventDate: r.eventDate || null,
+      recordStatus: referralRecordStatusLabel(r),
       status: partnerReferralStatusLabel(r, items.map((i) => i.link)),
       projects,
       earlierRecord,

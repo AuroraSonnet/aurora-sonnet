@@ -191,7 +191,7 @@ test('a matching quote attaches to the existing referral and is not a booking', 
   const dash = portal.portalDashboard(portal.resolvePortalAccessById(signed.partnershipId))
   const alo = dash.referrals.filter((row) => row.couple === 'Alo').find((row) => row.projects.length === 3)
   assert.ok(alo)
-  assert.equal(alo.status, 'Received')
+  assert.equal(alo.status, 'New')
   assert.equal(alo.projects.every((p) => p.bookingStatus === 'Not yet confirmed'), true)
   assert.equal(alo.projects.every((p) => p.commission == null), true)
   assert.deepEqual(dash.earnings, { pending: 0, earned: 0, paid: 0 })

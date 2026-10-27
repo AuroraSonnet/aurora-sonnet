@@ -119,11 +119,23 @@ test('project commission state needs every explicit admin confirmation', async (
     null
   )
 
-  assert.equal(portal.partnerReferralStatusLabel({ referralStatus: 'new' }, []), 'Received')
-  assert.equal(portal.partnerReferralStatusLabel({ referralStatus: 'booked' }, []), 'Received', 'no link cannot be Booked')
+  assert.equal(portal.partnerReferralStatusLabel({ referralStatus: 'new' }, []), 'New')
+  assert.equal(portal.partnerReferralStatusLabel({ referralStatus: 'booked' }, []), 'New', 'no link cannot be Booked')
   assert.equal(portal.partnerReferralStatusLabel({ referralStatus: 'contacted' }, [{}]), 'In Progress')
   assert.equal(portal.partnerReferralStatusLabel({ referralStatus: 'new' }, [{ bookedConfirmedAt: 'x' }]), 'Booked')
   assert.equal(portal.partnerReferralStatusLabel({ referralStatus: 'closed_lost' }, [{}]), 'Not Booked')
+  for (const payoutStatus of ['Paid', 'PAID', 'Completed', 'COMPLETED']) {
+    assert.equal(
+      portal.partnerReferralStatusLabel({ referralStatus: 'new', payoutStatus, payoutAmount: 200 }, []),
+      'Booked',
+      payoutStatus
+    )
+  }
+  assert.equal(
+    portal.partnerReferralStatusLabel({ referralStatus: 'new', payoutStatus: 'Paid', payoutAmount: 0 }, []),
+    'New',
+    'a zero payout is not a booked legacy commission'
+  )
 })
 
 test('login tokens are hashed, single-use, and expire', () => {
@@ -189,7 +201,8 @@ test('portal shows only the partner’s own referrals with partner-safe fields a
   assert.deepEqual(byCouple['Casey and Jordan'], {
     couple: 'Casey and Jordan',
     eventDate: '2027-05-01',
-    status: 'Received',
+    recordStatus: 'New',
+    status: 'New',
     projects: [],
     earlierRecord: null,
   })

@@ -171,6 +171,7 @@ export interface AppState {
   pipelineStages?: PipelineStage[]
   experiences?: Experience[]
   partnerReferrals?: PartnerReferral[]
+  partnerReferralProjects?: ReferralProjectLink[]
   referralPartnerships?: ReferralPartnership[]
   referralPartnershipAgreements?: ReferralPartnershipAgreement[]
   venueActivity?: VenueActivity[]
@@ -190,6 +191,9 @@ export interface PartnerAccountSummary {
 export interface PartnerAccountCouple {
   reference: string | null
   couple: string
+  /** Stored referral-record label. */
+  recordStatus: string
+  /** Booking label. A confirmed booking can say Booked while the record is still New. */
   status: string
 }
 

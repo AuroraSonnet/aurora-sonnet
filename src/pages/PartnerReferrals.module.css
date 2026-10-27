@@ -348,7 +348,26 @@
 }
 
 .colStatus {
-  width: 8.5rem;
+  width: 11rem;
+}
+
+.statusFacts {
+  display: flex;
+  flex-direction: column;
+  gap: 0.15rem;
+  align-items: flex-start;
+  font-size: 0.85rem;
+  font-weight: 600;
+}
+
+.statusFacts > span > span {
+  display: inline-block;
+  min-width: 4.2rem;
+  margin-right: 0.35rem;
+  color: var(--text-secondary);
+  font-size: 0.68rem;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
 }
 
 .colMoney {

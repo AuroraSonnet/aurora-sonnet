@@ -47,6 +47,7 @@ import {
   type VisitDebrief,
   type OutreachRegion,
   type PartnerReferral,
+  type ReferralProjectLink,
   type ReferralPartnership,
   type ReferralPartnershipAgreement,
   type VenueActivity,
@@ -114,6 +115,7 @@ interface AppState {
   outreachRegions: OutreachRegion[]
   outreachSettings: { dailyVisitTarget: number }
   partnerReferrals: PartnerReferral[]
+  partnerReferralProjects: ReferralProjectLink[]
   referralPartnerships: ReferralPartnership[]
   referralPartnershipAgreements: ReferralPartnershipAgreement[]
   venueActivity: VenueActivity[]
@@ -153,6 +155,7 @@ const defaultState: AppState = {
   outreachRegions: [],
   outreachSettings: { dailyVisitTarget: 5 },
   partnerReferrals: [],
+  partnerReferralProjects: [],
   referralPartnerships: [],
   referralPartnershipAgreements: [],
   venueActivity: [],
@@ -198,6 +201,10 @@ function mergeStateFromApi(
     outreachSettings: (apiState as { outreachSettings?: { dailyVisitTarget: number } }).outreachSettings ?? prev.outreachSettings ?? { dailyVisitTarget: 5 },
     partnerReferrals: withoutDeletedPartnerReferrals(
       preferNonEmpty(prev.partnerReferrals ?? [], (apiState as { partnerReferrals?: PartnerReferral[] }).partnerReferrals)
+    ),
+    partnerReferralProjects: preferNonEmpty(
+      prev.partnerReferralProjects ?? [],
+      (apiState as { partnerReferralProjects?: ReferralProjectLink[] }).partnerReferralProjects
     ),
     referralPartnerships: preferNonEmpty(
       prev.referralPartnerships ?? [],
@@ -246,6 +253,10 @@ function mergeStateFromApiTrusted(
     partnerReferrals: withoutDeletedPartnerReferrals(
       (apiState as { partnerReferrals?: PartnerReferral[] }).partnerReferrals ?? prev.partnerReferrals ?? []
     ),
+    partnerReferralProjects:
+      (apiState as { partnerReferralProjects?: ReferralProjectLink[] }).partnerReferralProjects ??
+      prev.partnerReferralProjects ??
+      [],
     referralPartnerships:
       (apiState as { referralPartnerships?: ReferralPartnership[] }).referralPartnerships ?? prev.referralPartnerships ?? [],
     referralPartnershipAgreements:
@@ -293,10 +304,13 @@ function mergePartnerReferralListsById(local: PartnerReferral[], remote: Partner
 async function fetchAndMergeRemotePartnerReferrals(setState: Dispatch<SetStateAction<AppState>>): Promise<void> {
   try {
     const localState = await fetchState()
-    if (localState?.partnerReferrals?.length) {
+    if (localState) {
       setState((prev) => ({
         ...prev,
-        partnerReferrals: mergePartnerReferralListsById(prev.partnerReferrals ?? [], localState.partnerReferrals ?? []),
+        partnerReferrals: localState.partnerReferrals?.length
+          ? mergePartnerReferralListsById(prev.partnerReferrals ?? [], localState.partnerReferrals)
+          : prev.partnerReferrals,
+        partnerReferralProjects: localState.partnerReferralProjects ?? prev.partnerReferralProjects,
       }))
     }
   } catch {
@@ -355,6 +369,7 @@ function loadStateFromStorage(): AppState {
           outreachRegions: parsed.outreachRegions ?? defaultState.outreachRegions ?? [],
           outreachSettings: parsed.outreachSettings ?? defaultState.outreachSettings ?? { dailyVisitTarget: 5 },
           partnerReferrals: parsed.partnerReferrals ?? defaultState.partnerReferrals ?? [],
+          partnerReferralProjects: parsed.partnerReferralProjects ?? defaultState.partnerReferralProjects ?? [],
           referralPartnerships: parsed.referralPartnerships ?? defaultState.referralPartnerships ?? [],
           referralPartnershipAgreements: parsed.referralPartnershipAgreements ?? defaultState.referralPartnershipAgreements ?? [],
           venueActivity: parsed.venueActivity ?? defaultState.venueActivity ?? [],

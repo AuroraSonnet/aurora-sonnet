@@ -1,6 +1,7 @@
 import { useMemo, useState, useEffect, useCallback } from 'react'
 import { useApp } from '../context/AppContext'
 import { apiCreatePartnerReferral, apiDeletePartnerReferral, apiUpdatePartnerReferral, apiAcceptPartnerReferralDecision, apiRejectPartnerReferralDecision, apiGeneratePartnerReferralCommissionStatement, apiRecordPartnerReferralCommissionStatementDelivery, apiListReferralProjects, partnerReferralCommissionStatementUrl, type PartnerReferral, type PartnerReferralExpenseLine, type ReferralProjectLink, type ReferralProjectReviewItem } from '../api/db'
+import { bookingStatusLabel } from '../utils/bookingStatusLabel'
 import { getInquiryApiBaseUrl } from '../utils/inquiryApiUrl'
 import styles from './PartnerReferrals.module.css'
 
@@ -120,14 +121,6 @@ function isReferralDecisionAccepted(row: PartnerReferral): boolean {
 function referralStatusLabel(status: string): string {
   const key = normalizeReferralStatusKey(status)
   return REFERRAL_STATUS_LABELS[key] ?? status.replace(/_/g, ' ').replace(/\b\w/g, (c) => c.toUpperCase())
-}
-
-function referralStatusVariant(status: string): 'pipeline' | 'won' | 'lost' | 'paidout' {
-  const key = normalizeReferralStatusKey(status)
-  if (key === 'closed_lost') return 'lost'
-  if (key === 'paid') return 'paidout'
-  if (key === 'booked' || key === 'confirmed') return 'won'
-  return 'pipeline'
 }
 
 const usd = new Intl.NumberFormat('en-US', {
@@ -276,12 +269,35 @@ const LEGACY_COMMISSION_PAYLOAD_KEYS = [
   'payoutOverrideAmount',
 ]
 
+function signedPartnerAccountOptions(state: {
+  referralPartnerships?: { id: string; status: string; activeAgreementId?: string; partnerName?: string; companyName?: string }[]
+  referralPartnershipAgreements?: { id: string; partnershipId: string; status: string; termsJson?: Record<string, unknown> }[]
+}) {
+  const agreements = state.referralPartnershipAgreements ?? []
+  return (state.referralPartnerships ?? [])
+    .filter((partnership) => {
+      const agreement = agreements.find((item) => item.id === partnership.activeAgreementId)
+      return (
+        agreement &&
+        agreement.partnershipId === partnership.id &&
+        agreement.status === 'fully_executed' &&
+        agreement.termsJson?.termsKind === 'public_partner_agreement'
+      )
+    })
+    .map((partnership) => ({
+      id: partnership.id,
+      label: [partnership.partnerName, partnership.companyName].filter(Boolean).join(' · ') || partnership.id,
+    }))
+    .sort((a, b) => a.label.localeCompare(b.label, undefined, { sensitivity: 'base' }))
+}
+
 const LINK_STATE_LABELS: Record<string, string> = { pending: 'Pending', earned: 'Earned', paid: 'Paid' }
 const LINK_PAYOUT_LABELS: Record<string, string> = { none: 'Not paid', pending: 'Payment scheduled', completed: 'Paid' }
 
 export default function PartnerReferrals() {
   const { state, actions } = useApp()
   const rows = useMemo(() => [...(state.partnerReferrals ?? [])].sort(compareReferrals), [state.partnerReferrals])
+  const bookingLinks = state.partnerReferralProjects ?? []
 
   const [listQuery, setListQuery] = useState('')
   const [listRefreshing, setListRefreshing] = useState(false)
@@ -333,6 +349,7 @@ export default function PartnerReferrals() {
   const [payoutStatus, setPayoutStatus] = useState('none')
   const [commissionableOverride, setCommissionableOverride] = useState('')
   const [payoutOverride, setPayoutOverride] = useState('')
+  const [assignedPartnershipId, setAssignedPartnershipId] = useState('')
   const [venueId, setVenueId] = useState('')
   const [referringContactId, setReferringContactId] = useState('')
   const [linkedProjectId, setLinkedProjectId] = useState('')
@@ -383,6 +400,7 @@ export default function PartnerReferrals() {
       setPayoutStatus('none')
       setCommissionableOverride('')
       setPayoutOverride('')
+      setAssignedPartnershipId('')
       setVenueId('')
       setReferringContactId('')
       setLinkedProjectId('')
@@ -408,6 +426,7 @@ export default function PartnerReferrals() {
     setPayoutStatus(String(r.payoutStatus || 'none').toLowerCase())
     setCommissionableOverride(r.commissionableOverrideAmount != null ? String(r.commissionableOverrideAmount) : '')
     setPayoutOverride(r.payoutOverrideAmount != null ? String(r.payoutOverrideAmount) : '')
+    setAssignedPartnershipId(r.partnershipId ?? '')
     setVenueId(r.venueId ?? '')
     setReferringContactId(r.referringContactId ?? '')
     setLinkedProjectId(r.linkedProjectId ?? r.linkedLeadId ?? '')
@@ -564,6 +583,14 @@ export default function PartnerReferrals() {
       if (legacyLocked) {
         for (const k of LEGACY_COMMISSION_PAYLOAD_KEYS) delete payload[k]
       }
+      const signedAccountIds = new Set(signedPartnerAccountOptions(state).map((account) => account.id))
+      const selectedAccount = assignedPartnershipId.trim()
+      const currentAccount = editor.type === 'edit' ? editor.row.partnershipId || '' : ''
+      if (selectedAccount && signedAccountIds.has(selectedAccount)) {
+        payload.partnershipId = selectedAccount
+      } else if (!selectedAccount && editor.type === 'edit' && signedAccountIds.has(currentAccount)) {
+        payload.partnershipId = null
+      }
       if (editor.type === 'edit' && !paidRecordLocked) {
         payload.commissionPaymentDate = statementPaymentDate.trim() || null
         payload.commissionPaymentMethod = statementPaymentMethod.trim() || null
@@ -626,6 +653,9 @@ export default function PartnerReferrals() {
     venueId,
     referringContactId,
     linkedProjectId,
+    assignedPartnershipId,
+    state.referralPartnerships,
+    state.referralPartnershipAgreements,
     legacyLocked,
     paidRecordLocked,
     statementPaymentDate,
@@ -737,7 +767,7 @@ export default function PartnerReferrals() {
                 <th className={styles.colRef}>Reference</th>
                 <th className={styles.colClient}>Couple</th>
                 <th className={styles.colPartner}>Referring Partner</th>
-                <th className={styles.colStatus}>Status</th>
+                <th className={styles.colStatus}>Record / booking</th>
                 <th className={styles.colActions}>Actions</th>
               </tr>
             </thead>
@@ -753,9 +783,18 @@ export default function PartnerReferrals() {
                   <td data-label="Referring Partner" className={styles.partnerCell}>
                     <span className={styles.strong}>{r.partnerName}</span>
                   </td>
-                  <td data-label="Status" className={styles.colStatus}>
-                    <span className={styles.statusPill} data-referral-status={referralStatusVariant(r.referralStatus)}>
-                      {referralStatusLabel(r.referralStatus)}
+                  <td data-label="Record / booking" className={styles.colStatus}>
+                    <span className={styles.statusFacts}>
+                      <span>
+                        <span>Record</span> {referralStatusLabel(r.referralStatus)}
+                      </span>
+                      <span>
+                        <span>Booking</span>{' '}
+                        {bookingStatusLabel(
+                          r,
+                          bookingLinks.filter((link) => link.referralId === r.id)
+                        )}
+                      </span>
                     </span>
                   </td>
                   <td data-label="Actions" className={styles.actionsCell}>
@@ -801,6 +840,22 @@ export default function PartnerReferrals() {
               {formError ? <p className={styles.error}>{formError}</p> : null}
 
               <p className={styles.formSectionLabel}>Partner</p>
+              <label className={styles.formField}>
+                Partner account
+                <select
+                  className={styles.select}
+                  value={signedPartnerAccountOptions(state).some((account) => account.id === assignedPartnershipId) ? assignedPartnershipId : ''}
+                  onChange={(e) => setAssignedPartnershipId(e.target.value)}
+                >
+                  <option value="">Unassigned</option>
+                  {signedPartnerAccountOptions(state).map((account) => (
+                    <option key={account.id} value={account.id}>
+                      {account.label}
+                    </option>
+                  ))}
+                </select>
+                <span className={styles.hint}>Only a chosen account is linked. The name and email alone do not assign it.</span>
+              </label>
               <div className={styles.formGrid}>
                 <label className={styles.formField}>
                   Partner name <span className={styles.req}>*</span>
