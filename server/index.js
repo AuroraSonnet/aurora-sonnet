@@ -185,7 +185,12 @@ import {
   resolvePortalAccessById,
 } from './partnerPortal.js'
 import { renderContinuePage, renderDashboardPage, renderSignedOutPage } from './partnerPortalPages.js'
-import { getSignedPublicPartnerAccount, listSignedPublicPartnerAccounts } from './partnerAccounts.js'
+import {
+  assignReferralToSignedPartner,
+  getSignedPublicPartnerAccount,
+  listSignedPublicPartnerAccounts,
+  normalizeSignedPartnerAssignment,
+} from './partnerAccounts.js'
 import { partnerMediaKitFile } from './partnerMediaKit.js'
 import { normalizeMessageId, resolveManualOutreachRecipient, applyOutreachTestRoutingToMail } from './outreachMailer.js'
 import { accelerateAndSendNextTestFollowUp, accelerateTestFollowUpScheduleOnly } from './outreachTestAccel.js'
@@ -4404,7 +4409,16 @@ app.post('/api/partner-referrals', (req, res) => {
         payload.id = `pref-crm-${Date.now()}-${Math.random().toString(36).slice(2, 10)}`
       }
     }
+    let assignment = null
+    if (isAdmin && Object.prototype.hasOwnProperty.call(b, 'partnershipId')) {
+      assignment = normalizeSignedPartnerAssignment(b.partnershipId)
+      if (assignment.error) return res.status(assignment.status).json({ error: assignment.error })
+    }
     const created = createPartnerReferral(payload)
+    if (assignment) {
+      const assigned = assignReferralToSignedPartner(created.id, assignment.partnershipId)
+      if (assigned.error) return res.status(assigned.status).json({ error: assigned.error })
+    }
     // Partner confirmation: send for all public/website creates (id pref-<n>). Omit only for CRM path above
     // (pref-crm-*) — do not rely on referralSource or skip flags alone (proxies/old embeds can strip or mis-send them).
     const omitPartnerConfirmationEmail = String(created.id || '').startsWith('pref-crm-')
@@ -4802,7 +4816,13 @@ app.get('/api/referral-partners/by-token/:token', (req, res) => {
 
 app.patch('/api/partner-referrals/:id', (req, res) => {
   try {
-    const updated = updatePartnerReferral(req.params.id, req.body || {})
+    const body = req.body || {}
+    if (Object.prototype.hasOwnProperty.call(body, 'partnershipId')) {
+      const assignment = normalizeSignedPartnerAssignment(body.partnershipId)
+      if (assignment.error) return res.status(assignment.status).json({ error: assignment.error })
+      body.partnershipId = assignment.partnershipId
+    }
+    const updated = updatePartnerReferral(req.params.id, body)
     if (!updated) return res.status(404).json({ error: 'Partner referral not found' })
     res.json(updated)
   } catch (err) {

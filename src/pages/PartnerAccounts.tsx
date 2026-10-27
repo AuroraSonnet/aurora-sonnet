@@ -40,20 +40,35 @@ async function copyText(value: string) {
 
 function ReferralLink({ id, link }: { id: string; link: string }) {
   const [copied, setCopied] = useState(false)
+  const [copyError, setCopyError] = useState('')
   return (
-    <div className={styles.linkRow}>
-      <input id={id} readOnly value={link} aria-label="Referral link" />
-      <button
-        type="button"
-        onClick={() => {
-          void copyText(link).then(() => {
-            setCopied(true)
-            window.setTimeout(() => setCopied(false), 1600)
-          })
-        }}
-      >
-        {copied ? 'Copied' : 'Copy'}
-      </button>
+    <div>
+      <div className={styles.linkRow}>
+        <input id={id} readOnly value={link} aria-label="Referral link" onFocus={(e) => e.currentTarget.select()} />
+        <button
+          type="button"
+          onClick={() => {
+            setCopyError('')
+            void copyText(link).then(
+              () => {
+                setCopied(true)
+                window.setTimeout(() => setCopied(false), 1600)
+              },
+              () => {
+                setCopied(false)
+                setCopyError('Could not copy. Select the link and copy it manually.')
+              }
+            )
+          }}
+        >
+          {copied ? 'Copied' : 'Copy'}
+        </button>
+      </div>
+      {copyError ? (
+        <p className={styles.copyError} role="status">
+          {copyError}
+        </p>
+      ) : null}
     </div>
   )
 }
@@ -177,7 +192,14 @@ export function PartnerAccountDetail() {
                   <li key={`${couple.reference || couple.couple}`}>
                     <span className={styles.ref}>{couple.reference || '—'}</span>
                     <span>{couple.couple || '—'}</span>
-                    <span className={styles.status}>{couple.status}</span>
+                    <span className={styles.status}>
+                      <span>
+                        <span>Record</span> {couple.recordStatus}
+                      </span>
+                      <span>
+                        <span>Booking</span> {couple.status}
+                      </span>
+                    </span>
                   </li>
                 ))}
               </ul>

@@ -1894,6 +1894,18 @@ export function listPartnerReferralsByPartnershipId(partnershipId) {
     .map(rowToPartnerReferral)
 }
 
+/** Points one existing referral at a partner account. Does not change amounts, status, or terms. */
+export function setPartnerReferralPartnershipId(id, partnershipId) {
+  const row = db.prepare('SELECT id FROM partner_referrals WHERE id = ?').get(id)
+  if (!row) return null
+  db.prepare('UPDATE partner_referrals SET partnershipId = ?, updatedAt = ? WHERE id = ?').run(
+    partnershipId || null,
+    new Date().toISOString(),
+    id
+  )
+  return getPartnerReferral(id)
+}
+
 export function getPartnerReferralPayableContext(referral) {
   return referralPayableContext(referral)
 }

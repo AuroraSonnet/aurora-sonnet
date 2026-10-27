@@ -7,28 +7,11 @@ import {
   getReferralPartnershipById,
   listPartnerReferralsByPartnershipId,
   listReferralPartnerships,
+  listReferralProjectLinksWithProjects,
+  setPartnerReferralPartnershipId,
 } from './db.js'
-import { normalizeReferralStatusKey } from './partnerReferralPayout.js'
+import { partnerReferralStatusLabel, referralRecordStatusLabel } from './partnerPortal.js'
 import { buildPartnerReferralLink } from './publicReferralPartner.js'
-
-const REFERRAL_STATUS_LABELS = {
-  new: 'New',
-  under_review: 'Under Review',
-  contacted: 'Contacted',
-  booked: 'Booked',
-  closed_lost: 'Closed Lost',
-  paid: 'Paid',
-  pending: 'New (legacy)',
-  confirmed: 'Booked (legacy)',
-}
-
-export function referralStatusLabel(status) {
-  const key = normalizeReferralStatusKey(status)
-  if (REFERRAL_STATUS_LABELS[key]) return REFERRAL_STATUS_LABELS[key]
-  const raw = String(status || '').trim()
-  if (!raw) return 'New'
-  return raw.replace(/_/g, ' ').replace(/\b\w/g, (c) => c.toUpperCase())
-}
 
 export function isSignedPublicPartnerAccount(partnership, agreement) {
   if (!partnership?.id || !agreement) return false
@@ -75,13 +58,39 @@ export function listSignedPublicPartnerAccounts() {
     )
 }
 
+/** Explicit admin choice only. Null clears the account link. A typed name or email is not an assignment. */
+export function normalizeSignedPartnerAssignment(partnershipId) {
+  if (partnershipId == null || String(partnershipId).trim() === '') return { partnershipId: null }
+  const id = String(partnershipId).trim()
+  const partnership = getReferralPartnershipById(id)
+  const agreement = partnership?.activeAgreementId
+    ? getReferralPartnershipAgreementById(partnership.activeAgreementId)
+    : null
+  if (!isSignedPublicPartnerAccount(partnership, agreement)) {
+    return { error: 'Choose a signed partner account.', status: 400 }
+  }
+  return { partnershipId: id }
+}
+
+export function assignReferralToSignedPartner(referralId, partnershipId) {
+  const normalized = normalizeSignedPartnerAssignment(partnershipId)
+  if (normalized.error) return normalized
+  const referral = setPartnerReferralPartnershipId(referralId, normalized.partnershipId)
+  if (!referral) return { error: 'Partner referral not found.', status: 404 }
+  return { referral }
+}
+
 export function getSignedPublicPartnerAccount(id) {
   const partnership = getReferralPartnershipById(id)
   if (!signedAgreement(partnership)) return null
   const couples = listPartnerReferralsByPartnershipId(partnership.id).map((referral) => ({
     reference: referral.referralReference || null,
     couple: referral.clientName || '',
-    status: referralStatusLabel(referral.referralStatus),
+    recordStatus: referralRecordStatusLabel(referral),
+    status: partnerReferralStatusLabel(
+      referral,
+      listReferralProjectLinksWithProjects(referral.id).map((item) => item.link)
+    ),
   }))
   return {
     ...summary(partnership),

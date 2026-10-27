@@ -129,7 +129,9 @@ main{padding:clamp(48px,8vw,96px) 20px clamp(64px,9vw,112px)}
 .ref{display:grid;grid-template-columns:1.1fr .9fr 1.2fr .9fr 1.3fr .9fr;gap:16px;align-items:center;padding:14px 0;border-top:1px solid var(--line);font-size:.92rem}
 .ref-head{padding:0 0 12px;border-top:0;font-size:.66rem;font-weight:500;letter-spacing:.14em;text-transform:uppercase;color:var(--taupe)}
 .group{padding:18px 0 4px;border-top:1px solid var(--line-strong)}
-.group-head{display:flex;align-items:center;justify-content:space-between;gap:12px;padding-bottom:6px}
+.group-head{display:flex;align-items:flex-start;justify-content:space-between;gap:12px;padding-bottom:6px}
+.status-facts{display:flex;flex-direction:column;align-items:flex-end;gap:2px;font-size:.78rem;line-height:1.35}
+.status-facts b{margin-right:6px;color:var(--taupe);font-size:.68rem;font-weight:600;letter-spacing:.04em;text-transform:uppercase}
 .group-empty{padding:12px 0 14px;border-top:1px solid var(--line);color:var(--taupe);font-size:.9rem}
 .ref-couple{font-family:'Playfair Display',Georgia,serif;font-size:1.08rem}
 .pill{display:inline-block;padding:5px 12px;background:var(--blush-soft);border:1px solid var(--line);font-size:.74rem;letter-spacing:.06em;line-height:1.3;white-space:nowrap}
@@ -230,7 +232,7 @@ function projectRow(p) {
 }
 
 function referralGroup(r) {
-  const status = `<span class="pill${r.status === 'Not Booked' ? ' pill-muted' : ''}">${esc(r.status)}</span>`
+  const status = `<span class="status-facts"><span><b>Record</b>${esc(r.recordStatus)}</span><span><b>Booking</b>${esc(r.status)}</span></span>`
   const projects = r.projects.map(projectRow).join('')
   const earlier = r.earlierRecord
     ? `
@@ -265,6 +267,7 @@ export function renderDashboardPage(res, dash) {
       <input id="ref-link" type="text" readonly value="${esc(dash.referralLink)}" aria-label="Your referral link">
       <button type="button" id="copy">Copy Link</button>
     </div>
+    <p class="hint" id="copy-error" hidden>Could not copy. Select the link and copy it manually.</p>
     <p class="hint">Share this link with couples. When they contact Aurora Sonnet through it, the referral is credited to you automatically.</p>
   </section>`
     : ''
@@ -310,9 +313,28 @@ export function renderDashboardPage(res, dash) {
 (function(){
   var copy=document.getElementById('copy'),input=document.getElementById('ref-link');
   if(copy&&input){copy.addEventListener('click',function(){
-    function done(){copy.textContent='Copied';setTimeout(function(){copy.textContent='Copy Link';},1800);}
-    if(navigator.clipboard&&navigator.clipboard.writeText){navigator.clipboard.writeText(input.value).then(done,function(){input.select();document.execCommand('copy');done();});}
-    else{input.select();document.execCommand('copy');done();}
+    function done(ok){
+      var note=document.getElementById('copy-error');
+      if(ok){
+        if(note) note.hidden=true;
+        copy.textContent='Copied';
+        setTimeout(function(){copy.textContent='Copy Link';},1800);
+        return;
+      }
+      copy.textContent='Copy Link';
+      input.focus();
+      input.select();
+      if(note) note.hidden=false;
+    }
+    function fallback(){
+      var ok=false;
+      input.focus();
+      input.select();
+      try{ok=document.execCommand('copy');}catch(e){ok=false;}
+      done(ok);
+    }
+    if(navigator.clipboard&&navigator.clipboard.writeText){navigator.clipboard.writeText(input.value).then(function(){done(true);},fallback);}
+    else{fallback();}
   });}
   document.getElementById('logout').addEventListener('click',function(){
     fetch('/api/partner-portal/logout',{method:'POST',credentials:'same-origin'}).finally(function(){location.replace(${JSON.stringify(PARTNER_LOGIN_URL())});});
